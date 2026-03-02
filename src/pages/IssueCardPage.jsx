@@ -6,6 +6,7 @@ function IssueCardPage({ onBack, initialCardType }) {
   const [paymentMethod, setPaymentMethod] = useState('usdt')
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const [showConfirmation, setShowConfirmation] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
   const amountInputRef = useRef(null)
 
   useEffect(() => {
@@ -685,7 +686,7 @@ function IssueCardPage({ onBack, initialCardType }) {
 
               {/* Continue Button */}
               <button
-                onClick={() => setShowConfirmation(false)}
+                onClick={() => setIsLoading(true)}
                 className="w-full transition-transform duration-150 active:scale-95"
                 style={{
                   marginTop: 24,
@@ -703,6 +704,59 @@ function IssueCardPage({ onBack, initialCardType }) {
                 Продолжить
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Loading Screen */}
+      {isLoading && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: '#F3F5F8',
+            zIndex: 200,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 24,
+          }}
+        >
+          {/* Spinner */}
+          <svg
+            width="48"
+            height="48"
+            viewBox="0 0 48 48"
+            style={{
+              animation: 'spin 1s linear infinite',
+            }}
+          >
+            <circle
+              cx="24"
+              cy="24"
+              r="20"
+              fill="none"
+              stroke="#DC4D35"
+              strokeWidth="4"
+              strokeLinecap="round"
+              strokeDasharray="94.25 31.42"
+            />
+          </svg>
+
+          {/* Loading Text */}
+          <div
+            style={{
+              fontSize: 16,
+              fontWeight: 400,
+              color: '#111827',
+              fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+            }}
+          >
+            Начинаем выпуск карты...
           </div>
         </div>
       )}
