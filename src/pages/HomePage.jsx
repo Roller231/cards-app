@@ -303,7 +303,7 @@ function HomePage({ onNavigateToFAQ, onNavigateToIssueCard }) {
               </div>
 
 <button
-  onClick={onNavigateToIssueCard}
+  onClick={() => onNavigateToIssueCard('online')}
   className="w-full transition-transform duration-150 active:scale-95"
   style={{
     padding: '14px',
@@ -494,7 +494,7 @@ function HomePage({ onNavigateToFAQ, onNavigateToIssueCard }) {
               </div>
 
 <button
-  onClick={onNavigateToIssueCard}
+  onClick={() => onNavigateToIssueCard('online-plus')}
   className="w-full transition-transform duration-150 active:scale-95"
   style={{
     padding: '14px',

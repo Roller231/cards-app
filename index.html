@@ -16,6 +16,18 @@
         -moz-appearance: textfield;
         appearance: textfield;
       }
+
+      /* Modal slide up animation */
+      @keyframes slideUp {
+        from {
+          transform: translateY(100%);
+          opacity: 0;
+        }
+        to {
+          transform: translateY(0);
+          opacity: 1;
+        }
+      }
     </style>
   </head>
   <body>

@@ -1,11 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 
-function IssueCardPage({ onBack }) {
+function IssueCardPage({ onBack, initialCardType }) {
   const [selectedCardType, setSelectedCardType] = useState('')
   const [amount, setAmount] = useState(0)
   const [paymentMethod, setPaymentMethod] = useState('usdt')
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
+  const [showConfirmation, setShowConfirmation] = useState(false)
   const amountInputRef = useRef(null)
+
+  useEffect(() => {
+    if (initialCardType) {
+      setSelectedCardType(initialCardType)
+    }
+  }, [initialCardType])
 
   useEffect(() => {
     const tg = window?.Telegram?.WebApp
@@ -460,6 +467,7 @@ function IssueCardPage({ onBack }) {
         {/* Issue Button */}
         <button
           disabled={!selectedCardType || amount <= 0}
+          onClick={() => setShowConfirmation(true)}
           className="w-full transition-transform duration-150 active:scale-95"
           style={{
             marginTop: 16,
@@ -477,6 +485,227 @@ function IssueCardPage({ onBack }) {
           Оформить карту
         </button>
       </div>
+
+      {/* Confirmation Modal */}
+      {showConfirmation && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: '#F3F5F8',
+            zIndex: 100,
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          {/* Header */}
+          <div className="fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] z-20" style={{ backgroundColor: '#F3F5F8' }}>
+            <div className="px-4 pt-4 pb-6">
+              <div className="flex items-center">
+                <button
+                  onClick={() => setShowConfirmation(false)}
+                  className="flex items-center justify-center transition-transform duration-150 active:scale-95"
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 16,
+                    backgroundColor: '#F3F5F8',
+                    border: 'none',
+                    cursor: 'pointer',
+                    marginRight: 12,
+                  }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <path
+                      d="M10 12L6 8L10 4"
+                      stroke="#111827"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Content */}
+          <div
+            style={{
+              flex: 1,
+              overflowY: 'auto',
+              paddingTop: 72,
+              paddingBottom: 32,
+            }}
+          >
+            <div style={{ padding: '0 16px' }}>
+              {/* Card Preview */}
+              <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'center' }}>
+                <img
+                  src="/images/CardExample.png"
+                  alt="Card"
+                  style={{
+                    width: '66.67%',
+                    height: 'auto',
+                    borderRadius: 12,
+                  }}
+                />
+              </div>
+
+              {/* Card Details */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                {/* Тип карты */}
+                <div>
+                  <div
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 400,
+                      color: '#6B7280',
+                      fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+                      marginBottom: 4,
+                    }}
+                  >
+                    Тип карты
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 15,
+                      fontWeight: 600,
+                      color: '#111827',
+                      fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+                    }}
+                  >
+                    MasterCard
+                  </div>
+                </div>
+
+                {/* Срок действия */}
+                <div>
+                  <div
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 400,
+                      color: '#6B7280',
+                      fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+                      marginBottom: 4,
+                    }}
+                  >
+                    Срок действия
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 15,
+                      fontWeight: 600,
+                      color: '#111827',
+                      fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+                    }}
+                  >
+                    7 лет
+                  </div>
+                </div>
+
+                {/* Обслуживание */}
+                <div>
+                  <div
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 400,
+                      color: '#6B7280',
+                      fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+                      marginBottom: 4,
+                    }}
+                  >
+                    Обслуживание
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 15,
+                      fontWeight: 600,
+                      color: '#111827',
+                      fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+                    }}
+                  >
+                    Бесплатно
+                  </div>
+                </div>
+
+                {/* Сумма к пополнению */}
+                <div>
+                  <div
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 400,
+                      color: '#6B7280',
+                      fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+                      marginBottom: 4,
+                    }}
+                  >
+                    Сумма к пополнению
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 15,
+                      fontWeight: 600,
+                      color: '#111827',
+                      fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+                    }}
+                  >
+                    {total.toLocaleString('en-US')} $
+                  </div>
+                </div>
+
+                {/* Способ пополнения */}
+                <div>
+                  <div
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 400,
+                      color: '#6B7280',
+                      fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+                      marginBottom: 4,
+                    }}
+                  >
+                    Способ пополнения
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 15,
+                      fontWeight: 600,
+                      color: '#111827',
+                      fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+                    }}
+                  >
+                    {paymentMethod === 'usdt' ? 'USDT' : 'СБП'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Continue Button */}
+              <button
+                onClick={() => setShowConfirmation(false)}
+                className="w-full transition-transform duration-150 active:scale-95"
+                style={{
+                  marginTop: 24,
+                  padding: '16px',
+                  backgroundColor: '#DC4D35',
+                  borderRadius: 12,
+                  border: 'none',
+                  fontSize: 16,
+                  fontWeight: 600,
+                  color: '#FFFFFF',
+                  fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+                  cursor: 'pointer',
+                }}
+              >
+                Продолжить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

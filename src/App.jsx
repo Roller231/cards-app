@@ -7,6 +7,7 @@ import IssueCardPage from './pages/IssueCardPage'
 
 function App() {
   const [currentPage, setCurrentPage] = useState('welcome')
+  const [cardTypeToIssue, setCardTypeToIssue] = useState(null)
   const tgInitOnceRef = useRef(false)
 
   useEffect(() => {
@@ -57,11 +58,22 @@ function App() {
       {currentPage === 'home' && (
         <HomePage
           onNavigateToFAQ={() => setCurrentPage('faq')}
-          onNavigateToIssueCard={() => setCurrentPage('issue-card')}
+          onNavigateToIssueCard={(cardType = null) => {
+            setCardTypeToIssue(cardType)
+            setCurrentPage('issue-card')
+          }}
         />
       )}
       {currentPage === 'faq' && <FAQPage onBack={() => setCurrentPage('home')} />}
-      {currentPage === 'issue-card' && <IssueCardPage onBack={() => setCurrentPage('home')} />}
+      {currentPage === 'issue-card' && (
+        <IssueCardPage
+          onBack={() => {
+            setCardTypeToIssue(null)
+            setCurrentPage('home')
+          }}
+          initialCardType={cardTypeToIssue}
+        />
+      )}
     </Layout>
   )
 }
