@@ -13,6 +13,10 @@ function App() {
     try {
       tg.ready()
       tg.expand()
+
+      if (typeof tg.disableVerticalSwipes === 'function') {
+        tg.disableVerticalSwipes()
+      }
     } catch {
       // ignore
     }
