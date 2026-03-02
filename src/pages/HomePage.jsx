@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-function HomePage() {
+function HomePage({ onNavigateToFAQ }) {
   const [expandedCard, setExpandedCard] = useState(null)
 
   const isOnlineExpanded = expandedCard === 'online'
@@ -28,25 +28,17 @@ function HomePage() {
               Общий баланс
             </div>
             <button
-              className="flex items-center justify-center"
+              onClick={onNavigateToFAQ}
+              className="flex items-center justify-center transition-transform duration-150 active:scale-95"
               style={{
                 width: 28,
                 height: 28,
                 borderRadius: 30,
-
                 backgroundColor: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
               }}
             >
-              {/* <span
-                style={{
-                  color: '#6B7280',
-                  fontSize: 21,
-                  fontWeight: 650,
-                  lineHeight: 1,
-                }}
-              >
-                ?
-              </span> */}
               <img src="/images/QuestionMark.png" alt="" />
             </button>
           </div>
@@ -196,23 +188,38 @@ function HomePage() {
               </div>
             </div>
 
-            <button
-              onClick={() => setExpandedCard(isOnlineExpanded ? null : 'online')}
-              className="flex items-center justify-center"
-              style={{
-                width: 28,
-                height: 28,
-                borderRadius: 14,
-                backgroundColor: 'transparent',
-                border: 'none',
-                cursor: 'pointer',
-                flexShrink: 0,
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ transform: isOnlineExpanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>
-                <path d="M3 5L7 9L11 5" stroke="#9CA3AF" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
+<button
+  onClick={() => setExpandedCard(isOnlineExpanded ? null : 'online')}
+  className="flex items-center justify-center transition-transform duration-150 active:scale-95"
+  style={{
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F3F5F8',
+    border: 'none',
+    cursor: 'pointer',
+    flexShrink: 0,
+  }}
+>
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 14 14"
+    fill="none"
+    style={{
+      transform: isOnlineExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+      transition: 'transform 0.2s',
+    }}
+  >
+    <path
+      d="M3 5L7 9L11 5"
+      stroke="#111827"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+</button>
           </div>
 
           <div
@@ -371,23 +378,38 @@ function HomePage() {
               </div>
             </div>
 
-            <button
-              onClick={() => setExpandedCard(isOnlinePlusExpanded ? null : 'online-plus')}
-              className="flex items-center justify-center"
-              style={{
-                width: 28,
-                height: 28,
-                borderRadius: 14,
-                backgroundColor: 'transparent',
-                border: 'none',
-                cursor: 'pointer',
-                flexShrink: 0,
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ transform: isOnlinePlusExpanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>
-                <path d="M3 5L7 9L11 5" stroke="#9CA3AF" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
+<button
+  onClick={() => setExpandedCard(isOnlinePlusExpanded ? null : 'online-plus')}
+  className="flex items-center justify-center transition-transform duration-150 active:scale-95"
+  style={{
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F3F5F8',
+    border: 'none',
+    cursor: 'pointer',
+    flexShrink: 0,
+  }}
+>
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 14 14"
+    fill="none"
+    style={{
+      transform: isOnlinePlusExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+      transition: 'transform 0.2s',
+    }}
+  >
+    <path
+      d="M3 5L7 9L11 5"
+      stroke="#111827"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+</button>
           </div>
 
           <div

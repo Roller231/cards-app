@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import Layout from './components/Layout'
 import WelcomePage from './pages/WelcomePage'
 import HomePage from './pages/HomePage'
+import FAQPage from './pages/FAQPage'
 
 function App() {
   const [currentPage, setCurrentPage] = useState('welcome')
@@ -52,7 +53,8 @@ function App() {
   return (
     <Layout background={currentPage === 'welcome' ? 'white' : '#F3F5F8'}>
       {currentPage === 'welcome' && <WelcomePage onStart={() => setCurrentPage('home')} />}
-      {currentPage === 'home' && <HomePage />}
+      {currentPage === 'home' && <HomePage onNavigateToFAQ={() => setCurrentPage('faq')} />}
+      {currentPage === 'faq' && <FAQPage onBack={() => setCurrentPage('home')} />}
     </Layout>
   )
 }
