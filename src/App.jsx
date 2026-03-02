@@ -3,6 +3,7 @@ import Layout from './components/Layout'
 import WelcomePage from './pages/WelcomePage'
 import HomePage from './pages/HomePage'
 import FAQPage from './pages/FAQPage'
+import IssueCardPage from './pages/IssueCardPage'
 
 function App() {
   const [currentPage, setCurrentPage] = useState('welcome')
@@ -53,8 +54,14 @@ function App() {
   return (
     <Layout background={currentPage === 'welcome' ? 'white' : '#F3F5F8'}>
       {currentPage === 'welcome' && <WelcomePage onStart={() => setCurrentPage('home')} />}
-      {currentPage === 'home' && <HomePage onNavigateToFAQ={() => setCurrentPage('faq')} />}
+      {currentPage === 'home' && (
+        <HomePage
+          onNavigateToFAQ={() => setCurrentPage('faq')}
+          onNavigateToIssueCard={() => setCurrentPage('issue-card')}
+        />
+      )}
       {currentPage === 'faq' && <FAQPage onBack={() => setCurrentPage('home')} />}
+      {currentPage === 'issue-card' && <IssueCardPage onBack={() => setCurrentPage('home')} />}
     </Layout>
   )
 }

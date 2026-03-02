@@ -1,7 +1,20 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 function FAQPage({ onBack }) {
   const [expandedItem, setExpandedItem] = useState(null)
+
+  useEffect(() => {
+    const tg = window?.Telegram?.WebApp
+    if (!tg?.BackButton) return
+
+    tg.BackButton.show()
+    tg.BackButton.onClick(onBack)
+
+    return () => {
+      tg.BackButton.hide()
+      tg.BackButton.offClick(onBack)
+    }
+  }, [onBack])
 
   const faqItems = [
     {
@@ -63,7 +76,7 @@ function FAQPage({ onBack }) {
 
   return (
     <div className="flex-1 flex flex-col pb-10">
-      <div className="px-4 pt-4 pb-6 bg-white sticky top-0 z-10">
+      <div className="px-4 pt-4 pb-6 sticky top-0 z-10">
         <div className="flex items-center">
           <button
             onClick={onBack}

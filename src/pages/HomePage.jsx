@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-function HomePage({ onNavigateToFAQ }) {
+function HomePage({ onNavigateToFAQ, onNavigateToIssueCard }) {
   const [expandedCard, setExpandedCard] = useState(null)
 
   const isOnlineExpanded = expandedCard === 'online'
@@ -85,7 +85,8 @@ function HomePage({ onNavigateToFAQ }) {
             </h2>
 
             <button
-              className="flex items-center"
+              onClick={onNavigateToIssueCard}
+              className="flex items-center transition-transform duration-150 active:scale-95"
               style={{
                 fontSize: 14,
                 fontWeight: 600,
@@ -302,6 +303,7 @@ function HomePage({ onNavigateToFAQ }) {
               </div>
 
 <button
+  onClick={onNavigateToIssueCard}
   className="w-full transition-transform duration-150 active:scale-95"
   style={{
     padding: '14px',
@@ -492,6 +494,7 @@ function HomePage({ onNavigateToFAQ }) {
               </div>
 
 <button
+  onClick={onNavigateToIssueCard}
   className="w-full transition-transform duration-150 active:scale-95"
   style={{
     padding: '14px',
@@ -552,6 +555,7 @@ function HomePage({ onNavigateToFAQ }) {
 
           <button
             type="button"
+            onClick={onNavigateToIssueCard}
             style={{ backgroundColor: '#DC4D35' }}
             className="w-full rounded-2xl py-4 text-base font-semibold text-white transition-transform duration-150 active:scale-95"
           >
