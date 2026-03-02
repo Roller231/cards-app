@@ -1,7 +1,7 @@
-function Layout({ children }) {
+function Layout({ children, background = 'white' }) {
   return (
-    <div className="min-h-screen bg-white flex justify-center">
-      <div className="w-full max-w-[430px] min-h-screen flex flex-col bg-white">
+    <div className="min-h-screen flex justify-center" style={{ background }}>
+      <div className="w-full max-w-[430px] min-h-screen flex flex-col" style={{ background }}>
         {children}
       </div>
     </div>

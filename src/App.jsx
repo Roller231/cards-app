@@ -7,7 +7,7 @@ function App() {
   const [currentPage, setCurrentPage] = useState('welcome')
 
   return (
-    <Layout>
+    <Layout background={currentPage === 'welcome' ? 'white' : '#F3F5F8'}>
       {currentPage === 'welcome' && <WelcomePage onStart={() => setCurrentPage('home')} />}
       {currentPage === 'home' && <HomePage />}
     </Layout>
