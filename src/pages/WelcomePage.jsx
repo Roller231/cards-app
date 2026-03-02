@@ -2,7 +2,7 @@ function WelcomePage({ onStart }) {
   return (
     <div className="flex-1 flex flex-col overflow-x-hidden touch-pan-y">
       <div className="w-full overflow-hidden">
-        <div className="w-full h-[430px]">
+        <div className="w-full h-[415px]">
           <img
             src="/images/cardMain.png"
             alt="Виртуальные карты"
