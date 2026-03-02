@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 function IssueCardPage({ onBack }) {
   const [selectedCardType, setSelectedCardType] = useState('')
   const [amount, setAmount] = useState(0)
   const [paymentMethod, setPaymentMethod] = useState('usdt')
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
+  const amountInputRef = useRef(null)
 
   useEffect(() => {
     const tg = window?.Telegram?.WebApp
@@ -35,45 +36,47 @@ function IssueCardPage({ onBack }) {
 
   return (
     <div className="flex-1 flex flex-col pb-10">
-      <div className="px-4 pt-4 pb-6 sticky top-0 z-10">
-        <div className="flex items-center">
-          <button
-            onClick={onBack}
-            className="flex items-center justify-center transition-transform duration-150 active:scale-95"
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: 16,
-              backgroundColor: '#F3F5F8',
-              border: 'none',
-              cursor: 'pointer',
-              marginRight: 12,
-            }}
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path
-                d="M10 12L6 8L10 4"
-                stroke="#111827"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </button>
-          <h1
-            style={{
-              fontSize: 22,
-              fontWeight: 700,
-              color: '#111827',
-              fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-            }}
-          >
-            Выпустить карту
-          </h1>
+      <div className="fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] z-20">
+        <div className="px-4 pt-4 pb-6">
+          <div className="flex items-center">
+            <button
+              onClick={onBack}
+              className="flex items-center justify-center transition-transform duration-150 active:scale-95"
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: 16,
+                backgroundColor: '#F3F5F8',
+                border: 'none',
+                cursor: 'pointer',
+                marginRight: 12,
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path
+                  d="M10 12L6 8L10 4"
+                  stroke="#111827"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+            <h1
+              style={{
+                fontSize: 22,
+                fontWeight: 700,
+                color: '#111827',
+                fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+              }}
+            >
+              Выпустить карту
+            </h1>
+          </div>
         </div>
       </div>
 
-      <div className="px-4 flex flex-col gap-4">
+      <div className="px-4 flex flex-col gap-4" style={{ paddingTop: 72 }}>
         {/* Card Type Dropdown */}
         <div style={{ position: 'relative' }}>
           <div
@@ -193,10 +196,12 @@ function IssueCardPage({ onBack }) {
 
         {/* Amount */}
         <div
+          onClick={() => amountInputRef.current?.focus()}
           style={{
             backgroundColor: 'white',
             borderRadius: 12,
             padding: '14px 16px',
+            cursor: 'text',
           }}
         >
           <label
@@ -213,6 +218,7 @@ function IssueCardPage({ onBack }) {
           </label>
 <div className="flex items-center" style={{ gap: 6 }}>
   <input
+    ref={amountInputRef}
     type="number"
     value={amount || ''}
     onChange={(e) => setAmount(parseFloat(e.target.value) || 0)}
