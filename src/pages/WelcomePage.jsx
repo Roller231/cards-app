@@ -2,7 +2,7 @@ function WelcomePage({ onStart }) {
   return (
     <div className="flex-1 flex flex-col overflow-x-hidden touch-pan-y">
       <div className="w-full overflow-hidden">
-        <div className="w-full h-[415px]">
+        <div className="w-full" style={{ height: 'clamp(260px, 45vh, 415px)' }}>
           <img
             src="/images/cardMain.png"
             alt="Виртуальные карты"
@@ -12,19 +12,30 @@ function WelcomePage({ onStart }) {
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col px-6 pt-8 pb-10">
-        <h1 className="text-[40px] leading-[1.12] font-bold tracking-tight text-gray-900">
+      <div
+        className="flex-1 flex flex-col"
+        style={{
+          paddingLeft: 24,
+          paddingRight: 24,
+          paddingTop: 'clamp(16px, 3vh, 32px)',
+          paddingBottom: 'clamp(16px, 3vh, 40px)',
+        }}
+      >
+        <h1
+          className="font-bold tracking-tight text-gray-900"
+          style={{ fontSize: 'clamp(30px, 5.5vw, 40px)', lineHeight: 1.12 }}
+        >
           Виртуальные
           <br />
           карты Pronto Pay
         </h1>
 
-        <p className="mt-4 text-[14px] leading-relaxed text-gray-500" >
+        <p className="leading-relaxed text-gray-500" style={{ marginTop: 'clamp(10px, 2vh, 16px)', fontSize: 14 }}>
           Оплачивайте покупки в интернете, подписки и сервисы без ограничений.
           Платите за границей через ApplePay и GooglePay
         </p>
 
-        <div className="mt-10 flex flex-col gap-4">
+        <div className="flex flex-col gap-4" style={{ marginTop: 'clamp(16px, 4vh, 40px)' }}>
           <button
             type="button"
             onClick={onStart}

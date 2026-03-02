@@ -95,7 +95,7 @@ function HomePage() {
             <button
               className="flex items-center"
               style={{
-                fontSize: 16,
+                fontSize: 14,
                 fontWeight: 600,
                 color: '#DC4D35',
                 fontFamily:
