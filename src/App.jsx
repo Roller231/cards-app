@@ -1,24 +1,51 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Layout from './components/Layout'
 import WelcomePage from './pages/WelcomePage'
 import HomePage from './pages/HomePage'
 
 function App() {
   const [currentPage, setCurrentPage] = useState('welcome')
+  const tgInitOnceRef = useRef(false)
 
   useEffect(() => {
-    const tg = window?.Telegram?.WebApp
-    if (!tg) return
+    if (tgInitOnceRef.current) return
+    tgInitOnceRef.current = true
 
-    try {
-      tg.ready()
-      tg.expand()
+    let canceled = false
 
-      if (typeof tg.disableVerticalSwipes === 'function') {
-        tg.disableVerticalSwipes()
+    const initTelegram = () => {
+      const tg = window?.Telegram?.WebApp
+      if (!tg) return false
+
+      try {
+        tg.ready()
+        tg.expand()
+
+        if (typeof tg.disableVerticalSwipes === 'function') {
+          tg.disableVerticalSwipes()
+        }
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
+
+      return true
+    }
+
+    if (initTelegram()) return
+
+    let attempts = 0
+    const timer = setInterval(() => {
+      if (canceled) return
+      attempts += 1
+
+      if (initTelegram() || attempts >= 50) {
+        clearInterval(timer)
+      }
+    }, 100)
+
+    return () => {
+      canceled = true
+      clearInterval(timer)
     }
   }, [])
 
