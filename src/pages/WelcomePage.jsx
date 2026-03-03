@@ -2,14 +2,14 @@ function WelcomePage({ onStart }) {
   return (
     <div className="flex-1 flex flex-col overflow-x-hidden touch-pan-y">
       <div className="w-full overflow-hidden">
-        <div className="w-full" style={{ height: 'clamp(260px, 45vh, 415px)' }}>
-          <img
-            src="/images/cardMain.png"
-            alt="Виртуальные карты"
-            className="w-full h-full block object-cover object-[center_85%]"
-            draggable={false}
-          />
-        </div>
+<div className="w-full flex items-end" style={{ height: 'clamp(260px, 45vh, 415px)' }}>
+  <img
+    src="/images/cardMain.png"
+    alt="Виртуальные карты"
+    className="w-full object-contain"
+    draggable={false}
+  />
+</div>
       </div>
 
       <div

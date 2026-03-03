@@ -7,13 +7,29 @@ function IssueCardPage({ onBack, initialCardType }) {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const [showConfirmation, setShowConfirmation] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [resultScreen, setResultScreen] = useState(null) // 'success' or 'failure'
   const amountInputRef = useRef(null)
+
+  // Toggle this variable to test success/failure screens
+  const SIMULATE_SUCCESS = true // Change to false to test failure screen
 
   useEffect(() => {
     if (initialCardType) {
       setSelectedCardType(initialCardType)
     }
   }, [initialCardType])
+
+  // Simulate loading delay and show result after 4 seconds
+  useEffect(() => {
+    if (isLoading) {
+      const timer = setTimeout(() => {
+        setIsLoading(false)
+        setResultScreen(SIMULATE_SUCCESS ? 'success' : 'failure')
+      }, 4000)
+
+      return () => clearTimeout(timer)
+    }
+  }, [isLoading, SIMULATE_SUCCESS])
 
   useEffect(() => {
     const tg = window?.Telegram?.WebApp
@@ -686,7 +702,10 @@ function IssueCardPage({ onBack, initialCardType }) {
 
               {/* Continue Button */}
               <button
-                onClick={() => setIsLoading(true)}
+                onClick={() => {
+                  setResultScreen(null)
+                  setIsLoading(true)
+                }}
                 className="w-full transition-transform duration-150 active:scale-95"
                 style={{
                   marginTop: 24,
@@ -757,6 +776,170 @@ function IssueCardPage({ onBack, initialCardType }) {
             }}
           >
             Начинаем выпуск карты...
+          </div>
+        </div>
+      )}
+
+      {/* Success Screen */}
+      {resultScreen === 'success' && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: '#F3F5F8',
+            zIndex: 200,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '0 16px',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 16,
+              marginBottom: 'auto',
+              paddingTop: '40vh',
+            }}
+          >
+            {/* Success Icon */}
+            <img
+              src="/images/Agree.png"
+              alt="Success"
+              style={{
+                width: 64,
+                height: 64,
+                animation: 'iconAppear 0.5s ease-out, iconIdle 2s ease-in-out 0.5s infinite',
+              }}
+            />
+
+            {/* Success Text */}
+            <div
+              style={{
+                fontSize: 14,
+                fontWeight: 600,
+                color: '#111827',
+                fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+                textAlign: 'center',
+                animation: 'textAppear 0.5s ease-out 0.2s backwards',
+              }}
+            >
+              Карта готова!
+            </div>
+          </div>
+
+          {/* Button at bottom */}
+          <div style={{ width: '100%', maxWidth: 430, paddingBottom: 64 }}>
+            <button
+onClick={() => {
+  setResultScreen(null)
+  setShowConfirmation(false)
+  onBack()
+}}
+              className="w-full transition-transform duration-150 active:scale-95"
+              style={{
+                padding: '16px',
+                backgroundColor: '#DC4D35',
+                borderRadius: 12,
+                border: 'none',
+                fontSize: 16,
+                fontWeight: 600,
+                color: '#FFFFFF',
+                fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+                cursor: 'pointer',
+              }}
+            >
+              К списку карт
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Failure Screen */}
+      {resultScreen === 'failure' && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: '#F3F5F8',
+            zIndex: 200,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '0 16px',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 16,
+              marginBottom: 'auto',
+              paddingTop: '35vh',
+            }}
+          >
+            {/* Failure Icon */}
+            <img
+              src="/images/Warning.png"
+              alt="Error"
+              style={{
+                width: 64,
+                height: 64,
+                animation: 'iconAppear 0.5s ease-out, iconShake 2s ease-in-out 0.5s infinite',
+              }}
+            />
+
+            {/* Failure Text */}
+            <div
+              style={{
+                fontSize: 14,
+                fontWeight: 600,
+                color: '#111827',
+                fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+                textAlign: 'center',
+                maxWidth: 320,
+                animation: 'textAppear 0.5s ease-out 0.2s backwards',
+              }}
+            >
+              Не удалось связаться с банком. Проверьте интернет и повторите попытку.
+            </div>
+          </div>
+
+          {/* Button at bottom */}
+          <div style={{ width: '100%', maxWidth: 430, paddingBottom: 64 }}>
+            <button
+onClick={() => {
+  setResultScreen(null)
+  setIsLoading(false)
+  setShowConfirmation(true)
+}}
+              className="w-full transition-transform duration-150 active:scale-95"
+              style={{
+                padding: '16px',
+                backgroundColor: '#DC4D35',
+                borderRadius: 12,
+                border: 'none',
+                fontSize: 16,
+                fontWeight: 600,
+                color: '#FFFFFF',
+                fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+                cursor: 'pointer',
+                
+              }}
+            >
+              Повторить
+            </button>
           </div>
         </div>
       )}

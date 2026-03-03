@@ -38,6 +38,53 @@
           transform: rotate(360deg);
         }
       }
+
+      /* Icon appear animation */
+      @keyframes iconAppear {
+        from {
+          transform: scale(0);
+          opacity: 0;
+        }
+        to {
+          transform: scale(1);
+          opacity: 1;
+        }
+      }
+
+      /* Icon idle animation (success - gentle pulse) */
+      @keyframes iconIdle {
+        0%, 100% {
+          transform: scale(1);
+        }
+        50% {
+          transform: scale(1.05);
+        }
+      }
+
+      /* Icon shake animation (failure - gentle shake) */
+      @keyframes iconShake {
+        0%, 100% {
+          transform: translateX(0) rotate(0deg);
+        }
+        25% {
+          transform: translateX(-2px) rotate(-2deg);
+        }
+        75% {
+          transform: translateX(2px) rotate(2deg);
+        }
+      }
+
+      /* Text appear animation */
+      @keyframes textAppear {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
     </style>
   </head>
   <body>
