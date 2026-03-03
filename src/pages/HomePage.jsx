@@ -1,4 +1,10 @@
 import { useState } from 'react'
+import Card from '../components/ui/Card'
+import Button from '../components/ui/Button'
+import Section from '../components/ui/Section'
+import Badge from '../components/ui/Badge'
+import InfoCard from '../components/ui/InfoCard'
+import { H2, H3, H4, Description } from '../components/ui/Typography'
 
 function HomePage({ onNavigateToFAQ, onNavigateToIssueCard }) {
   const [expandedCard, setExpandedCard] = useState(null)
@@ -8,14 +14,8 @@ function HomePage({ onNavigateToFAQ, onNavigateToIssueCard }) {
 
   return (
     <div className="flex-1 flex flex-col pb-10">
-      <div className="px-4 pt-4">
-        <div
-          className="bg-white w-full"
-          style={{
-            borderRadius: 20,
-            padding: '24px 24px 0 24px',
-          }}
-        >
+      <Section>
+        <Card padding="24px 24px 0 24px">
           <div className="flex items-start justify-between">
             <div
               className="text-[16px] font-semibold leading-[22px]"
@@ -27,20 +27,9 @@ function HomePage({ onNavigateToFAQ, onNavigateToIssueCard }) {
             >
               Общий баланс
             </div>
-            <button
-              onClick={onNavigateToFAQ}
-              className="flex items-center justify-center transition-transform duration-150 active:scale-95"
-              style={{
-                width: 28,
-                height: 28,
-                borderRadius: 30,
-                backgroundColor: 'transparent',
-                border: 'none',
-                cursor: 'pointer',
-              }}
-            >
+            <Button variant="icon" onClick={onNavigateToFAQ}>
               <img src="/images/QuestionMark.png" alt="" />
-            </button>
+            </Button>
           </div>
 
           <div className="flex items-baseline mb-4">
@@ -84,26 +73,13 @@ function HomePage({ onNavigateToFAQ, onNavigateToIssueCard }) {
               Мои карты
             </h2>
 
-            <button
-              onClick={onNavigateToIssueCard}
-              className="flex items-center transition-transform duration-150 active:scale-95"
-              style={{
-                fontSize: 14,
-                fontWeight: 600,
-                color: '#DC4D35',
-                fontFamily:
-                  '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-              }}
-            >
+            <Button variant="link" onClick={onNavigateToIssueCard}>
               <span className="relative mr-2 inline-block h-3 w-3">
                 <span className="absolute left-1/2 top-1/2 h-[2.5px] w-full -translate-x-1/2 -translate-y-1/2 rounded-full bg-current" />
                 <span className="absolute left-1/2 top-1/2 h-full w-[2.5px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-current" />
               </span>
               <span>Оформить карту</span>
-            </button>
+            </Button>
           </div>
 
           <div
@@ -118,17 +94,11 @@ function HomePage({ onNavigateToFAQ, onNavigateToIssueCard }) {
           >
             У вас пока нет карт
           </div>
-        </div>
-      </div>
+        </Card>
+      </Section>
 
-      <div className="px-4 pt-4">
-        <div
-          className="bg-white w-full"
-          style={{
-            borderRadius: 20,
-            padding: isOnlineExpanded ? '20px 20px 16px 20px' : '20px',
-          }}
-        >
+      <Section>
+        <Card padding={isOnlineExpanded ? '20px 20px 16px 20px' : '20px'}>
           <div className="flex items-start justify-between">
             <div className="flex flex-col gap-2 flex-1">
               <div className="flex items-center gap-2">
@@ -302,36 +272,20 @@ function HomePage({ onNavigateToFAQ, onNavigateToIssueCard }) {
                 </div>
               </div>
 
-<button
+<Button
   onClick={() => onNavigateToIssueCard('online')}
-  className="w-full transition-transform duration-150 active:scale-95"
-  style={{
-    padding: '14px',
-    backgroundColor: '#DC4D35',
-    borderRadius: 12,
-    border: 'none',
-    fontSize: 16,
-    fontWeight: 600,
-    color: '#FFFFFF',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-    cursor: 'pointer',
-  }}
+  variant="secondary"
+  fullWidth
 >
   Оформить
-</button>
+</Button>
             </div>
           </div>
-        </div>
-      </div>
+        </Card>
+      </Section>
 
-      <div className="px-4 pt-4">
-        <div
-          className="bg-white w-full"
-          style={{
-            borderRadius: 20,
-            padding: isOnlinePlusExpanded ? '20px 20px 16px 20px' : '20px',
-          }}
-        >
+      <Section>
+        <Card padding={isOnlinePlusExpanded ? '20px 20px 16px 20px' : '20px'}>
           <div className="flex items-start justify-between">
             <div className="flex flex-col gap-2 flex-1">
 <div
@@ -493,38 +447,20 @@ function HomePage({ onNavigateToFAQ, onNavigateToIssueCard }) {
                 </div>
               </div>
 
-<button
+<Button
   onClick={() => onNavigateToIssueCard('online-plus')}
-  className="w-full transition-transform duration-150 active:scale-95"
-  style={{
-    padding: '14px',
-    backgroundColor: '#DC4D35',
-    borderRadius: 12,
-    border: 'none',
-    fontSize: 16,
-    fontWeight: 600,
-    color: '#FFFFFF',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-    cursor: 'pointer',
-  }}
+  variant="secondary"
+  fullWidth
 >
   Оформить
-</button>
+</Button>
             </div>
         </div>
-      </div>
+        </Card>
+      </Section>
 
-      </div>
-
-      <div className="px-4 pt-4">
-<div
-  className="bg-white w-full"
-  style={{
-    borderRadius: 20,
-    padding: '20px',
-    minHeight: 250, // ← добавили минимальную высоту
-  }}
->
+      <Section>
+        <Card padding="20px" style={{ minHeight: 250 }}>
           <h2
             style={{
               fontSize: 22,
@@ -553,16 +489,15 @@ function HomePage({ onNavigateToFAQ, onNavigateToIssueCard }) {
             </div>
           </div>
 
-          <button
-            type="button"
+          <Button
             onClick={onNavigateToIssueCard}
-            style={{ backgroundColor: '#DC4D35' }}
-            className="w-full rounded-2xl py-4 text-base font-semibold text-white transition-transform duration-150 active:scale-95"
+            fullWidth
+            style={{ borderRadius: 12, padding: '16px' }}
           >
             + Выпустить карту
-          </button>
-        </div>
-      </div>
+          </Button>
+        </Card>
+      </Section>
     </div>
   )
 }

@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
+import PageHeader from '../components/ui/PageHeader'
+import Button from '../components/ui/Button'
+import FormField from '../components/ui/FormField'
 
 function IssueCardPage({ onBack, initialCardType }) {
   const [selectedCardType, setSelectedCardType] = useState('')
@@ -60,45 +63,7 @@ function IssueCardPage({ onBack, initialCardType }) {
 
   return (
     <div className="flex-1 flex flex-col pb-10">
-      <div className="fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] z-20">
-        <div className="px-4 pt-4 pb-6">
-          <div className="flex items-center">
-            <button
-              onClick={onBack}
-              className="flex items-center justify-center transition-transform duration-150 active:scale-95"
-              style={{
-                width: 32,
-                height: 32,
-                borderRadius: 16,
-                backgroundColor: '#F3F5F8',
-                border: 'none',
-                cursor: 'pointer',
-                marginRight: 12,
-              }}
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path
-                  d="M10 12L6 8L10 4"
-                  stroke="#111827"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </button>
-            <h1
-              style={{
-                fontSize: 22,
-                fontWeight: 700,
-                color: '#111827',
-                fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-              }}
-            >
-              Выпустить карту
-            </h1>
-          </div>
-        </div>
-      </div>
+      <PageHeader title="Выпустить карту" onBack={onBack} />
 
       <div className="px-4 flex flex-col gap-4" style={{ paddingTop: 72 }}>
         {/* Card Type Dropdown */}
@@ -482,25 +447,14 @@ function IssueCardPage({ onBack, initialCardType }) {
         </div>
 
         {/* Issue Button */}
-        <button
+        <Button
           disabled={!selectedCardType || amount <= 0}
           onClick={() => setShowConfirmation(true)}
-          className="w-full transition-transform duration-150 active:scale-95"
-          style={{
-            marginTop: 16,
-            padding: '16px',
-            backgroundColor: selectedCardType && amount > 0 ? '#DC4D35' : '#D1D5DB',
-            borderRadius: 12,
-            border: 'none',
-            fontSize: 16,
-            fontWeight: 600,
-            color: '#FFFFFF',
-            fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-            cursor: selectedCardType && amount > 0 ? 'pointer' : 'not-allowed',
-          }}
+          fullWidth
+          style={{ marginTop: 16 }}
         >
           Оформить карту
-        </button>
+        </Button>
       </div>
 
       {/* Confirmation Modal */}
@@ -701,27 +655,16 @@ function IssueCardPage({ onBack, initialCardType }) {
               </div>
 
               {/* Continue Button */}
-              <button
+              <Button
                 onClick={() => {
                   setResultScreen(null)
                   setIsLoading(true)
                 }}
-                className="w-full transition-transform duration-150 active:scale-95"
-                style={{
-                  marginTop: 24,
-                  padding: '16px',
-                  backgroundColor: '#DC4D35',
-                  borderRadius: 12,
-                  border: 'none',
-                  fontSize: 16,
-                  fontWeight: 600,
-                  color: '#FFFFFF',
-                  fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-                  cursor: 'pointer',
-                }}
+                fullWidth
+                style={{ marginTop: 24 }}
               >
                 Продолжить
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -836,27 +779,16 @@ function IssueCardPage({ onBack, initialCardType }) {
 
           {/* Button at bottom */}
           <div style={{ width: '100%', maxWidth: 430, paddingBottom: 64 }}>
-            <button
-onClick={() => {
-  setResultScreen(null)
-  setShowConfirmation(false)
-  onBack()
-}}
-              className="w-full transition-transform duration-150 active:scale-95"
-              style={{
-                padding: '16px',
-                backgroundColor: '#DC4D35',
-                borderRadius: 12,
-                border: 'none',
-                fontSize: 16,
-                fontWeight: 600,
-                color: '#FFFFFF',
-                fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-                cursor: 'pointer',
+            <Button
+              onClick={() => {
+                setResultScreen(null)
+                setShowConfirmation(false)
+                onBack()
               }}
+              fullWidth
             >
               К списку карт
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -918,28 +850,16 @@ onClick={() => {
 
           {/* Button at bottom */}
           <div style={{ width: '100%', maxWidth: 430, paddingBottom: 64 }}>
-            <button
-onClick={() => {
-  setResultScreen(null)
-  setIsLoading(false)
-  setShowConfirmation(true)
-}}
-              className="w-full transition-transform duration-150 active:scale-95"
-              style={{
-                padding: '16px',
-                backgroundColor: '#DC4D35',
-                borderRadius: 12,
-                border: 'none',
-                fontSize: 16,
-                fontWeight: 600,
-                color: '#FFFFFF',
-                fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-                cursor: 'pointer',
-                
+            <Button
+              onClick={() => {
+                setResultScreen(null)
+                setIsLoading(false)
+                setShowConfirmation(true)
               }}
+              fullWidth
             >
               Повторить
-            </button>
+            </Button>
           </div>
         </div>
       )}
