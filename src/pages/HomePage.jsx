@@ -5,9 +5,13 @@ import Section from '../components/ui/Section'
 import Badge from '../components/ui/Badge'
 import InfoCard from '../components/ui/InfoCard'
 import { H2, H3, H4, Description } from '../components/ui/Typography'
+import { useDragScroll } from '../hooks/useDragScroll'
 
-function HomePage({ onNavigateToFAQ, onNavigateToIssueCard }) {
+function HomePage({ userCards = [], onNavigateToFAQ, onNavigateToIssueCard }) {
   const [expandedCard, setExpandedCard] = useState(null)
+  const scrollRef = useDragScroll()
+
+  const totalBalance = userCards.reduce((sum, c) => sum + (Number(c.balance) || 0), 0)
 
   const isOnlineExpanded = expandedCard === 'online'
   const isOnlinePlusExpanded = expandedCard === 'online-plus'
@@ -43,7 +47,10 @@ function HomePage({ onNavigateToFAQ, onNavigateToIssueCard }) {
                   '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
               }}
             >
-              0
+              {totalBalance.toLocaleString('en-US', {
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 2,
+              })}
             </span>
             <span
               style={{
@@ -82,23 +89,113 @@ function HomePage({ onNavigateToFAQ, onNavigateToIssueCard }) {
             </Button>
           </div>
 
-          <div
-            className="pb-6 font-semibold"
-            style={{
-              fontSize: 16,
-              color: '#6B7280',
-              fontFamily:
-                '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-              marginBlock: 12,
-            }}
-          >
-            У вас пока нет карт
-          </div>
+          {userCards.length === 0 ? (
+            <div
+              className="pb-6 font-semibold"
+              style={{
+                fontSize: 16,
+                color: '#6B7280',
+                fontFamily:
+                  '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+                marginBlock: 12,
+              }}
+            >
+              У вас пока нет карт
+            </div>
+          ) : (
+            <div
+              ref={scrollRef}
+              className="pb-6 cards-scroll"
+              style={{
+                overflowX: 'auto',
+                overflowY: 'hidden',
+                marginLeft: -24,
+                marginRight: -24,
+                paddingLeft: 24,
+                paddingRight: 24,
+                scrollbarWidth: 'none',
+                msOverflowStyle: 'none',
+              }}
+            >
+              <div style={{ display: 'flex', gap: 12 }}>
+                {userCards.map((card) => (
+                  <div
+                    key={card.id}
+                    className="transition-transform duration-150 active:scale-95"
+                    style={{
+                      minWidth: 240,
+                      height: 144,
+                      borderRadius: 20,
+                      padding: 18,
+                      cursor: 'pointer',
+                      position: 'relative',
+                      color: '#FFFFFF',
+                      backgroundImage: 'url(/images/CardInBalance.png)',
+                      backgroundSize: 'cover',
+                      backgroundPosition: 'center',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      overflow: 'hidden',
+                    }}
+                    onClick={() => {}}
+                  >
+                    <div
+                      style={{
+                        fontSize: 22,
+                        fontWeight: 500,
+                        fontFamily:
+                          '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+                        lineHeight: '28px',
+                        letterSpacing: '-0.3px',
+                      }}
+                    >
+                      {Number(card.balance).toLocaleString('en-US', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}{' '}
+                      $
+                    </div>
+
+                    <div>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 300,
+                          fontFamily:
+                            '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+                          letterSpacing: '1.6px',
+                          marginBottom: 15,
+                          marginLeft: -3,
+                        }}
+                      >
+                        ***{card.last4}
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'flex-end',
+                          justifyContent: 'space-between',
+                          gap: 12,
+                        }}
+                      >
+
+
+
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </Card>
       </Section>
 
-      <Section>
-        <Card padding={isOnlineExpanded ? '20px 20px 16px 20px' : '20px'}>
+      {userCards.length === 0 && (
+        <Section>
+          <Card padding={isOnlineExpanded ? '20px 20px 16px 20px' : '20px'}>
           <div className="flex items-start justify-between">
             <div className="flex flex-col gap-2 flex-1">
               <div className="flex items-center gap-2">
@@ -281,10 +378,12 @@ function HomePage({ onNavigateToFAQ, onNavigateToIssueCard }) {
 </Button>
             </div>
           </div>
-        </Card>
-      </Section>
+          </Card>
+        </Section>
+      )}
 
-      <Section>
+      {userCards.length === 0 && (
+        <Section>
         <Card padding={isOnlinePlusExpanded ? '20px 20px 16px 20px' : '20px'}>
           <div className="flex items-start justify-between">
             <div className="flex flex-col gap-2 flex-1">
@@ -305,6 +404,7 @@ function HomePage({ onNavigateToFAQ, onNavigateToIssueCard }) {
                   style={{ height: 14, width: 'auto', }}
                 />
                     <img src="/images/GooglePay.png" alt="Google Pay" style={{ height: 16, width: 'auto', paddingLeft: 4 }} />
+                    <img src="/images/Apple.png" alt="Apple Pay" style={{ height: 16, width: 'auto', paddingLeft: 4 }} />
 
               </div>
 
@@ -318,7 +418,7 @@ function HomePage({ onNavigateToFAQ, onNavigateToIssueCard }) {
                     marginBottom: 2,
                   }}
                 >
-                  Online + Apple Pay + Google Pay
+                  Online + Pay
                 </h3>
                 <p
                   style={{
@@ -457,7 +557,8 @@ function HomePage({ onNavigateToFAQ, onNavigateToIssueCard }) {
             </div>
         </div>
         </Card>
-      </Section>
+        </Section>
+      )}
 
       <Section>
         <Card padding="20px" style={{ minHeight: 250 }}>

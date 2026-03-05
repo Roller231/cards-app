@@ -85,6 +85,19 @@
           transform: translateY(0);
         }
       }
+
+      /* Hide scrollbar for cards scroll */
+      .cards-scroll::-webkit-scrollbar {
+        display: none;
+      }
+      .cards-scroll {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+        cursor: grab;
+      }
+      .cards-scroll:active {
+        cursor: grabbing;
+      }
     </style>
   </head>
   <body>

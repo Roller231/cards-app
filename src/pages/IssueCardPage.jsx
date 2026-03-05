@@ -3,7 +3,7 @@ import PageHeader from '../components/ui/PageHeader'
 import Button from '../components/ui/Button'
 import FormField from '../components/ui/FormField'
 
-function IssueCardPage({ onBack, initialCardType }) {
+function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
   const [selectedCardType, setSelectedCardType] = useState('')
   const [amount, setAmount] = useState(0)
   const [paymentMethod, setPaymentMethod] = useState('usdt')
@@ -49,7 +49,7 @@ function IssueCardPage({ onBack, initialCardType }) {
 
   const cardTypes = [
     { id: 'online', name: 'Online', commission: 0.4 },
-    { id: 'online-plus', name: 'Online + Apple Pay + Google Pay', commission: 0.4 },
+    { id: 'online-plus', name: 'Online + Pay', commission: 0.4 },
   ]
 
   const selectedCard = cardTypes.find((c) => c.id === selectedCardType)
@@ -781,9 +781,16 @@ function IssueCardPage({ onBack, initialCardType }) {
           <div style={{ width: '100%', maxWidth: 430, paddingBottom: 64 }}>
             <Button
               onClick={() => {
-                setResultScreen(null)
-                setShowConfirmation(false)
-                onBack()
+                if (onCardIssued) {
+                  onCardIssued({
+                    cardType: selectedCardType,
+                    amount: amount,
+                  })
+                } else {
+                  setResultScreen(null)
+                  setShowConfirmation(false)
+                  onBack()
+                }
               }}
               fullWidth
             >

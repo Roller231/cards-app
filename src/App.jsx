@@ -8,7 +8,19 @@ import IssueCardPage from './pages/IssueCardPage'
 function App() {
   const [currentPage, setCurrentPage] = useState('welcome')
   const [cardTypeToIssue, setCardTypeToIssue] = useState(null)
+  const [userCards, setUserCards] = useState([])
   const tgInitOnceRef = useRef(false)
+
+  const addCard = (cardData) => {
+    const newCard = {
+      id: `card-${Date.now()}`,
+      balance: Math.floor(Math.random() * 50000) + Math.random(),
+      last4: String(Math.floor(1000 + Math.random() * 9000)),
+      title: 'Виртуальная карта',
+      ...cardData,
+    }
+    setUserCards((prev) => [...prev, newCard])
+  }
 
   useEffect(() => {
     if (tgInitOnceRef.current) return
@@ -57,6 +69,7 @@ function App() {
       {currentPage === 'welcome' && <WelcomePage onStart={() => setCurrentPage('home')} />}
       {currentPage === 'home' && (
         <HomePage
+          userCards={userCards}
           onNavigateToFAQ={() => setCurrentPage('faq')}
           onNavigateToIssueCard={(cardType = null) => {
             setCardTypeToIssue(cardType)
@@ -72,6 +85,11 @@ function App() {
             setCurrentPage('home')
           }}
           initialCardType={cardTypeToIssue}
+          onCardIssued={(cardData) => {
+            addCard(cardData)
+            setCardTypeToIssue(null)
+            setCurrentPage('home')
+          }}
         />
       )}
     </Layout>
