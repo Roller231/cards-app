@@ -203,12 +203,14 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
               <div className="flex items-center gap-2">
                 <div
                   className="flex items-center"
+                  onClick={() => setExpandedCard(isOnlineExpanded ? null : 'online')}
                   style={{
                     height: 24,
                     backgroundColor: '#1A1F36',
                     borderRadius: 8,
                     paddingLeft: 8,
                     paddingRight: 8,
+                    cursor: 'pointer',
                   }}
                 >
                   <img
@@ -391,6 +393,7 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
             <div className="flex flex-col gap-2 flex-1">
 <div
   className="flex items-center"
+  onClick={() => setExpandedCard(isOnlinePlusExpanded ? null : 'online-plus')}
   style={{
     height: 24,
     backgroundColor: '#1A1F36',
@@ -398,6 +401,7 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
     paddingLeft: 8,
     paddingRight: 5,
     width: 'fit-content',
+    cursor: 'pointer',
   }}
 >
                 <img

@@ -1,6 +1,6 @@
 function PageHeader({ title, onBack }) {
   return (
-    <div className="fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] z-20" style={{ backgroundColor: '#F3F5F8' }}>
+    <div className="fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] z-20" style={{ backgroundColor: '' }}>
       <div className="px-4 pt-4 pb-6">
         <div className="flex items-center">
           <button

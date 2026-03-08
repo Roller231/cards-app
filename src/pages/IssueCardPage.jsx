@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import PageHeader from '../components/ui/PageHeader'
 import Button from '../components/ui/Button'
 import FormField from '../components/ui/FormField'
@@ -6,12 +6,16 @@ import FormField from '../components/ui/FormField'
 function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
   const [selectedCardType, setSelectedCardType] = useState('')
   const [amount, setAmount] = useState(0)
+  const [amountInput, setAmountInput] = useState('')
+  const [totalInput, setTotalInput] = useState('')
   const [paymentMethod, setPaymentMethod] = useState('usdt')
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const [showConfirmation, setShowConfirmation] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [resultScreen, setResultScreen] = useState(null) // 'success' or 'failure'
   const amountInputRef = useRef(null)
+  const totalInputRef = useRef(null)
+  const lastEditedRef = useRef('amount')
 
   // Toggle this variable to test success/failure screens
   const SIMULATE_SUCCESS = true // Change to false to test failure screen
@@ -53,18 +57,74 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
   ]
 
   const selectedCard = cardTypes.find((c) => c.id === selectedCardType)
+  const commissionPercent = selectedCard?.topUpCommissionPercent || 0
+  const commissionRate = useMemo(() => commissionPercent / 100, [commissionPercent])
   const commission =
     selectedCard && amount > 0
       ? (amount * (selectedCard.topUpCommissionPercent || 0)) / 100
       : 0
   const total = amount + commission
   const hasAmount = amount > 0
-  const amountText = amount ? String(amount) : ''
+  const amountText = amountInput || ''
   const selectedCardName = selectedCardType
     ? cardTypes.find((c) => c.id === selectedCardType)?.name
     : ''
 
   const canIssueCard = selectedCardType !== '' && amount >= 15
+
+  useEffect(() => {
+    // Keep total input in sync when user edits amount.
+    if (lastEditedRef.current !== 'amount') return
+    if (!amount || amount <= 0) {
+      setTotalInput('')
+      return
+    }
+    const nextTotal = amount * (1 + commissionRate)
+    setTotalInput(nextTotal.toFixed(2))
+  }, [amount, commissionRate])
+
+  useEffect(() => {
+    // Keep amount input in sync when user edits total.
+    if (lastEditedRef.current !== 'total') return
+    if (!amount || amount <= 0) {
+      setAmountInput('')
+      return
+    }
+    setAmountInput(String(amount))
+  }, [amount])
+
+  useEffect(() => {
+    // When commission percent changes (switch card type), resync totals based on current amount.
+    if (lastEditedRef.current !== 'amount') return
+    if (!amount || amount <= 0) {
+      setTotalInput('')
+      return
+    }
+    const nextTotal = amount * (1 + commissionRate)
+    setTotalInput(nextTotal.toFixed(2))
+  }, [commissionRate])
+
+  useEffect(() => {
+    // If user last edited the total, keep total constant and recompute amount when commission changes.
+    if (lastEditedRef.current !== 'total') return
+    if (!totalInput) {
+      setAmount(0)
+      setAmountInput('')
+      return
+    }
+
+    const parsedTotal = parseFloat(totalInput) || 0
+    if (!parsedTotal || parsedTotal <= 0) {
+      setAmount(0)
+      setAmountInput('')
+      return
+    }
+
+    const nextAmount = commissionRate > 0 ? parsedTotal / (1 + commissionRate) : parsedTotal
+    const safeAmount = nextAmount > 0 ? Number(nextAmount.toFixed(2)) : 0
+    setAmount(safeAmount)
+    setAmountInput(String(safeAmount))
+  }, [commissionRate, totalInput])
 
   return (
     <div className="flex-1 flex flex-col pb-10">
@@ -214,8 +274,13 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
   <input
     ref={amountInputRef}
     type="number"
-    value={amount || ''}
-    onChange={(e) => setAmount(parseFloat(e.target.value) || 0)}
+    value={amountInput}
+    onChange={(e) => {
+      const next = e.target.value
+      lastEditedRef.current = 'amount'
+      setAmountInput(next)
+      setAmount(parseFloat(next) || 0)
+    }}
     placeholder="0"
     style={{
       border: 'none',
@@ -264,10 +329,12 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
 
         {/* Total */}
         <div
+          onClick={() => totalInputRef.current?.focus()}
           style={{
             backgroundColor: 'white',
             borderRadius: 12,
             padding: '14px 16px',
+            cursor: 'text',
           }}
         >
           <label
@@ -283,20 +350,34 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
             Итоговая сумма с учетом комиссии
           </label>
           <div className="flex items-center" style={{ gap: 6 }}>
-            <span
+            <input
+              ref={totalInputRef}
+              type="number"
+              value={totalInput}
+              onChange={(e) => {
+                const next = e.target.value
+                lastEditedRef.current = 'total'
+                setTotalInput(next)
+                const parsedTotal = parseFloat(next) || 0
+                const nextAmount = commissionRate > 0 ? parsedTotal / (1 + commissionRate) : parsedTotal
+                const safeAmount = nextAmount > 0 ? Number(nextAmount.toFixed(2)) : 0
+                setAmount(safeAmount)
+                setAmountInput(next ? String(safeAmount) : '')
+              }}
+              placeholder="0"
               style={{
+                border: 'none',
+                outline: 'none',
+                background: 'transparent',
                 fontSize: 15,
                 fontWeight: hasAmount ? 600 : 400,
                 color: hasAmount ? '#111827' : '#6B7280',
                 fontFamily:
                   '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+                width: `${Math.max(String(totalInput || '').length, 1) + 0.5}ch`,
+                minWidth: '1.5ch',
               }}
-            >
-              {total.toLocaleString('en-US', {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}
-            </span>
+            />
             <span
               style={{
                 fontSize: 15,
@@ -336,43 +417,41 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
                 borderRadius: 12,
                 padding: '20px 16px',
                 cursor: 'pointer',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 8,
               }}
             >
-<div
-  style={{
+              <div className="flex flex-col items-center gap-2">
+                <div
+                  style={{
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: '#F3F5F8',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-  }}
->
-  <img
-    src="/images/bank-card.png"
-    alt="Bank Card"
-    style={{
-      width: 28,
-      height: 28,
-      objectFit: 'contain',
-    }}
-  />
-</div>
-              <span
-                style={{
-                  fontSize: 15,
-                  fontWeight: 600,
-                  color: '#111827',
-                  fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-                }}
-              >
+                    backgroundColor: '#F3F5F8',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <img
+                    src="/images/TRC.png"
+                    alt="TRC"
+                    style={{
+                      width: 32,
+                      height: 32,
+                      objectFit: 'contain',
+                    }}
+                  />
+                </div>
+                <span
+                  style={{
+                    fontSize: 15,
+                    fontWeight: 600,
+                    color: '#111827',
+                    fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+                  }}
+                >
                 USDT
-              </span>
+                </span>
+              </div>
             </button>
 
             <button
@@ -402,11 +481,11 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
   }}
 >
   <img
-    src="/images/Qr_Code.png"
+    src="/images/sbp.png"
     alt="QR Code"
     style={{
-      width: 28,
-      height: 28,
+      width: 38,
+      height: 38,
       objectFit: 'contain',
     }}
   />

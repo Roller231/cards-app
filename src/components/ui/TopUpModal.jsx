@@ -6,10 +6,14 @@ const SIMULATE_SUCCESS = true
 
 function TopUpModal({ isOpen, onClose, card, onTopUp }) {
   const [amount, setAmount] = useState(0)
+  const [amountInput, setAmountInput] = useState('')
+  const [totalInput, setTotalInput] = useState('')
   const [paymentMethod, setPaymentMethod] = useState('usdt')
   const [screen, setScreen] = useState('form') // 'form' | 'confirmation' | 'loading' | 'success' | 'failure'
   const amountInputRef = useRef(null)
+  const totalInputRef = useRef(null)
   const topUpCalledRef = useRef(false)
+  const lastEditedRef = useRef('amount')
 
   // Auto-focus amount input when modal opens
   useEffect(() => {
@@ -23,9 +27,12 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
     if (!isOpen) {
       const t = setTimeout(() => {
         setAmount(0)
+        setAmountInput('')
+        setTotalInput('')
         setPaymentMethod('usdt')
         setScreen('form')
         topUpCalledRef.current = false
+        lastEditedRef.current = 'amount'
       }, 350)
       return () => clearTimeout(t)
     }
@@ -51,15 +58,57 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
   }, [screen, card?.id, onTopUp, amount])
 
   const commissionPercent = card?.cardType === 'online-plus' ? 4 : 3.8
+  const commissionRate = commissionPercent / 100
   const commission = amount > 0 ? (amount * commissionPercent) / 100 : 0
   const total = amount + commission
   const hasAmount = amount > 0
-  const amountText = amount ? String(amount) : ''
+  const amountText = amountInput || ''
   const fullCardNumber = card?.cardNumber
     ? `${card.cardNumber.slice(0, 4)} ${card.cardNumber.slice(4, 8)} ${card.cardNumber.slice(8, 12)} ${card.cardNumber.slice(12, 16)}`
     : ''
 
   const font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif'
+
+  useEffect(() => {
+    if (lastEditedRef.current !== 'amount') return
+    if (!amount || amount <= 0) {
+      setTotalInput('')
+      return
+    }
+    const nextTotal = amount * (1 + commissionRate)
+    setTotalInput(nextTotal.toFixed(2))
+  }, [amount, commissionRate])
+
+  useEffect(() => {
+    if (lastEditedRef.current !== 'total') return
+    if (!amount || amount <= 0) {
+      setAmountInput('')
+      return
+    }
+    setAmountInput(String(amount))
+  }, [amount])
+
+  useEffect(() => {
+    // If user last edited the total, keep total constant and recompute amount when commission changes.
+    if (lastEditedRef.current !== 'total') return
+    if (!totalInput) {
+      setAmount(0)
+      setAmountInput('')
+      return
+    }
+
+    const parsedTotal = parseFloat(totalInput) || 0
+    if (!parsedTotal || parsedTotal <= 0) {
+      setAmount(0)
+      setAmountInput('')
+      return
+    }
+
+    const nextAmount = commissionRate > 0 ? parsedTotal / (1 + commissionRate) : parsedTotal
+    const safeAmount = nextAmount > 0 ? Number(nextAmount.toFixed(2)) : 0
+    setAmount(safeAmount)
+    setAmountInput(String(safeAmount))
+  }, [commissionRate, totalInput])
 
   const DetailRow = ({ label, value }) => (
     <div>
@@ -77,17 +126,19 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
       {[
         {
           id: 'usdt',
-          label: 'USDT',
-          iconSrc: '/images/bank-card.png',
-          iconAlt: 'Bank Card',
+          label: 'TRC',
+          iconSrc: '/images/TRC.png',
+          iconAlt: 'TRC',
+          iconSize: 32,
         },
         {
           id: 'sbp',
-          label: 'СБП',
-          iconSrc: '/images/Qr_Code.png',
-          iconAlt: 'QR Code',
+          label: 'СБВ',
+          iconSrc: '/images/sbp.png',
+          iconAlt: 'СБВ',
+          iconSize: 38,
         },
-      ].map(({ id, label, iconSrc, iconAlt }) => (
+      ].map(({ id, label, iconSrc, iconAlt, iconSize }) => (
         <button
           key={id}
           onClick={() => setPaymentMethod(id)}
@@ -119,8 +170,8 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
               src={iconSrc}
               alt={iconAlt}
               style={{
-                width: 28,
-                height: 28,
+                width: iconSize,
+                height: iconSize,
                 objectFit: 'contain',
               }}
             />
@@ -217,8 +268,13 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
                   <input
                     ref={amountInputRef}
                     type="number"
-                    value={amount || ''}
-                    onChange={(e) => setAmount(parseFloat(e.target.value) || 0)}
+                    value={amountInput}
+                    onChange={(e) => {
+                      const next = e.target.value
+                      lastEditedRef.current = 'amount'
+                      setAmountInput(next)
+                      setAmount(parseFloat(next) || 0)
+                    }}
                     placeholder="0"
                     style={{
                       border: 'none', outline: 'none', background: 'transparent',
@@ -232,14 +288,41 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
               </div>
 
               {/* Total with commission */}
-              <div style={{ backgroundColor: 'white', borderRadius: 12, padding: '14px 16px' }}>
+              <div
+                onClick={() => totalInputRef.current?.focus()}
+                style={{ backgroundColor: 'white', borderRadius: 12, padding: '14px 16px', cursor: 'text' }}
+              >
                 <label style={{ fontSize: 13, fontWeight: 600, color: '#6B7280', fontFamily: font, display: 'block', marginBottom: 8 }}>
                   Итоговая сумма с учетом комиссии
                 </label>
                 <div className="flex items-center" style={{ gap: 6 }}>
-                  <span style={{ fontSize: 15, fontWeight: hasAmount ? 600 : 400, color: hasAmount ? '#111827' : '#6B7280', fontFamily: font }}>
-                    {total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </span>
+                  <input
+                    ref={totalInputRef}
+                    type="number"
+                    value={totalInput}
+                    onChange={(e) => {
+                      const next = e.target.value
+                      lastEditedRef.current = 'total'
+                      setTotalInput(next)
+                      const parsedTotal = parseFloat(next) || 0
+                      const nextAmount = commissionRate > 0 ? parsedTotal / (1 + commissionRate) : parsedTotal
+                      const safeAmount = nextAmount > 0 ? Number(nextAmount.toFixed(2)) : 0
+                      setAmount(safeAmount)
+                      setAmountInput(next ? String(safeAmount) : '')
+                    }}
+                    placeholder="0"
+                    style={{
+                      border: 'none',
+                      outline: 'none',
+                      background: 'transparent',
+                      fontSize: 15,
+                      fontWeight: hasAmount ? 600 : 400,
+                      color: hasAmount ? '#111827' : '#6B7280',
+                      fontFamily: font,
+                      width: `${Math.max(String(totalInput || '').length, 1) + 0.5}ch`,
+                      minWidth: '1.5ch',
+                    }}
+                  />
                   <span style={{ fontSize: 15, fontWeight: 600, color: '#111827', fontFamily: font }}>$</span>
                 </div>
               </div>
