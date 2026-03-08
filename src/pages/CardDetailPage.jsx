@@ -83,7 +83,7 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
           style={{
             display: 'flex',
             justifyContent: 'center',
-            paddingTop: 65,
+            paddingTop: 84,
           }}
         >
           <div
