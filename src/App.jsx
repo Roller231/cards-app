@@ -147,8 +147,10 @@ function App() {
       try {
         tg.ready()
 
-        const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 768
-        if (isDesktop && typeof tg.requestFullscreen === 'function') {
+        const isDesktop = typeof window !== 'undefined'
+        const canRequestFullscreen =
+          isDesktop && typeof tg.requestFullscreen === 'function' && tg.isFullscreen !== true
+        if (canRequestFullscreen) {
           try {
             tg.requestFullscreen()
           } catch {
