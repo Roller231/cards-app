@@ -5,8 +5,9 @@ import Section from '../components/ui/Section'
 import PageHeader from '../components/ui/PageHeader'
 import { useToast } from '../components/ui/ToastProvider'
 import TopUpModal from '../components/ui/TopUpModal'
+import { TxIcon } from './HistoryPage'
 
-function CardDetailPage({ card, onBack, onTopUp }) {
+function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateToHistory }) {
   const [showCardNumber, setShowCardNumber] = useState(false)
   const [isTopUpModalOpen, setIsTopUpModalOpen] = useState(false)
   const { showToast } = useToast()
@@ -35,6 +36,9 @@ function CardDetailPage({ card, onBack, onTopUp }) {
   const displayExpiry = showCardNumber ? card.expiry || '12/28' : '•• / ••'
   const displayCvv = showCardNumber ? card.cvv || '123' : '•••'
   const hiddenTextColor = '#6B7280'
+  const font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif'
+
+  const cardTransactions = transactions.filter((t) => t.cardLast4 === card.last4)
 
   const copyToClipboard = async (text) => {
     try {
@@ -341,41 +345,114 @@ function CardDetailPage({ card, onBack, onTopUp }) {
 
       {/* Transaction History */}
       <Section>
-        <Card padding="20px" style={{ minHeight: 200 }}>
-          <h2
-            style={{
-              fontSize: 22,
-              fontWeight: 700,
-              color: '#111827',
-              fontFamily:
-                '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-              marginBottom: 0,
-            }}
-          >
-            История
-          </h2>
-
-          <div
-            className="flex flex-col items-center justify-center"
-            style={{ paddingTop: 28, paddingBottom: 28 }}
-          >
-            <img
-              src="/images/Union.png"
-              alt=""
-              style={{ width: 34, height: 34, marginBottom: 12, opacity: 0.65 }}
-            />
-            <div
+        <Card padding="20px" style={{ minHeight: 250 }}>
+          <div className="flex items-center justify-between" style={{ marginBottom: 0 }}>
+            <h2
               style={{
-                fontSize: 13,
-                fontWeight: 600,
-                color: '#6B7280',
-                fontFamily:
-                  '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+                fontSize: 22,
+                fontWeight: 700,
+                color: '#111827',
+                fontFamily: font,
+                margin: 0,
               }}
             >
-              Нет операций
-            </div>
+              История
+            </h2>
+            <Button
+              variant="icon"
+              onClick={() => onNavigateToHistory && onNavigateToHistory(card.last4)}
+            >
+              <div
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 14,
+                  backgroundColor: '#F3F5F8',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path
+                    d="M5 2l5 5-5 5"
+                    stroke="#111827"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </div>
+            </Button>
           </div>
+
+          {cardTransactions.length === 0 ? (
+            <div
+              className="flex flex-col items-center justify-center"
+              style={{ paddingTop: 28, paddingBottom: 28 }}
+            >
+              <img
+                src="/images/Union.png"
+                alt=""
+                style={{ width: 34, height: 34, marginBottom: 12, opacity: 0.65 }}
+              />
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#6B7280', fontFamily: font }}>
+                Нет операций
+              </div>
+            </div>
+          ) : (
+            <div style={{ marginTop: 16 }}>
+              {cardTransactions.slice(0, 6).map((tx, idx) => {
+                const isPositive = tx.amount > 0
+                const absAmount = Math.abs(tx.amount)
+                const formatted = absAmount.toLocaleString('en-US', {
+                  minimumFractionDigits: absAmount % 1 !== 0 ? 2 : 0,
+                  maximumFractionDigits: 2,
+                })
+                const amountStr = isPositive ? `+${formatted} $` : `−${formatted} $`
+                const amountColor = isPositive ? '#22C55E' : tx.type === 'declined' ? '#DC4D35' : '#111827'
+
+                return (
+                  <div
+                    key={tx.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      paddingTop: 16,
+                      paddingBottom: 16,
+                      borderBottom: idx < 5 ? '1px solid #F3F5F8' : 'none',
+                    }}
+                  >
+                    <TxIcon type={tx.type} size={50} iconSize={24} radius={16} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 15, fontWeight: 600, color: '#111827', fontFamily: font }}>
+                        {tx.title}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 13,
+                          color: tx.type === 'declined' ? '#DC4D35' : '#6B7280',
+                          fontFamily: font,
+                          marginTop: 1,
+                        }}
+                      >
+                        {tx.subtitle}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+                      <div style={{ fontSize: 16, fontWeight: 600, color: amountColor, fontFamily: font, textAlign: 'right' }}>
+                        {amountStr}
+                      </div>
+                      <div style={{ fontSize: 12, color: '#6B7280', fontFamily: font, textAlign: 'right' }}>
+                        {tx.cardTitle} · {tx.cardLast4}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </Card>
       </Section>
 

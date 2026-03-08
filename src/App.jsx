@@ -66,6 +66,7 @@ function App() {
   const [selectedCard, setSelectedCard] = useState(null)
   const [userCards, setUserCards] = useState([])
   const [transactions, setTransactions] = useState([])
+  const [historyFixedCardLast4, setHistoryFixedCardLast4] = useState(null)
   const tgInitOnceRef = useRef(false)
 
   const addCard = (cardData) => {
@@ -169,7 +170,10 @@ function App() {
               setSelectedCard(card)
               setCurrentPage('card-detail')
             }}
-            onNavigateToHistory={() => setCurrentPage('history')}
+            onNavigateToHistory={() => {
+              setHistoryFixedCardLast4(null)
+              setCurrentPage('history')
+            }}
           />
         )}
         {currentPage === 'faq' && <FAQPage onBack={() => setCurrentPage('home')} />}
@@ -177,6 +181,7 @@ function App() {
           <HistoryPage
             userCards={userCards}
             transactions={transactions}
+            fixedCardLast4={historyFixedCardLast4}
             onBack={() => setCurrentPage('home')}
           />
         )}
@@ -197,7 +202,12 @@ function App() {
         {currentPage === 'card-detail' && (
           <CardDetailPage
             card={selectedCard}
+            transactions={transactions}
             onTopUp={(cardId, deltaAmount) => topUpCardBalance(cardId, deltaAmount)}
+            onNavigateToHistory={(cardLast4) => {
+              setHistoryFixedCardLast4(cardLast4)
+              setCurrentPage('history')
+            }}
             onBack={() => {
               setSelectedCard(null)
               setCurrentPage('home')

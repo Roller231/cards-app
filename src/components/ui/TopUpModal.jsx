@@ -153,16 +153,17 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
       <div
         style={{
           position: 'fixed',
-          left: 0,
-          right: 0,
+          left: '50%',
           bottom: 0,
+          width: '100%',
+          maxWidth: 430,
           backgroundColor: '#F3F5F8',
           borderTopLeftRadius: 24,
           borderTopRightRadius: 24,
           zIndex: 1000,
           height: '90vh',
           overflow: 'hidden',
-          transform: isOpen ? 'translateY(0)' : 'translateY(100%)',
+          transform: isOpen ? 'translateX(-50%) translateY(0)' : 'translateX(-50%) translateY(100%)',
           transition: 'transform 420ms cubic-bezier(0.32, 0.72, 0, 1)',
           pointerEvents: isOpen ? 'auto' : 'none',
         }}

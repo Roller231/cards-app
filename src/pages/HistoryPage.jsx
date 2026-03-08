@@ -248,14 +248,15 @@ function BottomSheet({ isOpen, onClose, title, height, footer, children }) {
       />
       <div
         style={{
-          position: 'fixed', left: 0, right: 0, bottom: 0,
-          backgroundColor: 'white',
+          position: 'fixed', left: '50%', bottom: 0,
+          width: '100%', maxWidth: 430,
+          backgroundColor: '#F3F5F8',
           borderTopLeftRadius: 24, borderTopRightRadius: 24,
           zIndex: 9999,
           height: height || 'auto',
           maxHeight: '90vh',
           display: 'flex', flexDirection: 'column',
-          transform: isOpen ? 'translateY(0)' : 'translateY(100%)',
+          transform: isOpen ? 'translateX(-50%) translateY(0)' : 'translateX(-50%) translateY(100%)',
           transition: 'transform 420ms cubic-bezier(0.32, 0.72, 0, 1)',
           pointerEvents: isOpen ? 'auto' : 'none',
           overflow: 'hidden',
@@ -302,14 +303,15 @@ function CardFilterModal({ isOpen, onClose, cards, selectedCards, onApply }) {
             style={{
               display: 'flex', alignItems: 'center', gap: 12,
               padding: '12px 0',
-              borderBottom: idx < cards.length - 1 ? '1px solid #F3F5F8' : 'none',
+              borderBottom: idx === cards.length - 1 ? 'none' : '1px solid #F3F5F8',
               cursor: 'pointer',
             }}
           >
-            <img src="/images/bank-card.png" alt="" style={{ width: 48, height: 32, objectFit: 'contain', borderRadius: 4 }} />
+            <img src="/images/CardHistory.png" alt="" style={{ width: 72, height: 48, objectFit: 'contain', borderRadius: 8, flexShrink: 0 }} />
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 15, fontWeight: 600, color: '#111827', fontFamily: font }}>{card.title}</div>
-              <div style={{ fontSize: 13, color: '#6B7280', fontFamily: font }}>···· {card.last4}</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#111827', fontFamily: font }}>
+                {card.title} &nbsp; ···· {card.last4}
+              </div>
             </div>
             <Checkbox checked={local.includes(card.last4)} />
           </div>
@@ -363,11 +365,14 @@ function CalendarPicker({ value, onChange }) {
   const firstDayRaw = new Date(viewYear, viewMonth, 1).getDay()
   const offset = firstDayRaw === 0 ? 6 : firstDayRaw - 1
 
+  const isCurrentMonth = viewYear === today.getFullYear() && viewMonth === today.getMonth()
+
   const prevMonth = () => {
     if (viewMonth === 0) { setViewYear(y => y - 1); setViewMonth(11) }
     else setViewMonth(m => m - 1)
   }
   const nextMonth = () => {
+    if (isCurrentMonth) return
     if (viewMonth === 11) { setViewYear(y => y + 1); setViewMonth(0) }
     else setViewMonth(m => m + 1)
   }
@@ -382,7 +387,8 @@ function CalendarPicker({ value, onChange }) {
     return date >= value.start && date <= value.end
   }
 
-  const handleClick = (d) => {
+  const handleClick = (d, isOtherMonth) => {
+    if (isOtherMonth) return
     const clicked = toDate(d)
     if (!value?.start || (value?.start && value?.end)) {
       onChange({ start: clicked, end: null })
@@ -392,62 +398,71 @@ function CalendarPicker({ value, onChange }) {
     }
   }
 
+  const prevMonthDays = new Date(viewYear, viewMonth, 0).getDate()
   const cells = []
-  for (let i = 0; i < offset; i++) cells.push(null)
-  for (let d = 1; d <= daysInMonth; d++) cells.push(d)
-  while (cells.length % 7 !== 0) cells.push(null)
+  for (let i = offset - 1; i >= 0; i--) cells.push({ day: prevMonthDays - i, other: true })
+  for (let d = 1; d <= daysInMonth; d++) cells.push({ day: d, other: false })
+  let nextDay = 1
+  while (cells.length % 7 !== 0) cells.push({ day: nextDay++, other: true })
+
+  const arrowColor = '#DC4D35'
+  const arrowGray = '#D1D5DB'
 
   return (
     <div style={{ padding: '0 16px 8px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <button onClick={prevMonth} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 6 }}>
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-            <path d="M11 14L6 9l5-5" stroke="#6B7280" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
-        <span style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font }}>
-          {RU_MONTHS[viewMonth]} {viewYear}
-        </span>
-        <button onClick={nextMonth} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 6 }}>
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-            <path d="M7 14l5-5-5-5" stroke="#6B7280" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
-      </div>
+      <div style={{ backgroundColor: 'white', borderRadius: 16, padding: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <span style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font }}>
+            {RU_MONTHS[viewMonth]} {viewYear}
+          </span>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={prevMonth} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                <path d="M11 14L6 9l5-5" stroke={arrowColor} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+            <button onClick={nextMonth} style={{ background: 'none', border: 'none', cursor: isCurrentMonth ? 'default' : 'pointer', padding: 4, opacity: isCurrentMonth ? 0.5 : 1 }}>
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                <path d="M7 14l5-5-5-5" stroke={isCurrentMonth ? arrowGray : arrowColor} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          </div>
+        </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', marginBottom: 4 }}>
-        {RU_DAYS.map(d => (
-          <div key={d} style={{
-            textAlign: 'center', fontSize: 13, color: '#9CA3AF',
-            fontFamily: font, padding: '4px 0', fontWeight: 500,
-          }}>{d}</div>
-        ))}
-      </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', marginBottom: 8 }}>
+          {RU_DAYS.map(d => (
+            <div key={d} style={{
+              textAlign: 'center', fontSize: 13, color: '#111827',
+              fontFamily: font, padding: '4px 0', fontWeight: 700,
+            }}>{d}</div>
+          ))}
+        </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', rowGap: 2 }}>
-        {cells.map((d, i) => {
-          if (!d) return <div key={`e-${i}`} />
-          const sel = isSelected(d)
-          return (
-            <div
-              key={d}
-              onClick={() => handleClick(d)}
-              style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                width: 36, height: 36, margin: '0 auto',
-                borderRadius: '50%',
-                backgroundColor: sel ? '#DC4D35' : 'transparent',
-                color: sel ? 'white' : '#111827',
-                fontSize: 15, fontFamily: font,
-                fontWeight: sel ? 600 : 400,
-                cursor: 'pointer',
-                transition: 'background-color 100ms',
-              }}
-            >
-              {d}
-            </div>
-          )
-        })}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', rowGap: 4 }}>
+          {cells.map((cell, i) => {
+            const sel = !cell.other && isSelected(cell.day)
+            return (
+              <div
+                key={`${cell.day}-${i}`}
+                onClick={() => handleClick(cell.day, cell.other)}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  width: 40, height: 40, margin: '0 auto',
+                  borderRadius: 12,
+                  backgroundColor: sel ? '#DC4D35' : 'transparent',
+                  border: sel ? '1px solid transparent' : cell.other ? '1px solid #E5E7EB' : '1px solid #111827',
+                  color: sel ? 'white' : cell.other ? '#D1D5DB' : '#111827',
+                  fontSize: 15, fontFamily: font,
+                  fontWeight: 400,
+                  cursor: cell.other ? 'default' : 'pointer',
+                  transition: 'background-color 100ms',
+                }}
+              >
+                {cell.day}
+              </div>
+            )
+          })}
+        </div>
       </div>
     </div>
   )
@@ -473,7 +488,7 @@ function PeriodFilterModal({ isOpen, onClose, selectedPeriod, onApply }) {
   )
 }
 
-function HistoryPage({ userCards = [], transactions = [], onBack }) {
+function HistoryPage({ userCards = [], transactions = [], fixedCardLast4 = null, onBack }) {
   const [cardFilter, setCardFilter] = useState([])
   const [typeFilter, setTypeFilter] = useState([])
   const [periodFilter, setPeriodFilter] = useState(null)
@@ -486,7 +501,8 @@ function HistoryPage({ userCards = [], transactions = [], onBack }) {
 
   const filteredGroups = useMemo(() => {
     let txs = [...transactions]
-    if (cardFilter.length > 0) txs = txs.filter(tx => cardFilter.includes(tx.cardLast4))
+    if (fixedCardLast4) txs = txs.filter(tx => tx.cardLast4 === fixedCardLast4)
+    else if (cardFilter.length > 0) txs = txs.filter(tx => cardFilter.includes(tx.cardLast4))
     if (typeFilter.length > 0) txs = txs.filter(tx => typeFilter.includes(tx.type))
     if (periodFilter?.start && periodFilter?.end) {
       const s = new Date(periodFilter.start); s.setHours(0, 0, 0, 0)
@@ -501,7 +517,7 @@ function HistoryPage({ userCards = [], transactions = [], onBack }) {
       groups[key].txs.push(tx)
     })
     return Object.values(groups).sort((a, b) => b.date - a.date)
-  }, [transactions, cardFilter, typeFilter, periodFilter])
+  }, [transactions, fixedCardLast4, cardFilter, typeFilter, periodFilter])
 
   const fmtDate = (d) => `${d.getDate()} ${RU_MONTHS_GEN[d.getMonth()]}`
 
@@ -510,9 +526,11 @@ function HistoryPage({ userCards = [], transactions = [], onBack }) {
     const op = OP_TYPES.find(o => o.key === type)
     chips.push({ key: `type-${type}`, label: op?.label || type, onRemove: () => setTypeFilter(prev => prev.filter(t => t !== type)) })
   })
-  cardFilter.forEach(last4 => {
-    chips.push({ key: `card-${last4}`, label: `···· ${last4}`, onRemove: () => setCardFilter(prev => prev.filter(c => c !== last4)) })
-  })
+  if (!fixedCardLast4) {
+    cardFilter.forEach(last4 => {
+      chips.push({ key: `card-${last4}`, label: `···· ${last4}`, onRemove: () => setCardFilter(prev => prev.filter(c => c !== last4)) })
+    })
+  }
   if (periodFilter?.start && periodFilter?.end) {
     const s = periodFilter.start, e = periodFilter.end
     const label = s.getMonth() === e.getMonth()
@@ -534,7 +552,9 @@ function HistoryPage({ userCards = [], transactions = [], onBack }) {
         )}
 
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <FilterButton label="Карта" active={cardFilter.length > 0} onClick={() => setCardModalOpen(true)} />
+          {!fixedCardLast4 && (
+            <FilterButton label="Карта" active={cardFilter.length > 0} onClick={() => setCardModalOpen(true)} />
+          )}
           <FilterButton label="Тип операции" active={typeFilter.length > 0} onClick={() => setTypeModalOpen(true)} />
           <FilterButton label="Период" active={!!periodFilter} onClick={() => setPeriodModalOpen(true)} />
         </div>
@@ -571,10 +591,12 @@ function HistoryPage({ userCards = [], transactions = [], onBack }) {
         )}
       </div>
 
-      <CardFilterModal
-        isOpen={cardModalOpen} onClose={() => setCardModalOpen(false)}
-        cards={allCards} selectedCards={cardFilter} onApply={setCardFilter}
-      />
+      {!fixedCardLast4 && (
+        <CardFilterModal
+          isOpen={cardModalOpen} onClose={() => setCardModalOpen(false)}
+          cards={allCards} selectedCards={cardFilter} onApply={setCardFilter}
+        />
+      )}
       <TypeFilterModal
         isOpen={typeModalOpen} onClose={() => setTypeModalOpen(false)}
         selectedTypes={typeFilter} onApply={setTypeFilter}
