@@ -48,18 +48,23 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
   }, [onBack])
 
   const cardTypes = [
-    { id: 'online', name: 'Online', commission: 0.4 },
-    { id: 'online-plus', name: 'Online + Pay', commission: 0.4 },
+    { id: 'online', name: 'Online', topUpCommissionPercent: 3.8 },
+    { id: 'online-plus', name: 'Online + Pay', topUpCommissionPercent: 4 },
   ]
 
   const selectedCard = cardTypes.find((c) => c.id === selectedCardType)
-  const commission = selectedCard && amount > 0 ? selectedCard.commission : 0
+  const commission =
+    selectedCard && amount > 0
+      ? (amount * (selectedCard.topUpCommissionPercent || 0)) / 100
+      : 0
   const total = amount + commission
   const hasAmount = amount > 0
   const amountText = amount ? String(amount) : ''
   const selectedCardName = selectedCardType
     ? cardTypes.find((c) => c.id === selectedCardType)?.name
     : ''
+
+  const canIssueCard = selectedCardType !== '' && amount >= 15
 
   return (
     <div className="flex-1 flex flex-col pb-10">
@@ -240,52 +245,6 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
 </div>
         </div>
 
-        {/* Commission */}
-        <div
-          style={{
-            backgroundColor: 'white',
-            borderRadius: 12,
-            padding: '14px 16px',
-          }}
-        >
-          <label
-            style={{
-              fontSize: 13,
-              fontWeight: 600,
-              color: '#6B7280',
-              fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-              display: 'block',
-              marginBottom: 8,
-            }}
-          >
-            Комиссия
-          </label>
-          <div className="flex items-center" style={{ gap: 6 }}>
-            <span
-              style={{
-                fontSize: 15,
-                fontWeight: hasAmount ? 600 : 400,
-                color: hasAmount ? '#111827' : '#6B7280',
-                fontFamily:
-                  '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-              }}
-            >
-              {commission.toFixed(1)}
-            </span>
-            <span
-              style={{
-                fontSize: 15,
-                fontWeight: 600,
-                color: '#111827',
-                fontFamily:
-                  '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-              }}
-            >
-              $
-            </span>
-          </div>
-        </div>
-
         {/* Total */}
         <div
           style={{
@@ -304,7 +263,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
               marginBottom: 8,
             }}
           >
-            Итоговая сумма
+            Итоговая сумма с учетом комиссии
           </label>
           <div className="flex items-center" style={{ gap: 6 }}>
             <span
@@ -316,7 +275,10 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
                   '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
               }}
             >
-              {total.toLocaleString('en-US')}
+              {total.toLocaleString('en-US', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
             </span>
             <span
               style={{
@@ -448,8 +410,11 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
 
         {/* Issue Button */}
         <Button
-          disabled={!selectedCardType || amount <= 0}
-          onClick={() => setShowConfirmation(true)}
+          disabled={!canIssueCard}
+          onClick={() => {
+            if (!canIssueCard) return
+            setShowConfirmation(true)
+          }}
           fullWidth
           style={{ marginTop: 16 }}
         >

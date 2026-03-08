@@ -4,22 +4,110 @@ import WelcomePage from './pages/WelcomePage'
 import HomePage from './pages/HomePage'
 import FAQPage from './pages/FAQPage'
 import IssueCardPage from './pages/IssueCardPage'
+import CardDetailPage from './pages/CardDetailPage'
+import HistoryPage from './pages/HistoryPage'
+import { ToastProvider } from './components/ui/ToastProvider'
+
+const HISTORY_TITLES = {
+  payment: [
+    { title: 'Kanzler', subtitle: 'Магазины' },
+    { title: 'Amediateka', subtitle: 'Сервисы' },
+    { title: 'Steam', subtitle: 'Сервисы' },
+    { title: 'Lamoda', subtitle: 'Магазины' },
+  ],
+  withdrawal: [
+    { title: '***', subtitle: 'Вывод средств' },
+  ],
+  topup: [
+    { title: '***', subtitle: 'Пополнение' },
+  ],
+  declined: [
+    { title: 'Константин С.', subtitle: 'Операция отклонена' },
+    { title: 'Александр П.', subtitle: 'Операция отклонена' },
+  ],
+}
+
+function randomFrom(list) {
+  return list[Math.floor(Math.random() * list.length)]
+}
+
+function randomAmount(type) {
+  if (type === 'topup') return [1000, 1500, 3000, 5000, 10000][Math.floor(Math.random() * 5)]
+  if (type === 'withdrawal') return -[500, 1200, 2500, 4000][Math.floor(Math.random() * 4)]
+  if (type === 'declined') return -[490, 1200, 32480, 799][Math.floor(Math.random() * 4)]
+  return -[159.99, 490, 501.69, 1299, 2499][Math.floor(Math.random() * 5)]
+}
+
+function generateCardTransactions(card) {
+  const types = ['topup', 'payment', 'payment', 'withdrawal', 'declined']
+  return types.map((type, index) => {
+    const meta = randomFrom(HISTORY_TITLES[type])
+    const dayOffset = Math.floor(Math.random() * 12)
+    const date = new Date()
+    date.setHours(12, 0, 0, 0)
+    date.setDate(date.getDate() - dayOffset)
+
+    return {
+      id: `tx-${card.id}-${index}-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      type,
+      title: type === 'topup' || type === 'withdrawal' ? `*** ${card.last4}` : meta.title,
+      subtitle: meta.subtitle,
+      cardTitle: card.title || 'Виртуальная карта',
+      cardLast4: card.last4,
+      amount: randomAmount(type),
+      date,
+    }
+  })
+}
 
 function App() {
   const [currentPage, setCurrentPage] = useState('welcome')
   const [cardTypeToIssue, setCardTypeToIssue] = useState(null)
+  const [selectedCard, setSelectedCard] = useState(null)
   const [userCards, setUserCards] = useState([])
+  const [transactions, setTransactions] = useState([])
   const tgInitOnceRef = useRef(false)
 
   const addCard = (cardData) => {
+    const last4 = String(Math.floor(1000 + Math.random() * 9000))
+    const first12 = String(Math.floor(10 ** 11 + Math.random() * 9 * 10 ** 11)).padStart(12, '0')
+    const cardNumber = `${first12}${last4}`
+    const cvv = String(Math.floor(100 + Math.random() * 900))
+    const expiry = '12/28'
+
     const newCard = {
       id: `card-${Date.now()}`,
-      balance: Math.floor(Math.random() * 50000) + Math.random(),
-      last4: String(Math.floor(1000 + Math.random() * 9000)),
+      balance: cardData?.amount || 0,
+      last4,
+      cardNumber,
+      cvv,
+      expiry,
       title: 'Виртуальная карта',
       ...cardData,
     }
     setUserCards((prev) => [...prev, newCard])
+    setTransactions((prev) => [...generateCardTransactions(newCard), ...prev])
+  }
+
+  const topUpCardBalance = (cardId, deltaAmount) => {
+    setUserCards((prev) =>
+      prev.map((c) =>
+        c.id === cardId
+          ? {
+              ...c,
+              balance: (Number(c.balance) || 0) + (Number(deltaAmount) || 0),
+            }
+          : c
+      )
+    )
+
+    setSelectedCard((prev) => {
+      if (!prev || prev.id !== cardId) return prev
+      return {
+        ...prev,
+        balance: (Number(prev.balance) || 0) + (Number(deltaAmount) || 0),
+      }
+    })
   }
 
   useEffect(() => {
@@ -65,34 +153,59 @@ function App() {
   }, [])
 
   return (
-    <Layout background={currentPage === 'welcome' ? 'white' : '#F3F5F8'}>
-      {currentPage === 'welcome' && <WelcomePage onStart={() => setCurrentPage('home')} />}
-      {currentPage === 'home' && (
-        <HomePage
-          userCards={userCards}
-          onNavigateToFAQ={() => setCurrentPage('faq')}
-          onNavigateToIssueCard={(cardType = null) => {
-            setCardTypeToIssue(cardType)
-            setCurrentPage('issue-card')
-          }}
-        />
-      )}
-      {currentPage === 'faq' && <FAQPage onBack={() => setCurrentPage('home')} />}
-      {currentPage === 'issue-card' && (
-        <IssueCardPage
-          onBack={() => {
-            setCardTypeToIssue(null)
-            setCurrentPage('home')
-          }}
-          initialCardType={cardTypeToIssue}
-          onCardIssued={(cardData) => {
-            addCard(cardData)
-            setCardTypeToIssue(null)
-            setCurrentPage('home')
-          }}
-        />
-      )}
-    </Layout>
+    <ToastProvider>
+      <Layout background={currentPage === 'welcome' ? 'white' : '#F3F5F8'}>
+        {currentPage === 'welcome' && <WelcomePage onStart={() => setCurrentPage('home')} />}
+        {currentPage === 'home' && (
+          <HomePage
+            userCards={userCards}
+            transactions={transactions}
+            onNavigateToFAQ={() => setCurrentPage('faq')}
+            onNavigateToIssueCard={(cardType = null) => {
+              setCardTypeToIssue(cardType)
+              setCurrentPage('issue-card')
+            }}
+            onCardClick={(card) => {
+              setSelectedCard(card)
+              setCurrentPage('card-detail')
+            }}
+            onNavigateToHistory={() => setCurrentPage('history')}
+          />
+        )}
+        {currentPage === 'faq' && <FAQPage onBack={() => setCurrentPage('home')} />}
+        {currentPage === 'history' && (
+          <HistoryPage
+            userCards={userCards}
+            transactions={transactions}
+            onBack={() => setCurrentPage('home')}
+          />
+        )}
+        {currentPage === 'issue-card' && (
+          <IssueCardPage
+            onBack={() => {
+              setCardTypeToIssue(null)
+              setCurrentPage('home')
+            }}
+            initialCardType={cardTypeToIssue}
+            onCardIssued={(cardData) => {
+              addCard(cardData)
+              setCardTypeToIssue(null)
+              setCurrentPage('home')
+            }}
+          />
+        )}
+        {currentPage === 'card-detail' && (
+          <CardDetailPage
+            card={selectedCard}
+            onTopUp={(cardId, deltaAmount) => topUpCardBalance(cardId, deltaAmount)}
+            onBack={() => {
+              setSelectedCard(null)
+              setCurrentPage('home')
+            }}
+          />
+        )}
+      </Layout>
+    </ToastProvider>
   )
 }
 

@@ -98,6 +98,36 @@
       .cards-scroll:active {
         cursor: grabbing;
       }
+
+      @keyframes toastEnter {
+        from {
+          opacity: 0;
+          transform: translateY(-10px) scale(0.98);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+
+      .toast-enter {
+        animation: toastEnter 240ms ease-out;
+      }
+
+      @keyframes toastLeave {
+        from {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+        to {
+          opacity: 0;
+          transform: translateY(-10px) scale(0.98);
+        }
+      }
+
+      .toast-leave {
+        animation: toastLeave 220ms ease-in;
+      }
     </style>
   </head>
   <body>

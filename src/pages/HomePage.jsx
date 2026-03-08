@@ -6,10 +6,12 @@ import Badge from '../components/ui/Badge'
 import InfoCard from '../components/ui/InfoCard'
 import { H2, H3, H4, Description } from '../components/ui/Typography'
 import { useDragScroll } from '../hooks/useDragScroll'
+import { TxIcon } from './HistoryPage'
 
-function HomePage({ userCards = [], onNavigateToFAQ, onNavigateToIssueCard }) {
+function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNavigateToIssueCard, onCardClick, onNavigateToHistory }) {
   const [expandedCard, setExpandedCard] = useState(null)
   const scrollRef = useDragScroll()
+  const font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif'
 
   const totalBalance = userCards.reduce((sum, c) => sum + (Number(c.balance) || 0), 0)
 
@@ -80,7 +82,7 @@ function HomePage({ userCards = [], onNavigateToFAQ, onNavigateToIssueCard }) {
               Мои карты
             </h2>
 
-            <Button variant="link" onClick={onNavigateToIssueCard}>
+            <Button variant="link" onClick={() => onNavigateToIssueCard()}>
               <span className="relative mr-2 inline-block h-3 w-3">
                 <span className="absolute left-1/2 top-1/2 h-[2.5px] w-full -translate-x-1/2 -translate-y-1/2 rounded-full bg-current" />
                 <span className="absolute left-1/2 top-1/2 h-full w-[2.5px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-current" />
@@ -138,7 +140,7 @@ function HomePage({ userCards = [], onNavigateToFAQ, onNavigateToIssueCard }) {
                       justifyContent: 'space-between',
                       overflow: 'hidden',
                     }}
-                    onClick={() => {}}
+                    onClick={() => onCardClick && onCardClick(card)}
                   >
                     <div
                       style={{
@@ -331,46 +333,46 @@ function HomePage({ userCards = [], onNavigateToFAQ, onNavigateToIssueCard }) {
 
               <div className="grid grid-cols-2 gap-3" style={{ marginBottom: 16 }}>
                 <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif', marginBottom: 2 }}>0 $</div>
-                  <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Выпуск карты</div>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>0 $</div>
+                  <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Выпуск карты</div>
                 </div>
                 <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif', marginBottom: 2 }}>1 год</div>
-                  <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Срок действия</div>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>1 год</div>
+                  <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Срок действия</div>
                 </div>
                 <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif', marginBottom: 2 }}>0,4 $</div>
-                  <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Комиссия за операцию</div>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>0,4 $</div>
+                  <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Комиссия за операцию</div>
                 </div>
                 <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif', marginBottom: 2 }}>3,8 %</div>
-                  <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Комиссия за пополнение</div>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>3,8 %</div>
+                  <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Комиссия за пополнение</div>
                 </div>
               </div>
 
               <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px', marginBottom: 16 }}>
-                <h4 style={{ fontSize: 17, fontWeight: 700, color: '#111827', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif', marginBottom: 8 }}>Оплачивайте</h4>
-                <p style={{ fontSize: 13, color: '#6B7280', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif', lineHeight: '20px' }}>
+                <h4 style={{ fontSize: 17, fontWeight: 700, color: '#111827', fontFamily: font, marginBottom: 8 }}>Оплачивайте</h4>
+                <p style={{ fontSize: 13, color: '#6B7280', fontFamily: font, lineHeight: '20px' }}>
                   Booking, Airbnb, Zoom, Google One, Spotify, YouTube, покупки в магазинах и пр.
                 </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3" style={{ marginBottom: 16 }}>
                 <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <h4 style={{ fontSize: 15, fontWeight: 700, color: '#111827', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif', marginBottom: 6 }}>Подключение</h4>
+                  <h4 style={{ fontSize: 15, fontWeight: 700, color: '#111827', fontFamily: font, marginBottom: 6 }}>Подключение</h4>
                   <div className="flex gap-2">
                     <img src="/images/GooglePay.png" alt="Google Pay" style={{ height: 20, width: 'auto' }} />
                     <img src="/images/Apple.png" alt="Apple Pay" style={{ height: 20, width: 'auto' }} />
                   </div>
                 </div>
                 <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <h4 style={{ fontSize: 15, fontWeight: 700, color: '#111827', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif', marginBottom: 6 }}>Гонконг</h4>
-                  <p style={{ fontSize: 13, color: '#6B7280', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif' }}>Страна BIN</p>
+                  <h4 style={{ fontSize: 15, fontWeight: 700, color: '#111827', fontFamily: font, marginBottom: 6 }}>Гонконг</h4>
+                  <p style={{ fontSize: 13, color: '#6B7280', fontFamily: font }}>Страна BIN</p>
                 </div>
               </div>
 
 <Button
-  onClick={() => onNavigateToIssueCard('online')}
+  onClick={() => onNavigateToIssueCard()}
   variant="secondary"
   fullWidth
 >
@@ -414,7 +416,7 @@ function HomePage({ userCards = [], onNavigateToFAQ, onNavigateToIssueCard }) {
                     fontSize: 16,
                     fontWeight: 600,
                     color: '#111827',
-                    fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+                    fontFamily: font,
                     marginBottom: 2,
                   }}
                 >
@@ -425,7 +427,7 @@ function HomePage({ userCards = [], onNavigateToFAQ, onNavigateToIssueCard }) {
                     fontSize: 12,
                     fontWeight: 400,
                     color: '#6B7280',
-                    fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+                    fontFamily: font,
                     lineHeight: '16px',
                   }}
                 >
@@ -487,7 +489,7 @@ function HomePage({ userCards = [], onNavigateToFAQ, onNavigateToIssueCard }) {
                     fontSize: 12,
                     fontWeight: 400,
                     color: '#FFFFFF',
-                    fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+                    fontFamily: font,
                   }}
                 >
                   Бесплатное обслуживание
@@ -500,7 +502,7 @@ function HomePage({ userCards = [], onNavigateToFAQ, onNavigateToIssueCard }) {
                     fontSize: 12,
                     fontWeight: 400,
                     color: '#FFFFFF',
-                    fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+                    fontFamily: font,
                   }}
                 >
                   Бесплатный выпуск
@@ -509,41 +511,41 @@ function HomePage({ userCards = [], onNavigateToFAQ, onNavigateToIssueCard }) {
 
               <div className="grid grid-cols-2 gap-3" style={{ marginBottom: 16 }}>
                 <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif', marginBottom: 2 }}>0 $</div>
-                  <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Выпуск карты</div>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>0 $</div>
+                  <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Выпуск карты</div>
                 </div>
                 <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif', marginBottom: 2 }}>1 год</div>
-                  <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Срок действия</div>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>1 год</div>
+                  <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Срок действия</div>
                 </div>
                 <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif', marginBottom: 2 }}>0,4 $</div>
-                  <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Комиссия за операцию</div>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>0,4 $</div>
+                  <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Комиссия за операцию</div>
                 </div>
                 <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif', marginBottom: 2 }}>4 %</div>
-                  <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Комиссия за пополнение</div>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>4 %</div>
+                  <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Комиссия за пополнение</div>
                 </div>
               </div>
 
               <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px', marginBottom: 16 }}>
-                <h4 style={{ fontSize: 17, fontWeight: 700, color: '#111827', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif', marginBottom: 8 }}>Оплачивайте</h4>
-                <p style={{ fontSize: 13, color: '#6B7280', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif', lineHeight: '20px' }}>
+                <h4 style={{ fontSize: 17, fontWeight: 700, color: '#111827', fontFamily: font, marginBottom: 8 }}>Оплачивайте</h4>
+                <p style={{ fontSize: 13, color: '#6B7280', fontFamily: font, lineHeight: '20px' }}>
                   Booking, Airbnb, Zoom, Google One, Spotify, YouTube, покупки в магазинах и пр.
                 </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3" style={{ marginBottom: 16 }}>
                 <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <h4 style={{ fontSize: 15, fontWeight: 700, color: '#111827', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif', marginBottom: 6 }}>Подключение</h4>
+                  <h4 style={{ fontSize: 15, fontWeight: 700, color: '#111827', fontFamily: font, marginBottom: 6 }}>Подключение</h4>
                   <div className="flex gap-2">
                     <img src="/images/GooglePay.png" alt="Google Pay" style={{ height: 20, width: 'auto' }} />
                     <img src="/images/Apple.png" alt="Apple Pay" style={{ height: 20, width: 'auto' }} />
                   </div>
                 </div>
                 <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <h4 style={{ fontSize: 15, fontWeight: 700, color: '#111827', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif', marginBottom: 6 }}>Гонконг</h4>
-                  <p style={{ fontSize: 13, color: '#6B7280', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif' }}>Страна BIN</p>
+                  <h4 style={{ fontSize: 15, fontWeight: 700, color: '#111827', fontFamily: font, marginBottom: 6 }}>Гонконг</h4>
+                  <p style={{ fontSize: 13, color: '#6B7280', fontFamily: font }}>Страна BIN</p>
                 </div>
               </div>
 
@@ -562,41 +564,106 @@ function HomePage({ userCards = [], onNavigateToFAQ, onNavigateToIssueCard }) {
 
       <Section>
         <Card padding="20px" style={{ minHeight: 250 }}>
-          <h2
-            style={{
-              fontSize: 22,
-              fontWeight: 700,
-              color: '#111827',
-              fontFamily:
-                '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-              marginBottom: 0,
-            }}
-          >
-            История
-          </h2>
-
-          <div className="flex flex-col items-center justify-center" style={{ paddingTop: 28, paddingBottom: 28 }}>
-            <img src="/images/Union.png" alt="" style={{ width: 34, height: 34, marginBottom: 12, opacity: 0.65 }} />
-            <div
+          <div className="flex items-center justify-between" style={{ marginBottom: 0 }}>
+            <h2
               style={{
-                fontSize: 13,
-                fontWeight: 600,
-                color: '#6B7280',
-                fontFamily:
-                  '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+                fontSize: 22,
+                fontWeight: 700,
+                color: '#111827',
+                fontFamily: font,
+                margin: 0,
               }}
             >
-              Нет операций
-            </div>
+              История
+            </h2>
+            <Button variant="icon" onClick={onNavigateToHistory}>
+              <div style={{
+                width: 28, height: 28, borderRadius: 14,
+                backgroundColor: '#F3F5F8',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M5 2l5 5-5 5" stroke="#111827" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </div>
+            </Button>
           </div>
 
-          <Button
-            onClick={onNavigateToIssueCard}
-            fullWidth
-            style={{ borderRadius: 12, padding: '16px' }}
-          >
-            + Выпустить карту
-          </Button>
+          {transactions.length === 0 ? (
+            <>
+              <div className="flex flex-col items-center justify-center" style={{ paddingTop: 28, paddingBottom: 28 }}>
+                <img src="/images/Union.png" alt="" style={{ width: 34, height: 34, marginBottom: 12, opacity: 0.65 }} />
+                <div
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: '#6B7280',
+                    fontFamily: font,
+                  }}
+                >
+                  Нет операций
+                </div>
+              </div>
+              <Button
+                onClick={() => onNavigateToIssueCard()}
+                fullWidth
+                style={{ borderRadius: 12, padding: '16px' }}
+              >
+                + Выпустить карту
+              </Button>
+            </>
+          ) : (
+            <div style={{ marginTop: 16 }}>
+              {transactions.slice(0, 6).map((tx, idx) => {
+                const isPositive = tx.amount > 0
+                const absAmount = Math.abs(tx.amount)
+                const formatted = absAmount.toLocaleString('en-US', {
+                  minimumFractionDigits: absAmount % 1 !== 0 ? 2 : 0,
+                  maximumFractionDigits: 2,
+                })
+                const amountStr = isPositive ? `+${formatted} $` : `−${formatted} $`
+                const amountColor = isPositive ? '#22C55E' : tx.type === 'declined' ? '#DC4D35' : '#111827'
+
+                return (
+                  <div
+                    key={tx.id}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 12,
+                      paddingTop: 16, paddingBottom: 16,
+                      borderBottom: idx < 5 ? '1px solid #F3F5F8' : 'none',
+                    }}
+                  >
+                    <TxIcon type={tx.type} size={50} iconSize={24} radius={16} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 15, fontWeight: 600, color: '#111827', fontFamily: font }}>
+                        {tx.title}
+                      </div>
+                      <div style={{
+                        fontSize: 13, color: tx.type === 'declined' ? '#DC4D35' : '#6B7280',
+                        fontFamily: font, marginTop: 1,
+                      }}>
+                        {tx.subtitle}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+                      <div style={{
+                        fontSize: 16,
+                        fontWeight: 600,
+                        color: amountColor,
+                        fontFamily: font,
+                        textAlign: 'right',
+                      }}>
+                        {amountStr}
+                      </div>
+                      <div style={{ fontSize: 12, color: '#6B7280', fontFamily: font, textAlign: 'right' }}>
+                        {tx.cardTitle} · {tx.cardLast4}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </Card>
       </Section>
     </div>
