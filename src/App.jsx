@@ -148,9 +148,14 @@ function App() {
       try {
         tg.ready()
 
-        const isDesktop = typeof window !== 'undefined'
+        const platform = String(tg.platform || '').toLowerCase()
+        const ua = String(window?.navigator?.userAgent || '').toLowerCase()
+        const isDesktopPlatform =
+          platform === 'tdesktop' ||
+          (!platform && (ua.includes('windows') || ua.includes('mac os') || ua.includes('linux')) && !ua.includes('android'))
+
         const canRequestFullscreen =
-          isDesktop && typeof tg.requestFullscreen === 'function' && tg.isFullscreen !== true
+          isDesktopPlatform && typeof tg.requestFullscreen === 'function' && tg.isFullscreen !== true
         if (canRequestFullscreen) {
           try {
             tg.requestFullscreen()
