@@ -570,8 +570,22 @@ function HistoryPage({ userCards = [], transactions = [], fixedCardLast4 = null,
 
       <div style={{ flex: 1, padding: '20px 0 80px' }}>
         {filteredGroups.length === 0 ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '60px 16px', color: '#9CA3AF', fontSize: 15, fontFamily: font }}>
-            Нет операций за выбранный период
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '60px 16px',
+              color: '#111827',
+              fontSize: 13,
+              fontWeight: 600,
+              fontFamily: font,
+              gap: 14,
+            }}
+          >
+            <img src="/images/Union.png" alt="" style={{ width: 54, height: 54, opacity: 0.8 }} />
+            <div style={{ color: '#111827' }}>Нет операций за выбранный период</div>
           </div>
         ) : (
           filteredGroups.map(group => (

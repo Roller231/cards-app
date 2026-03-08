@@ -47,7 +47,7 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
     if (!card?.id) return
     if (typeof onTopUp !== 'function') return
     topUpCalledRef.current = true
-    onTopUp(card.id, amount)
+    onTopUp(card.id, amount, { cardLast4: card.last4, cardTitle: card.title || 'Виртуальная карта' })
   }, [screen, card?.id, onTopUp, amount])
 
   const commissionPercent = card?.cardType === 'online-plus' ? 4 : 3.8

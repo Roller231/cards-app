@@ -90,13 +90,15 @@ function App() {
     setTransactions((prev) => [...generateCardTransactions(newCard), ...prev])
   }
 
-  const topUpCardBalance = (cardId, deltaAmount) => {
+  const topUpCardBalance = (cardId, deltaAmount, meta = null) => {
+    const numericDelta = Number(deltaAmount) || 0
+
     setUserCards((prev) =>
       prev.map((c) =>
         c.id === cardId
           ? {
               ...c,
-              balance: (Number(c.balance) || 0) + (Number(deltaAmount) || 0),
+              balance: (Number(c.balance) || 0) + numericDelta,
             }
           : c
       )
@@ -106,9 +108,30 @@ function App() {
       if (!prev || prev.id !== cardId) return prev
       return {
         ...prev,
-        balance: (Number(prev.balance) || 0) + (Number(deltaAmount) || 0),
+        balance: (Number(prev.balance) || 0) + numericDelta,
       }
     })
+
+    const cardLast4 =
+      meta?.cardLast4 || (selectedCard?.id === cardId ? selectedCard?.last4 : null)
+    const cardTitle =
+      meta?.cardTitle || (selectedCard?.id === cardId ? (selectedCard?.title || 'Виртуальная карта') : 'Виртуальная карта')
+
+    if (cardLast4) {
+      setTransactions((prev) => [
+        {
+          id: `tx-topup-${cardId}-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          type: 'topup',
+          title: `*** ${cardLast4}`,
+          subtitle: 'Пополнение',
+          cardTitle,
+          cardLast4,
+          amount: numericDelta,
+          date: new Date(),
+        },
+        ...prev,
+      ])
+    }
   }
 
   useEffect(() => {
@@ -203,7 +226,7 @@ function App() {
           <CardDetailPage
             card={selectedCard}
             transactions={transactions}
-            onTopUp={(cardId, deltaAmount) => topUpCardBalance(cardId, deltaAmount)}
+            onTopUp={(cardId, deltaAmount, meta) => topUpCardBalance(cardId, deltaAmount, meta)}
             onNavigateToHistory={(cardLast4) => {
               setHistoryFixedCardLast4(cardLast4)
               setCurrentPage('history')
