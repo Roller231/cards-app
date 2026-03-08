@@ -146,6 +146,16 @@ function App() {
 
       try {
         tg.ready()
+
+        const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 768
+        if (isDesktop && typeof tg.requestFullscreen === 'function') {
+          try {
+            tg.requestFullscreen()
+          } catch {
+            // ignore
+          }
+        }
+
         tg.expand()
 
         if (typeof tg.disableVerticalSwipes === 'function') {

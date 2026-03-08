@@ -19,7 +19,7 @@ function WelcomePage({ onStart }) {
           paddingLeft: 24,
           paddingRight: 24,
           paddingTop: 'clamp(10px, 2vh, 22px)',
-          paddingBottom: 'clamp(10px, 2vh, 24px)',
+          paddingBottom: 'clamp(15px, 2vh, 24px)',
         }}
       >
         <h1
@@ -36,14 +36,14 @@ function WelcomePage({ onStart }) {
           Платите за границей через ApplePay и GooglePay
         </p>
 
-        <div className="flex flex-col gap-3" style={{ marginTop: 'auto' }}>
+        <div className="flex flex-col gap-3" style={{ marginTop: 'auto', paddingBottom: 10 }}>
           <button
             type="button"
             onClick={onStart}
             style={{
               backgroundColor: '#DC4D35',
             }}
-            className="w-full rounded-2xl py-[16px] text-[16px] font-semibold text-white cursor-pointer transition-transform duration-150 active:scale-95 hover:opacity-90"
+            className="w-full rounded-2xl py-[12px] text-[16px] font-semibold text-white cursor-pointer transition-transform duration-150 active:scale-95 hover:opacity-90"
           >
             Начать
           </button>
