@@ -133,9 +133,9 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
         },
         {
           id: 'sbp',
-          label: 'СБВ',
+          label: 'СБП',
           iconSrc: '/images/sbp.png',
-          iconAlt: 'СБВ',
+          iconAlt: 'СБП',
           iconSize: 38,
         },
       ].map(({ id, label, iconSrc, iconAlt, iconSize }) => (
