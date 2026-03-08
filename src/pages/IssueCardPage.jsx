@@ -245,6 +245,23 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
 </div>
         </div>
 
+        {hasAmount && amount < 15 && (
+          <div
+            style={{
+              backgroundColor: '#FFFBEB',
+              borderRadius: 12,
+              padding: '12px 16px',
+              border: '1px solid #FDE68A',
+              color: '#92400E',
+              fontSize: 13,
+              fontWeight: 600,
+              fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+            }}
+          >
+            Минимальная сумма пополнения 15 $
+          </div>
+        )}
+
         {/* Total */}
         <div
           style={{
