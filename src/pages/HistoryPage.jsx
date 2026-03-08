@@ -497,6 +497,20 @@ function HistoryPage({ userCards = [], transactions = [], fixedCardLast4 = null,
   const [typeModalOpen, setTypeModalOpen] = useState(false)
   const [periodModalOpen, setPeriodModalOpen] = useState(false)
 
+  useEffect(() => {
+    const tg = window?.Telegram?.WebApp
+    if (!tg?.BackButton) return
+    if (typeof onBack !== 'function') return
+
+    tg.BackButton.show()
+    tg.BackButton.onClick(onBack)
+
+    return () => {
+      tg.BackButton.hide()
+      tg.BackButton.offClick(onBack)
+    }
+  }, [onBack])
+
   const allCards = userCards.length > 0 ? userCards.map(c => ({ last4: c.last4, title: c.title || 'Виртуальная карта' })) : []
 
   const filteredGroups = useMemo(() => {

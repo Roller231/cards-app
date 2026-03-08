@@ -67,6 +67,7 @@ function App() {
   const [userCards, setUserCards] = useState([])
   const [transactions, setTransactions] = useState([])
   const [historyFixedCardLast4, setHistoryFixedCardLast4] = useState(null)
+  const [historyReturnCardId, setHistoryReturnCardId] = useState(null)
   const tgInitOnceRef = useRef(false)
 
   const addCard = (cardData) => {
@@ -207,6 +208,7 @@ function App() {
             }}
             onNavigateToHistory={() => {
               setHistoryFixedCardLast4(null)
+              setHistoryReturnCardId(null)
               setCurrentPage('history')
             }}
           />
@@ -217,7 +219,15 @@ function App() {
             userCards={userCards}
             transactions={transactions}
             fixedCardLast4={historyFixedCardLast4}
-            onBack={() => setCurrentPage('home')}
+            onBack={() => {
+              if (historyReturnCardId) {
+                const cardToReturn = userCards.find((c) => c.id === historyReturnCardId) || null
+                setSelectedCard(cardToReturn)
+                setCurrentPage('card-detail')
+                return
+              }
+              setCurrentPage('home')
+            }}
           />
         )}
         {currentPage === 'issue-card' && (
@@ -241,6 +251,7 @@ function App() {
             onTopUp={(cardId, deltaAmount, meta) => topUpCardBalance(cardId, deltaAmount, meta)}
             onNavigateToHistory={(cardLast4) => {
               setHistoryFixedCardLast4(cardLast4)
+              setHistoryReturnCardId(selectedCard?.id || null)
               setCurrentPage('history')
             }}
             onBack={() => {

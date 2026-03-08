@@ -372,7 +372,7 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
               </div>
 
 <Button
-  onClick={() => onNavigateToIssueCard()}
+  onClick={() => onNavigateToIssueCard('online')}
   variant="secondary"
   fullWidth
 >
