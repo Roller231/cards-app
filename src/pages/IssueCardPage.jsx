@@ -58,6 +58,22 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
 
   const round2 = (v) => Math.round((Number(v) + Number.EPSILON) * 100) / 100
 
+  const sanitizeDecimalInput = (value) => {
+    const cleaned = value.replace(/[^0-9.]/g, '')
+    const [integerPart = '', ...decimalParts] = cleaned.split('.')
+    return decimalParts.length > 0
+      ? `${integerPart}.${decimalParts.join('')}`
+      : integerPart
+  }
+
+  const getInputWidthCh = (value) => {
+    const text = String(value || '')
+    const digitsCount = text.replace(/\./g, '').length
+    const dotsCount = (text.match(/\./g) || []).length
+    const visualLength = digitsCount + dotsCount * 0.35
+    return `${Math.max(visualLength, 1) + 0.5}ch`
+  }
+
   const selectedCard = cardTypes.find((c) => c.id === selectedCardType)
   const commissionPercent = selectedCard?.topUpCommissionPercent || 0
   const commissionRate = useMemo(() => commissionPercent / 100, [commissionPercent])
@@ -269,13 +285,14 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
           >
             Сумма
           </label>
-<div className="flex items-center" style={{ gap: 6 }}>
+<div className="flex items-center" style={{ gap: 2 }}>
   <input
     ref={amountInputRef}
-    type="number"
+    type="text"
+    inputMode="decimal"
     value={amountInput}
     onChange={(e) => {
-      const next = e.target.value
+      const next = sanitizeDecimalInput(e.target.value)
       lastEditedRef.current = 'amount'
       setAmountInput(next)
       setAmount(round2(parseFloat(next) || 0))
@@ -290,7 +307,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
       color: hasAmount ? '#111827' : '#6B7280',
       fontFamily:
         '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-      width: `${Math.max(amountText.length, 1) + 0.5}ch`,
+      width: getInputWidthCh(amountText),
       minWidth: '1.5ch',
     }}
   />
@@ -348,13 +365,14 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
           >
             Итоговая сумма с учетом комиссии
           </label>
-          <div className="flex items-center" style={{ gap: 6 }}>
+          <div className="flex items-center" style={{ gap: 2 }}>
             <input
               ref={totalInputRef}
-              type="number"
+              type="text"
+              inputMode="decimal"
               value={totalInput}
               onChange={(e) => {
-                const next = e.target.value
+                const next = sanitizeDecimalInput(e.target.value)
                 lastEditedRef.current = 'total'
                 setTotalInput(next)
                 const parsedTotal = parseFloat(next) || 0
@@ -373,7 +391,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
                 color: hasAmount ? '#111827' : '#6B7280',
                 fontFamily:
                   '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-                width: `${Math.max(String(totalInput || '').length, 1) + 0.5}ch`,
+                width: getInputWidthCh(totalInput),
                 minWidth: '1.5ch',
               }}
             />

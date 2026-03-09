@@ -59,6 +59,22 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
 
   const round2 = (v) => Math.round((Number(v) + Number.EPSILON) * 100) / 100
 
+  const sanitizeDecimalInput = (value) => {
+    const cleaned = value.replace(/[^0-9.]/g, '')
+    const [integerPart = '', ...decimalParts] = cleaned.split('.')
+    return decimalParts.length > 0
+      ? `${integerPart}.${decimalParts.join('')}`
+      : integerPart
+  }
+
+  const getInputWidthCh = (value) => {
+    const text = String(value || '')
+    const digitsCount = text.replace(/\./g, '').length
+    const dotsCount = (text.match(/\./g) || []).length
+    const visualLength = digitsCount + dotsCount * 0.35
+    return `${Math.max(visualLength, 1) + 0.5}ch`
+  }
+
   const commissionPercent = card?.cardType === 'online-plus' ? 4 : 3.8
   const commissionRate = commissionPercent / 100
   const total = amount > 0 ? round2(amount * (1 + commissionRate)) : 0
@@ -266,13 +282,14 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
                 <label style={{ fontSize: 13, fontWeight: 600, color: '#6B7280', fontFamily: font, display: 'block', marginBottom: 8 }}>
                   Сумма
                 </label>
-                <div className="flex items-center" style={{ gap: 6 }}>
+                <div className="flex items-center" style={{ gap: 2 }}>
                   <input
                     ref={amountInputRef}
-                    type="number"
+                    type="text"
+                    inputMode="decimal"
                     value={amountInput}
                     onChange={(e) => {
-                      const next = e.target.value
+                      const next = sanitizeDecimalInput(e.target.value)
                       lastEditedRef.current = 'amount'
                       setAmountInput(next)
                       setAmount(round2(parseFloat(next) || 0))
@@ -282,7 +299,7 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
                       border: 'none', outline: 'none', background: 'transparent',
                       fontSize: 15, fontWeight: hasAmount ? 600 : 400,
                       color: hasAmount ? '#111827' : '#6B7280', fontFamily: font,
-                      width: `${Math.max(amountText.length, 1) + 0.5}ch`, minWidth: '1.5ch',
+                      width: getInputWidthCh(amountText), minWidth: '1.5ch',
                     }}
                   />
                   <span style={{ fontSize: 15, fontWeight: 600, color: '#111827', fontFamily: font }}>$</span>
@@ -297,13 +314,14 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
                 <label style={{ fontSize: 13, fontWeight: 600, color: '#6B7280', fontFamily: font, display: 'block', marginBottom: 8 }}>
                   Итоговая сумма с учетом комиссии
                 </label>
-                <div className="flex items-center" style={{ gap: 6 }}>
+                <div className="flex items-center" style={{ gap: 2 }}>
                   <input
                     ref={totalInputRef}
-                    type="number"
+                    type="text"
+                    inputMode="decimal"
                     value={totalInput}
                     onChange={(e) => {
-                      const next = e.target.value
+                      const next = sanitizeDecimalInput(e.target.value)
                       lastEditedRef.current = 'total'
                       setTotalInput(next)
                       const parsedTotal = parseFloat(next) || 0
@@ -321,7 +339,7 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
                       fontWeight: hasAmount ? 600 : 400,
                       color: hasAmount ? '#111827' : '#6B7280',
                       fontFamily: font,
-                      width: `${Math.max(String(totalInput || '').length, 1) + 0.5}ch`,
+                      width: getInputWidthCh(totalInput),
                       minWidth: '1.5ch',
                     }}
                   />
