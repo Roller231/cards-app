@@ -129,34 +129,74 @@ class CardService:
         }
     
     async def sync_cards_from_aifory(self, db: AsyncSession, user_id: int) -> List[Card]:
-        """Sync cards from Aifory to local DB."""
+        """Sync cards from Aifory to local DB for a specific user only."""
+        # 1) Pull all cards from Aifory once and index by partner card ID.
         aifory_cards = await aifory_client.get_cards()
         cards_data = aifory_cards.get("cards", [])
-        
-        for card_data in cards_data:
-            partner_card_id = card_data.get("cardID")
-            
-            # Check if card exists
-            result = await db.execute(
+        cards_by_partner_id = {
+            card_data.get("cardID"): card_data
+            for card_data in cards_data
+            if card_data.get("cardID")
+        }
+
+        # 2) Refresh statuses only for cards that already belong to this user.
+        user_cards_result = await db.execute(select(Card).where(Card.user_id == user_id))
+        user_cards = user_cards_result.scalars().all()
+        user_cards_by_partner_id = {card.partner_card_id: card for card in user_cards}
+        for partner_card_id, local_card in user_cards_by_partner_id.items():
+            partner_card = cards_by_partner_id.get(partner_card_id)
+            if not partner_card:
+                continue
+            local_card.status = partner_card.get("cardStatus", local_card.status)
+            local_card.category = partner_card.get("category", local_card.category)
+            local_card.expired_at = partner_card.get("expiredAt", local_card.expired_at)
+
+        # 3) Create missing cards strictly from this user's issue orders.
+        orders_result = await db.execute(
+            select(Order).where(Order.user_id == user_id, Order.type == "issue")
+        )
+        issue_orders = orders_result.scalars().all()
+
+        for order in issue_orders:
+            # If already linked to a local card, nothing to create.
+            if order.card_id:
+                continue
+
+            try:
+                order_details = await aifory_client.get_order_details(order.partner_order_id)
+            except Exception:
+                # Keep sync resilient: skip transient API issues for this order.
+                continue
+
+            status_id = order_details.get("statusID")
+            partner_card_id = order_details.get("cardID")
+            if status_id != 2 or not partner_card_id:
+                continue
+
+            # If this card is already present in local DB, link order to it when appropriate.
+            existing_card_result = await db.execute(
                 select(Card).where(Card.partner_card_id == partner_card_id)
             )
-            existing_card = result.scalar_one_or_none()
-            
+            existing_card = existing_card_result.scalar_one_or_none()
             if existing_card:
-                # Update status
-                existing_card.status = card_data.get("cardStatus", existing_card.status)
-            else:
-                # Create new card record
-                new_card = Card(
-                    user_id=user_id,
-                    partner_card_id=partner_card_id,
-                    last4=card_data.get("cardNumberLastDigits", "0000"),
-                    category=card_data.get("category"),
-                    status=card_data.get("cardStatus", 1),
-                    expired_at=card_data.get("expiredAt"),
-                )
-                db.add(new_card)
-        
+                # Security guard: never reassign someone else's card.
+                if existing_card.user_id == user_id:
+                    order.card_id = existing_card.id
+                continue
+
+            partner_card = cards_by_partner_id.get(partner_card_id, {})
+            new_card = Card(
+                user_id=user_id,
+                partner_card_id=partner_card_id,
+                last4=partner_card.get("cardNumberLastDigits", "0000"),
+                category=partner_card.get("category"),
+                status=partner_card.get("cardStatus", 2),
+                expired_at=partner_card.get("expiredAt"),
+            )
+            db.add(new_card)
+            await db.flush()  # Get new_card.id before linking order
+            order.card_id = new_card.id
+
         await db.commit()
         return await self.get_user_cards(db, user_id)
 
