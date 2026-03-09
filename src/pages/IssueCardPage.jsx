@@ -56,14 +56,13 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
     { id: 'online-plus', name: 'Online + Pay', topUpCommissionPercent: 4 },
   ]
 
+  const round2 = (v) => Math.round((Number(v) + Number.EPSILON) * 100) / 100
+
   const selectedCard = cardTypes.find((c) => c.id === selectedCardType)
   const commissionPercent = selectedCard?.topUpCommissionPercent || 0
   const commissionRate = useMemo(() => commissionPercent / 100, [commissionPercent])
-  const commission =
-    selectedCard && amount > 0
-      ? (amount * (selectedCard.topUpCommissionPercent || 0)) / 100
-      : 0
-  const total = amount + commission
+  const total = amount > 0 ? round2(amount * (1 + commissionRate)) : 0
+  const commission = amount > 0 ? round2(total - amount) : 0
   const hasAmount = amount > 0
   const amountText = amountInput || ''
   const selectedCardName = selectedCardType
@@ -79,7 +78,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
       setTotalInput('')
       return
     }
-    const nextTotal = amount * (1 + commissionRate)
+    const nextTotal = round2(amount * (1 + commissionRate))
     setTotalInput(nextTotal.toFixed(2))
   }, [amount, commissionRate])
 
@@ -100,7 +99,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
       setTotalInput('')
       return
     }
-    const nextTotal = amount * (1 + commissionRate)
+    const nextTotal = round2(amount * (1 + commissionRate))
     setTotalInput(nextTotal.toFixed(2))
   }, [commissionRate])
 
@@ -121,7 +120,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
     }
 
     const nextAmount = commissionRate > 0 ? parsedTotal / (1 + commissionRate) : parsedTotal
-    const safeAmount = nextAmount > 0 ? Number(nextAmount.toFixed(2)) : 0
+    const safeAmount = nextAmount > 0 ? round2(nextAmount) : 0
     setAmount(safeAmount)
     setAmountInput(String(safeAmount))
   }, [commissionRate, totalInput])
@@ -279,7 +278,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
       const next = e.target.value
       lastEditedRef.current = 'amount'
       setAmountInput(next)
-      setAmount(parseFloat(next) || 0)
+      setAmount(round2(parseFloat(next) || 0))
     }}
     placeholder="0"
     style={{
@@ -360,7 +359,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
                 setTotalInput(next)
                 const parsedTotal = parseFloat(next) || 0
                 const nextAmount = commissionRate > 0 ? parsedTotal / (1 + commissionRate) : parsedTotal
-                const safeAmount = nextAmount > 0 ? Number(nextAmount.toFixed(2)) : 0
+                const safeAmount = nextAmount > 0 ? round2(nextAmount) : 0
                 setAmount(safeAmount)
                 setAmountInput(next ? String(safeAmount) : '')
               }}

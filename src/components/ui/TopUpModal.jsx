@@ -57,10 +57,12 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
     onTopUp(card.id, amount, { cardLast4: card.last4, cardTitle: card.title || 'Виртуальная карта' })
   }, [screen, card?.id, onTopUp, amount])
 
+  const round2 = (v) => Math.round((Number(v) + Number.EPSILON) * 100) / 100
+
   const commissionPercent = card?.cardType === 'online-plus' ? 4 : 3.8
   const commissionRate = commissionPercent / 100
-  const commission = amount > 0 ? (amount * commissionPercent) / 100 : 0
-  const total = amount + commission
+  const total = amount > 0 ? round2(amount * (1 + commissionRate)) : 0
+  const commission = amount > 0 ? round2(total - amount) : 0
   const hasAmount = amount > 0
   const amountText = amountInput || ''
   const fullCardNumber = card?.cardNumber
@@ -75,7 +77,7 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
       setTotalInput('')
       return
     }
-    const nextTotal = amount * (1 + commissionRate)
+    const nextTotal = round2(amount * (1 + commissionRate))
     setTotalInput(nextTotal.toFixed(2))
   }, [amount, commissionRate])
 
@@ -273,7 +275,7 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
                       const next = e.target.value
                       lastEditedRef.current = 'amount'
                       setAmountInput(next)
-                      setAmount(parseFloat(next) || 0)
+                      setAmount(round2(parseFloat(next) || 0))
                     }}
                     placeholder="0"
                     style={{
@@ -306,7 +308,7 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
                       setTotalInput(next)
                       const parsedTotal = parseFloat(next) || 0
                       const nextAmount = commissionRate > 0 ? parsedTotal / (1 + commissionRate) : parsedTotal
-                      const safeAmount = nextAmount > 0 ? Number(nextAmount.toFixed(2)) : 0
+                      const safeAmount = nextAmount > 0 ? round2(nextAmount) : 0
                       setAmount(safeAmount)
                       setAmountInput(next ? String(safeAmount) : '')
                     }}

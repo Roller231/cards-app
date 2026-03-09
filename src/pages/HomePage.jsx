@@ -360,15 +360,12 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
               </div>
 
               <div className="grid grid-cols-2 gap-3" style={{ marginBottom: 16 }}>
+
                 <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <h4 style={{ fontSize: 15, fontWeight: 700, color: '#111827', fontFamily: font, marginBottom: 6 }}>Подключение</h4>
-                  <div className="flex gap-2">
-                    <img src="/images/GooglePay.png" alt="Google Pay" style={{ height: 20, width: 'auto' }} />
-                    <img src="/images/Apple.png" alt="Apple Pay" style={{ height: 20, width: 'auto' }} />
-                  </div>
-                </div>
-                <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <h4 style={{ fontSize: 15, fontWeight: 700, color: '#111827', fontFamily: font, marginBottom: 6 }}>Гонконг</h4>
+                  <h4 style={{ fontSize: 15, fontWeight: 700, color: '#111827', fontFamily: font, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    Гонконг
+                    <img src="/images/HongKong.svg" alt="Hong Kong" style={{ width: 18, height: 18 }} />
+                  </h4>
                   <p style={{ fontSize: 13, color: '#6B7280', fontFamily: font }}>Страна BIN</p>
                 </div>
               </div>
@@ -541,16 +538,20 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
 
               <div className="grid grid-cols-2 gap-3" style={{ marginBottom: 16 }}>
                 <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
+                  <h4 style={{ fontSize: 15, fontWeight: 700, color: '#111827', fontFamily: font, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    Гонконг
+                    <img src="/images/HongKong.svg" alt="Hong Kong" style={{ width: 18, height: 18 }} />
+                  </h4>
+                  <p style={{ fontSize: 13, color: '#6B7280', fontFamily: font }}>Страна BIN</p>
+                </div>
+                <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
                   <h4 style={{ fontSize: 15, fontWeight: 700, color: '#111827', fontFamily: font, marginBottom: 6 }}>Подключение</h4>
                   <div className="flex gap-2">
                     <img src="/images/GooglePay.png" alt="Google Pay" style={{ height: 20, width: 'auto' }} />
                     <img src="/images/Apple.png" alt="Apple Pay" style={{ height: 20, width: 'auto' }} />
                   </div>
                 </div>
-                <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <h4 style={{ fontSize: 15, fontWeight: 700, color: '#111827', fontFamily: font, marginBottom: 6 }}>Гонконг</h4>
-                  <p style={{ fontSize: 13, color: '#6B7280', fontFamily: font }}>Страна BIN</p>
-                </div>
+
               </div>
 
 <Button
