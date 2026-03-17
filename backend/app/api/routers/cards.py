@@ -1,111 +1,136 @@
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status
+
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import get_current_user
 from app.core.database import get_db
+from app.models.user import User
 from app.schemas.card import (
-    CardResponse,
-    CardListResponse,
+    CardDepositRequest,
+    CardOfferItem,
     CardRequisitesResponse,
-    CardOffersResponse,
-    CardOfferResponse,
-    IssueCardCalculateRequest,
-    IssueCardCalculateResponse,
+    CardResponse,
     IssueCardRequest,
     IssueCardResponse,
 )
 from app.services.card_service import card_service
-from app.api.deps import get_current_user
-from app.models.user import User
 
-router = APIRouter(prefix="/cards", tags=["Cards"])
+router = APIRouter(prefix="/cards", tags=["cards"])
 
 
-@router.get("", response_model=CardListResponse)
-async def get_cards(
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Get all cards for current user."""
-    cards = await card_service.get_user_cards(db, current_user.id)
-    return CardListResponse(
-        cards=[
-            CardResponse(
-                id=card.id,
-                partner_card_id=card.partner_card_id,
-                last4=card.last4,
-                category=card.category,
-                status=card.status,
-                expired_at=card.expired_at,
-                created_at=card.created_at,
-            )
-            for card in cards
-        ]
-    )
-
-
-@router.get("/{card_id}", response_model=CardResponse)
-async def get_card(
-    card_id: int,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Get a specific card."""
-    card = await card_service.get_card(db, current_user.id, card_id)
-    if not card:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Card not found",
-        )
-    return CardResponse(
-        id=card.id,
-        partner_card_id=card.partner_card_id,
-        last4=card.last4,
-        category=card.category,
-        status=card.status,
-        expired_at=card.expired_at,
-        created_at=card.created_at,
-    )
-
-
-@router.post("/{card_id}/requisites", response_model=CardRequisitesResponse)
-async def get_card_requisites(
-    card_id: int,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Get card requisites (number, CVV, holder).
-    These are fetched from Aifory and NOT stored locally.
-    """
+@router.get("/offers", response_model=List[CardOfferItem], summary="List available card products from Aifory")
+async def list_offers(_: User = Depends(get_current_user)):
     try:
-        requisites = await card_service.get_card_requisites(db, current_user.id, card_id)
-        return CardRequisitesResponse(**requisites)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e),
-        )
+        return await card_service.get_offers()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
 
 
-@router.get("/sync", response_model=CardListResponse)
-async def sync_cards(
-    current_user: User = Depends(get_current_user),
+@router.post("/issue", response_model=IssueCardResponse, summary="Issue a new virtual card")
+async def issue_card(
+    body: IssueCardRequest,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """Sync cards from Aifory to local database."""
-    cards = await card_service.sync_cards_from_aifory(db, current_user.id)
-    return CardListResponse(
-        cards=[
+    try:
+        result = await card_service.issue_card(
+            db, current_user, body.offer_id, body.holder_first_name, body.holder_last_name,
+            amount=body.amount,
+        )
+        return IssueCardResponse(**result)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+@router.get("", response_model=List[CardResponse], summary="Get current user's cards (syncs with Aifory first)")
+async def get_cards(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        await card_service.sync_cards(db, current_user)
+        cards = await card_service.get_user_cards(db, current_user.id)
+        return [
             CardResponse(
-                id=card.id,
-                partner_card_id=card.partner_card_id,
-                last4=card.last4,
-                category=card.category,
-                status=card.status,
-                expired_at=card.expired_at,
-                created_at=card.created_at,
+                id=c.id,
+                aifory_card_id=c.aifory_card_id,
+                category=c.category,
+                card_status=c.card_status,
+                expired_at=c.expired_at,
+                last4=c.last4,
+                holder_name=c.holder_name,
+                currency=c.currency,
+                currency_id=c.currency_id,
+                payment_system_id=c.payment_system_id,
+                status=c.status,
+                balance=float(c.balance),
+                offer_id=c.offer_id,
             )
-            for card in cards
+            for c in cards
         ]
-    )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+@router.get("/{card_id}/requisites", response_model=CardRequisitesResponse, summary="Get card PAN / expiry / CVV")
+async def get_requisites(
+    card_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        data = await card_service.get_card_requisites(db, current_user.id, card_id)
+        return CardRequisitesResponse(**data)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+@router.get("/{card_id}/deposit-offers", summary="List deposit (top-up) offers available for a card")
+async def get_deposit_offers(
+    card_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        return await card_service.get_deposit_offers(db, current_user.id, card_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+@router.get("/{card_id}/transactions", summary="Get card transaction history from Aifory")
+async def get_card_transactions(
+    card_id: int,
+    limit: int = 50,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        return await card_service.get_card_transactions(db, current_user.id, card_id, limit, offset)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+@router.post("/{card_id}/deposit", response_model=IssueCardResponse, summary="Top up a card balance via Aifory")
+async def deposit_card(
+    card_id: int,
+    body: CardDepositRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        result = await card_service.deposit_card(db, current_user, card_id, body.amount)
+        return IssueCardResponse(**result, message="Card top-up order created")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))

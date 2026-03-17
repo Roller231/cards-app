@@ -1,33 +1,34 @@
-from pydantic import BaseModel
 from typing import Optional
-from datetime import datetime
+from pydantic import BaseModel
 
 
-class TelegramAuthRequest(BaseModel):
-    init_data: str  # Raw initData string from Telegram WebApp
+class RegisterRequest(BaseModel):
+    username: str
+    telegram_user_id: Optional[str] = None
+    password: Optional[str] = None
 
 
-class AuthResponse(BaseModel):
+class LoginRequest(BaseModel):
+    username: str
+    password: Optional[str] = None
+
+
+class TelegramLoginRequest(BaseModel):
+    telegram_user_id: str
+    username: Optional[str] = None
+
+
+class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
-    user: "UserResponse"
 
 
 class UserResponse(BaseModel):
     id: int
-    telegram_user_id: int
+    username: str
+    telegram_user_id: Optional[str]
     balance: float
-    onboarding_completed: bool
-    created_at: datetime
-    
+    is_active: bool
+
     class Config:
         from_attributes = True
-
-
-class OnboardingCompleteRequest(BaseModel):
-    pass
-
-
-class OnboardingCompleteResponse(BaseModel):
-    success: bool
-    message: str

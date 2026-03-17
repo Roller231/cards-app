@@ -1,15 +1,19 @@
-from sqlalchemy import Column, BigInteger, String, Boolean, DateTime, Numeric
-from sqlalchemy.sql import func
+from sqlalchemy import BigInteger, Boolean, Column, Numeric, String
+from sqlalchemy.orm import relationship
+
 from app.core.database import Base
 
 
 class User(Base):
     __tablename__ = "users"
-    
+
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    telegram_user_id = Column(BigInteger, unique=True, nullable=False, index=True)
-    partner_client_id = Column(String(255), nullable=True)
-    balance = Column(Numeric(18, 2), default=0.00, nullable=False)
-    onboarding_completed = Column(Boolean, default=False, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    username = Column(String(100), unique=True, nullable=False, index=True)
+    hashed_password = Column(String(255), nullable=True)
+    telegram_user_id = Column(String(64), unique=True, nullable=True, index=True)
+    balance = Column(Numeric(18, 2), default=0, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+
+    cards = relationship("Card", back_populates="user", lazy="select")
+    orders = relationship("Order", back_populates="user", lazy="select")
+    topup_requests = relationship("BalanceTopUpRequest", back_populates="user", lazy="select")

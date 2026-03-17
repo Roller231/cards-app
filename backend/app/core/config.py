@@ -1,34 +1,24 @@
 from pydantic_settings import BaseSettings
-from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    # Database
-    DATABASE_URL: str = "mysql+aiomysql://user:password@localhost:3306/cards_app"
-    
-    # Aifory API
+    DATABASE_URL: str = "mysql+aiomysql://root:password@localhost:3306/cards_app"
+    SECRET_KEY: str = "change-me-in-production"
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080  # 7 days
+
     AIFORY_BASE_URL: str = "https://srv.aifory.pro/lk"
-    AIFORY_TOKEN: str = ""
-    
-    # Telegram Bot
-    TELEGRAM_BOT_TOKEN: str = ""
-    
-    # JWT
-    JWT_SECRET_KEY: str = "change_me_in_production"
-    JWT_ALGORITHM: str = "HS256"
-    JWT_EXPIRE_MINUTES: int = 1440
-    
-    # App
-    DEBUG: bool = False
-    
+    AIFORY_API_PREFIX: str = "/v1"
+    AIFORY_EMAIL: str = ""
+    AIFORY_PASSWORD: str = ""
+    AIFORY_PIN: str = ""
+    AIFORY_TOTP_SECRET: str = ""
+
+    CARD_ISSUE_MARKUP_PERCENT: float = 0.0
+    CARD_TOPUP_MARKUP_PERCENT: float = 0.0
+
     class Config:
         env_file = ".env"
-        case_sensitive = True
 
 
-@lru_cache()
-def get_settings() -> Settings:
-    return Settings()
-
-
-settings = get_settings()
+settings = Settings()

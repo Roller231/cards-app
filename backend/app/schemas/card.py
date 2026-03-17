@@ -1,77 +1,63 @@
+from typing import Optional
 from pydantic import BaseModel
-from typing import Optional, List
-from datetime import datetime
 
 
 class CardResponse(BaseModel):
     id: int
-    partner_card_id: str
-    last4: str
+    aifory_card_id: Optional[str] = None
     category: Optional[int] = None
-    status: int
-    balance: Optional[str] = None
+    card_status: Optional[int] = None
     expired_at: Optional[str] = None
-    payment_system_id: Optional[int] = None
+    last4: Optional[str] = None
+    holder_name: Optional[str] = None
+    currency: Optional[str] = None
     currency_id: Optional[int] = None
-    decline_rate: Optional[str] = None
-    created_at: datetime
-    
+    payment_system_id: Optional[int] = None
+    status: Optional[str] = None
+    balance: float = 0.0
+    offer_id: Optional[str] = None
+
     class Config:
         from_attributes = True
 
 
-class CardListResponse(BaseModel):
-    cards: List[CardResponse]
-
-
 class CardRequisitesResponse(BaseModel):
-    card_number: str
-    cvv: str
-    card_holder_name: str
-    country: Optional[int] = None
-    country_name: Optional[str] = None
+    card_number: Optional[str] = None
+    expiry: Optional[str] = None
+    cvv: Optional[str] = None
+    holder_name: Optional[str] = None
     street: Optional[str] = None
     city: Optional[str] = None
     postal_code: Optional[str] = None
+    country_name: Optional[str] = None
 
 
-class CardOfferResponse(BaseModel):
-    bin: str
-    category: int
-    min_amount: str
-    max_amount: str
-    create_card_currency: int
-    create_card_fixed_fee: str
-    create_card_fee_percent: str
-    operation_fixed_fee: str
-    operation_fee_percent: str
-    operation_limit: str
-    all_time_limit: str
-
-
-class CardOffersResponse(BaseModel):
-    offers: List[CardOfferResponse]
-    limits: dict
-
-
-class IssueCardCalculateRequest(BaseModel):
-    bin: str
-    amount: str
-    account_id: Optional[str] = None
-
-
-class IssueCardCalculateResponse(BaseModel):
-    amount: str
-    fee: str
+class CardOfferItem(BaseModel):
+    id: str
+    name: Optional[str] = None
+    currency: Optional[str] = None
+    currency_id: Optional[int] = None
+    category: Optional[int] = None
+    issue_fee: Optional[float] = None
+    fee_percent: Optional[float] = None
+    monthly_fee: Optional[float] = None
+    min_amount: Optional[float] = None
+    max_amount: Optional[float] = None
+    description: Optional[str] = None
 
 
 class IssueCardRequest(BaseModel):
-    bin: str
-    amount: str
-    email: str
-    account_id: Optional[str] = None
+    offer_id: str
+    holder_first_name: str
+    holder_last_name: str
+    amount: Optional[float] = None
 
 
 class IssueCardResponse(BaseModel):
-    order_id: str
-    message: str = "Card issuance started"
+    local_order_id: int
+    partner_order_id: Optional[str]
+    message: str = "Card issuance request created"
+
+
+class CardDepositRequest(BaseModel):
+    amount: float

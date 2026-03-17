@@ -1,26 +1,18 @@
-from pydantic import BaseModel
 from typing import Optional, List
+from pydantic import BaseModel
 
 
-class TransactionResponse(BaseModel):
-    transaction_id: str
-    type: int  # 1=Deposit, 2=Payment, 3=Fee
-    amount: str
-    status_id: int  # 1=Pending, 2=Success, 3=Failed
-    created_at: int
+class TransactionItem(BaseModel):
+    transaction_id: Optional[str]
+    date: Optional[str]
+    amount: Optional[float]
+    currency: Optional[str]
+    merchant: Optional[str]
+    status: Optional[str]
+    description: Optional[str]
 
 
 class TransactionListResponse(BaseModel):
-    transactions: List[TransactionResponse]
-
-
-class TransactionDetailResponse(BaseModel):
-    transaction_id: str
-    type: int
-    status_id: int
-    card_id: str
-    amount: str
-    currency_id: int
-    created_at: int
-    merchant: Optional[str] = None
-    failure_reason: Optional[str] = None
+    card_id: int
+    aifory_card_id: Optional[str]
+    transactions: List[TransactionItem]

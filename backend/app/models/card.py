@@ -1,20 +1,26 @@
-from sqlalchemy import Column, BigInteger, String, Integer, DateTime, ForeignKey
-from sqlalchemy.sql import func
+from sqlalchemy import BigInteger, Column, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import relationship
+
 from app.core.database import Base
 
 
 class Card(Base):
     __tablename__ = "cards"
-    
+
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     user_id = Column(BigInteger, ForeignKey("users.id"), nullable=False, index=True)
-    partner_card_id = Column(String(255), unique=True, nullable=False, index=True)
-    last4 = Column(String(4), nullable=False)
-    category = Column(Integer, nullable=True)  # 1=Advertisement, 2=Purchases, 3=ApplePay
-    status = Column(Integer, default=1, nullable=False)  # 1=Pending, 2=Success, 5=Canceled
-    expired_at = Column(String(10), nullable=True)  # MM/YY format from Aifory
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
-    
-    user = relationship("User", backref="cards")
+    aifory_card_id = Column(String(255), unique=True, nullable=True, index=True)
+    category = Column(Integer, nullable=True)
+    card_status = Column(Integer, nullable=True)
+    expired_at = Column(String(10), nullable=True)
+    last4 = Column(String(4), nullable=True)
+    holder_name = Column(String(255), nullable=True)
+    currency = Column(String(10), nullable=True)
+    currency_id = Column(Integer, nullable=True)
+    payment_system_id = Column(Integer, nullable=True)
+    status = Column(String(50), nullable=True)
+    balance = Column(Numeric(18, 2), default=0, nullable=False)
+    offer_id = Column(String(255), nullable=True)
+
+    user = relationship("User", back_populates="cards")
+    orders = relationship("Order", back_populates="card", lazy="select")
