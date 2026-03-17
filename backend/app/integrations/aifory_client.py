@@ -40,6 +40,13 @@ class AiforyClient:
         self._lock = asyncio.Lock()
         # Try to restore cookies from last session to avoid re-login on restart
         self._load_cookies_from_disk()
+        # If developer provided cookies via environment, prefer them
+        if settings.AIFORY_ACCESS_COOKIE:
+            self._access_cookie = settings.AIFORY_ACCESS_COOKIE
+        if settings.AIFORY_REFRESH_COOKIE:
+            self._refresh_cookie = settings.AIFORY_REFRESH_COOKIE
+        if self._access_cookie:
+            logger.info("Aifory: using pre-configured cookies from env/disk")
 
     def _load_cookies_from_disk(self) -> None:
         """Load cached cookies from disk to survive server restarts."""
@@ -63,7 +70,7 @@ class AiforyClient:
             pass
 
     def _default_headers(self) -> Dict[str, str]:
-        """Headers to mimic browser requests; some WAFs require them."""
+        """Headers to mimic browser requests and pass common WAF checks."""
         return {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -73,12 +80,20 @@ class AiforyClient:
             "Accept": "application/json, text/plain, */*",
             "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
             "Accept-Encoding": "gzip, deflate, br",
-            "Content-Type": "application/json",
-            "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Requested-With": "XMLHttpRequest",
+            "Content-Type": "application/json",
             "Origin": "https://srv.aifory.pro",
             "Referer": "https://srv.aifory.pro/lk/",
+            "X-Requested-With": "XMLHttpRequest",
+            # Hints some WAFs expect from browsers
+            "sec-ch-ua": '"Chromium";v="122", "Google Chrome";v="122", "Not.A/Brand";v="99"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"Windows"',
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin",
+            # Redundant but sometimes validated by strict WAFs
+            "Host": "srv.aifory.pro",
         }
 
     # ------------------------------------------------------------------
@@ -87,7 +102,12 @@ class AiforyClient:
 
     async def login(self) -> None:
         """Full cookie-based login flow using v1/auth/client endpoints."""
-        async with httpx.AsyncClient(headers=self._default_headers(), timeout=30) as client:
+        # If manual cookies are configured (via env), skip login entirely
+        manual_mode = bool(getattr(settings, "AIFORY_ACCESS_COOKIE", "") or getattr(settings, "AIFORY_REFRESH_COOKIE", ""))
+        if manual_mode and self._access_cookie:
+            logger.info("Aifory: manual-cookie mode active, skipping login()")
+            return
+        async with httpx.AsyncClient(headers=self._default_headers(), timeout=30, http2=True) as client:
             # Step 1 – request
             r1 = await client.post(
                 f"{self._base_url}/v1/auth/client/sign-in/request",
@@ -136,11 +156,20 @@ class AiforyClient:
                 await self.login()
 
     def _cookie_headers(self) -> Dict[str, str]:
+        # If the developer provided the full Cookie header, use it verbatim
+        raw_cookie = (getattr(settings, "AIFORY_RAW_COOKIE", "") or "").strip()
+        if raw_cookie:
+            return {"Cookie": raw_cookie}
         cookies: List[str] = []
         if self._access_cookie:
             cookies.append(f"access={self._access_cookie}")
         if self._refresh_cookie:
             cookies.append(f"refresh={self._refresh_cookie}")
+        extra = getattr(settings, "AIFORY_EXTRA_COOKIES", "") or ""
+        extra = extra.strip()
+        if extra:
+            # Expecting format like: "sse=...; spid=...; spsc=..."
+            cookies.append(extra)
         return {"Cookie": "; ".join(cookies)} if cookies else {}
 
     # ------------------------------------------------------------------
@@ -159,7 +188,7 @@ class AiforyClient:
         await self._ensure_authenticated()
         # Prefix with /v1 (or configured) for all non-auth API calls
         url = f"{self._base_url}{self._api_prefix}{path}"
-        async with httpx.AsyncClient(timeout=30, headers=self._default_headers()) as client:
+        async with httpx.AsyncClient(timeout=30, headers=self._default_headers(), http2=True) as client:
             r = await client.request(
                 method,
                 url,
@@ -168,6 +197,11 @@ class AiforyClient:
                 params=params,
             )
         if r.status_code == 401 and not retried:
+            # If manual cookies are configured, do NOT attempt login to avoid WAF blocks.
+            manual_mode = bool(getattr(settings, "AIFORY_ACCESS_COOKIE", "") or getattr(settings, "AIFORY_REFRESH_COOKIE", ""))
+            if manual_mode:
+                logger.error("Aifory 401 with manual cookies: please update AIFORY_*_COOKIE values from Postman")
+                r.raise_for_status()
             logger.info("Received 401, attempting re-login")
             async with self._lock:
                 self._access_cookie = None
