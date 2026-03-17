@@ -7,7 +7,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.api.deps import get_current_user
 from app.integrations.aifory_client import aifory_client
 from app.models.user import User
-from app.core.config import settings
 
 router = APIRouter(prefix="/aifory-dev", tags=["aifory-dev (direct API testing)"])
 
@@ -15,9 +14,6 @@ router = APIRouter(prefix="/aifory-dev", tags=["aifory-dev (direct API testing)"
 @router.post("/login", summary="[DEV] Trigger Aifory re-login manually")
 async def trigger_login(_: User = Depends(get_current_user)):
     try:
-        # If manual cookies are configured, skip login to avoid WAF/rate-limits
-        if settings.AIFORY_ACCESS_COOKIE or settings.AIFORY_REFRESH_COOKIE:
-            return {"status": "ok", "message": "Manual-cookie mode: skipping login()"}
         await aifory_client.login()
         return {"status": "ok", "message": "Aifory login successful"}
     except Exception as exc:

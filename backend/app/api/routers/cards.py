@@ -45,15 +45,13 @@ async def issue_card(
         raise HTTPException(status_code=502, detail=str(exc))
 
 
-@router.get("", response_model=List[CardResponse], summary="Get current user's cards (optionally sync with Aifory)")
+@router.get("", response_model=List[CardResponse], summary="Get current user's cards (syncs with Aifory first)")
 async def get_cards(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    sync: bool = True,
 ):
     try:
-        if sync:
-            await card_service.sync_cards(db, current_user)
+        await card_service.sync_cards(db, current_user)
         cards = await card_service.get_user_cards(db, current_user.id)
         return [
             CardResponse(
