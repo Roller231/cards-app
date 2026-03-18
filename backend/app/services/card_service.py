@@ -440,7 +440,7 @@ class CardService:
         # Client-generated idempotency key
         validate_key = str(uuid.uuid4())
 
-        # Calculate fee
+        # Calculate fee (Aifory's own total is for their processing only)
         calc = await aifory_client.calculate_deposit_order(
             account_id=usdt["account_id"],
             card_id=card.aifory_card_id,
@@ -448,13 +448,15 @@ class CardService:
             account_id_to_exchange=usdt["account_id_to_exchange"],
             validate_key=validate_key,
         )
-        aifory_total = Decimal(str(calc.get("amount") or amount))
-        aifory_fee = Decimal(str(calc.get("fee") or 0))
+        aifory_total = Decimal(str(calc.get("amount") or amount))  # For reference/logging
+        aifory_fee = Decimal(str(calc.get("fee") or 0))            # For reference/logging
 
-        # Apply markup
+        # Apply our markup ONLY on the base amount requested by the user
+        # Example: amount=$1, markup=5% => user pays $1.05 (not $1.09)
+        base_amount = Decimal(str(amount))
         markup = Decimal(str(settings.CARD_TOPUP_MARKUP_PERCENT))
-        user_total = aifory_total * (Decimal("1") + markup / Decimal("100"))
-        our_profit = user_total - aifory_total
+        our_profit = base_amount * markup / Decimal("100")
+        user_total = base_amount + our_profit
 
         # Check user balance
         if Decimal(str(user.balance)) < user_total:
