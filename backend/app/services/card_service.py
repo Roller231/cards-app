@@ -125,21 +125,16 @@ class CardService:
         # 3. Client-generated idempotency key (same key used for calculate + order)
         validate_key = str(uuid.uuid4())
 
-        # 4. Calculate what Aifory will charge (amount = total clientAmount including fees)
-        calc = await aifory_client.calculate_card_order(
-            account_id=usdt["account_id"],
-            offer_id=offer_id,
-            amount=card_amount,
-            account_id_to_exchange=usdt["account_id_to_exchange"],
-            validate_key=validate_key,
-        )
-        aifory_total = Decimal(str(calc.get("amount") or card_amount))
-        aifory_fee = Decimal(str(calc.get("fee") or 0))
-
-        # 5. Apply our markup on top of Aifory's total
+        # 4. Commission logic: user pays amount + our markup, Aifory gets only amount
+        # Example: user wants $20 card, pays $20 + 5% = $21, Aifory gets $20
+        card_amount_decimal = Decimal(str(card_amount))
         markup = Decimal(str(settings.CARD_ISSUE_MARKUP_PERCENT))
-        user_total = aifory_total * (Decimal("1") + markup / Decimal("100"))
-        our_profit = user_total - aifory_total
+        our_fee = card_amount_decimal * markup / Decimal("100")
+        user_total = card_amount_decimal + our_fee  # User pays: $20 + $1 = $21
+        
+        # Send only the requested card amount to Aifory (without our commission)
+        aifory_amount = card_amount_decimal  # Aifory gets: $20
+        our_profit = our_fee  # Our profit: $1
 
         # 6. Check user balance
         if Decimal(str(user.balance)) < user_total:
@@ -147,11 +142,11 @@ class CardService:
                 f"Insufficient balance. Required: {user_total:.2f} USD, available: {user.balance}"
             )
 
-        # 7. Place order on Aifory (reuse the same validate_key)
+        # 7. Place order on Aifory - send only the card amount (without our commission)
         result = await aifory_client.create_card_order(
             account_id=usdt["account_id"],
             offer_id=offer_id,
-            amount=card_amount,
+            amount=float(aifory_amount),  # Send $20 to Aifory, not $21
             account_id_to_exchange=usdt["account_id_to_exchange"],
             validate_key=validate_key,
         )
@@ -166,18 +161,77 @@ class CardService:
         # 8. Deduct from user balance
         user.balance = Decimal(str(user.balance)) - user_total
 
-        # 9. Save order record
+        # 9. Save order record with completed status
         order = Order(
             user_id=user.id,
             partner_order_id=partner_order_id,
             type="issue",
             amount=user_total,
             fee=our_profit,
-            status="pending",
+            status="completed",
             description=f"Card issuance: offer {offer_id}, card balance: ${card_amount:.2f}",
         )
         db.add(order)
         await db.flush()
+
+        # 10. Immediately fetch order details to get card data
+        try:
+            details = await aifory_client.get_order_details(partner_order_id)
+            aifory_card_id = details.get("cardID") or details.get("cardId")
+            status_id = details.get("statusID") or details.get("statusId")
+            
+            # Update order with Aifory status
+            if status_id is not None:
+                order.aifory_status_id = int(status_id)
+            
+            # Create card record if we have cardID
+            if aifory_card_id:
+                # Get card details from Aifory cards list
+                aifory_cards = await aifory_client.get_cards("")
+                card_data = None
+                for c in aifory_cards:
+                    cid = c.get("cardID") or c.get("cardId") or c.get("id")
+                    if str(cid) == str(aifory_card_id):
+                        card_data = c
+                        break
+                
+                if card_data:
+                    currency_id = card_data.get("currencyID") or offer.get("createCardCurrency")
+                    currency_str = "USD" if currency_id == 1010 else ("EUR" if currency_id == 1020 else str(currency_id or ""))
+                    
+                    card = Card(
+                        user_id=user.id,
+                        aifory_card_id=str(aifory_card_id),
+                        category=card_data.get("category") or offer.get("category"),
+                        card_status=card_data.get("cardStatus"),
+                        expired_at=card_data.get("expiredAt"),
+                        last4=str(card_data.get("cardNumberLastDigits") or ""),
+                        holder_name=f"{holder_first_name} {holder_last_name}",
+                        currency=currency_str,
+                        currency_id=currency_id,
+                        payment_system_id=card_data.get("paymentSystemID"),
+                        balance=Decimal(str(card_data.get("balance") or card_amount)),
+                        status="active" if card_data.get("cardStatus") == 2 else "inactive",
+                        offer_id=offer_id,
+                    )
+                    db.add(card)
+                    await db.flush()
+                    
+                    # Link order to card
+                    order.card_id = card.id
+                    
+                    logger.info(
+                        "Card created immediately: card_id=%s aifory_card_id=%s user_id=%s",
+                        card.id, aifory_card_id, user.id
+                    )
+                else:
+                    logger.warning("Card data not found in Aifory cards list for cardID=%s", aifory_card_id)
+            else:
+                logger.warning("No cardID returned in order details for order=%s", partner_order_id)
+                
+        except Exception as exc:
+            logger.error("Failed to fetch order details immediately: %s", exc)
+            # Don't fail the whole operation, just log the error
 
         return {"local_order_id": order.id, "partner_order_id": partner_order_id}
 
@@ -294,10 +348,16 @@ class CardService:
     # Get card requisites
     # ------------------------------------------------------------------
 
-    async def get_card_requisites(self, db: AsyncSession, user_id: int, card_id: int) -> Dict:
-        result = await db.execute(
-            select(Card).where(Card.id == card_id, Card.user_id == user_id)
-        )
+    async def get_card_requisites(self, db: AsyncSession, user_id: int, card_id: str) -> Dict:
+        # Prefer lookup by Aifory card ID (UUID string). Fallback to local numeric ID if digits.
+        if isinstance(card_id, str) and not card_id.isdigit():
+            result = await db.execute(
+                select(Card).where(Card.aifory_card_id == card_id, Card.user_id == user_id)
+            )
+        else:
+            result = await db.execute(
+                select(Card).where(Card.id == int(card_id), Card.user_id == user_id)
+            )
         card = result.scalar_one_or_none()
         if not card:
             raise ValueError("Card not found")
@@ -324,13 +384,18 @@ class CardService:
         self,
         db: AsyncSession,
         user_id: int,
-        card_id: int,
+        card_id: str,
         limit: int = 50,
         offset: int = 0,
     ) -> List[Dict]:
-        result = await db.execute(
-            select(Card).where(Card.id == card_id, Card.user_id == user_id)
-        )
+        if isinstance(card_id, str) and not card_id.isdigit():
+            result = await db.execute(
+                select(Card).where(Card.aifory_card_id == card_id, Card.user_id == user_id)
+            )
+        else:
+            result = await db.execute(
+                select(Card).where(Card.id == int(card_id), Card.user_id == user_id)
+            )
         card = result.scalar_one_or_none()
         if not card:
             raise ValueError("Card not found")
@@ -347,7 +412,7 @@ class CardService:
         self,
         db: AsyncSession,
         user: User,
-        card_id: int,
+        card_id: str,
         amount: float,
     ) -> Dict[str, Any]:
         """
@@ -355,9 +420,14 @@ class CardService:
         Uses USDT ERC-20/TRC-20 accounts + client-generated validateKey.
         Charges user: Aifory's total * (1 + CARD_TOPUP_MARKUP_PERCENT / 100).
         """
-        card_result = await db.execute(
-            select(Card).where(Card.id == card_id, Card.user_id == user.id)
-        )
+        if isinstance(card_id, str) and not card_id.isdigit():
+            card_result = await db.execute(
+                select(Card).where(Card.aifory_card_id == card_id, Card.user_id == user.id)
+            )
+        else:
+            card_result = await db.execute(
+                select(Card).where(Card.id == int(card_id), Card.user_id == user.id)
+            )
         card = card_result.scalar_one_or_none()
         if not card:
             raise ValueError("Card not found")
@@ -425,11 +495,16 @@ class CardService:
     # Get deposit offers for a card
     # ------------------------------------------------------------------
 
-    async def get_deposit_offers(self, db: AsyncSession, user_id: int, card_id: int) -> List[Dict]:
+    async def get_deposit_offers(self, db: AsyncSession, user_id: int, card_id: str) -> List[Dict]:
         """Return deposit offers available for a given card."""
-        card_result = await db.execute(
-            select(Card).where(Card.id == card_id, Card.user_id == user_id)
-        )
+        if isinstance(card_id, str) and not card_id.isdigit():
+            card_result = await db.execute(
+                select(Card).where(Card.aifory_card_id == card_id, Card.user_id == user_id)
+            )
+        else:
+            card_result = await db.execute(
+                select(Card).where(Card.id == int(card_id), Card.user_id == user_id)
+            )
         card = card_result.scalar_one_or_none()
         if not card:
             raise ValueError("Card not found")

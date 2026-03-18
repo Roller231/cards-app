@@ -77,7 +77,7 @@ async def get_cards(
 
 @router.get("/{card_id}/requisites", response_model=CardRequisitesResponse, summary="Get card PAN / expiry / CVV")
 async def get_requisites(
-    card_id: int,
+    card_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -92,7 +92,7 @@ async def get_requisites(
 
 @router.get("/{card_id}/deposit-offers", summary="List deposit (top-up) offers available for a card")
 async def get_deposit_offers(
-    card_id: int,
+    card_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -106,7 +106,7 @@ async def get_deposit_offers(
 
 @router.get("/{card_id}/transactions", summary="Get card transaction history from Aifory")
 async def get_card_transactions(
-    card_id: int,
+    card_id: str,
     limit: int = 50,
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
@@ -122,7 +122,7 @@ async def get_card_transactions(
 
 @router.post("/{card_id}/deposit", response_model=IssueCardResponse, summary="Top up a card balance via Aifory")
 async def deposit_card(
-    card_id: int,
+    card_id: str,
     body: CardDepositRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),

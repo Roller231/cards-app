@@ -18,14 +18,19 @@ router = APIRouter(prefix="/transactions", tags=["transactions"])
     summary="Get transaction history for a card (fetched from Aifory)",
 )
 async def get_card_transactions(
-    card_id: int,
+    card_id: str,
     limit: int = 50,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(
-        select(Card).where(Card.id == card_id, Card.user_id == current_user.id)
-    )
+    if isinstance(card_id, str) and not card_id.isdigit():
+        result = await db.execute(
+            select(Card).where(Card.aifory_card_id == card_id, Card.user_id == current_user.id)
+        )
+    else:
+        result = await db.execute(
+            select(Card).where(Card.id == int(card_id), Card.user_id == current_user.id)
+        )
     card = result.scalar_one_or_none()
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
@@ -65,14 +70,19 @@ async def get_card_transactions(
     summary="Get details of a single transaction",
 )
 async def get_transaction_detail(
-    card_id: int,
+    card_id: str,
     transaction_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(
-        select(Card).where(Card.id == card_id, Card.user_id == current_user.id)
-    )
+    if isinstance(card_id, str) and not card_id.isdigit():
+        result = await db.execute(
+            select(Card).where(Card.aifory_card_id == card_id, Card.user_id == current_user.id)
+        )
+    else:
+        result = await db.execute(
+            select(Card).where(Card.id == int(card_id), Card.user_id == current_user.id)
+        )
     card = result.scalar_one_or_none()
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
