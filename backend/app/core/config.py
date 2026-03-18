@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     AIFORY_PASSWORD: str = ""
     AIFORY_PIN: str = ""
     AIFORY_TOTP_SECRET: str = ""
+    AIFORY_COOKIE_FILE: str = ".aifory_cookies.json"
+    AIFORY_IMPERSONATE: str = "chrome110"  # e.g. chrome124, edge101, safari17_0; empty -> auto select
 
     CARD_ISSUE_MARKUP_PERCENT: float = 0.0
     CARD_TOPUP_MARKUP_PERCENT: float = 0.0
