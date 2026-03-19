@@ -270,14 +270,35 @@ class CardService:
             if cid:
                 aifory_map[str(cid)] = c
 
-        # Update balances/status for already-linked cards
+        # Update all data for already-linked cards from Aifory
         all_cards_result = await db.execute(select(Card).where(Card.user_id == user.id))
         for card in all_cards_result.scalars().all():
             if card.aifory_card_id and card.aifory_card_id in aifory_map:
                 raw = aifory_map[card.aifory_card_id]
+                
+                # Update all fields from Aifory data
                 card.card_status = raw.get("cardStatus")
                 card.balance = Decimal(str(raw.get("balance") or 0))
                 card.status = "active" if raw.get("cardStatus") == 2 else "inactive"
+                card.category = raw.get("category") or card.category
+                card.expired_at = raw.get("expiredAt") or card.expired_at
+                card.last4 = str(raw.get("cardNumberLastDigits") or card.last4 or "")
+                card.currency_id = raw.get("currencyID") or card.currency_id
+                card.payment_system_id = raw.get("paymentSystemID") or card.payment_system_id
+                
+                # Update currency string based on currency_id
+                if card.currency_id:
+                    if card.currency_id == 1010:
+                        card.currency = "USD"
+                    elif card.currency_id == 1020:
+                        card.currency = "EUR"
+                    else:
+                        card.currency = str(card.currency_id)
+                
+                logger.info(
+                    "Updated card data from Aifory: card_id=%s aifory_card_id=%s balance=%s status=%s",
+                    card.id, card.aifory_card_id, card.balance, card.status
+                )
 
         # Find pending issue orders without a linked card
         pending_result = await db.execute(
@@ -343,11 +364,32 @@ class CardService:
                 db.add(card)
                 await db.flush()
             else:
+                # Update existing card with all current Aifory data
                 card.card_status = raw.get("cardStatus")
                 card.balance = Decimal(str(raw.get("balance") or 0))
                 card.status = "active" if raw.get("cardStatus") == 2 else "inactive"
+                card.category = raw.get("category") or card.category
+                card.expired_at = raw.get("expiredAt") or card.expired_at
+                card.last4 = str(raw.get("cardNumberLastDigits") or card.last4 or "")
+                card.currency_id = raw.get("currencyID") or card.currency_id
+                card.payment_system_id = raw.get("paymentSystemID") or card.payment_system_id
+                
+                # Update currency string
+                if card.currency_id:
+                    if card.currency_id == 1010:
+                        card.currency = "USD"
+                    elif card.currency_id == 1020:
+                        card.currency = "EUR"
+                    else:
+                        card.currency = str(card.currency_id)
+                
                 if holder_name and not card.holder_name:
                     card.holder_name = holder_name
+                
+                logger.info(
+                    "Synced existing card with Aifory data: card_id=%s aifory_card_id=%s",
+                    card.id, card.aifory_card_id
+                )
 
             order.card_id = card.id
 
