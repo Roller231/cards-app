@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import api from '../api/client'
 import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
 import Section from '../components/ui/Section'
@@ -7,10 +8,52 @@ import { useToast } from '../components/ui/ToastProvider'
 import TopUpModal from '../components/ui/TopUpModal'
 import { TxIcon } from './HistoryPage'
 
-function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateToHistory }) {
+function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateToHistory, topupMarkupPercent = 0 }) {
   const [showCardNumber, setShowCardNumber] = useState(false)
   const [isTopUpModalOpen, setIsTopUpModalOpen] = useState(false)
+  const [requisites, setRequisites] = useState(null)  // { pan, expiry, cvv, holder }
+  const [requisitesLoading, setRequisitesLoading] = useState(false)
+  const [cardTransactionsApi, setCardTransactionsApi] = useState(null)  // null = not loaded yet
+  const [txLoading, setTxLoading] = useState(false)
   const { showToast } = useToast()
+
+  // Load transactions for this card on mount
+  useEffect(() => {
+    if (!card?.aifory_card_id) return
+    setTxLoading(true)
+    api.cards.transactions(card.aifory_card_id, 50, 0)
+      .then((res) => {
+        const arr = Array.isArray(res) ? res : res?.transactions ?? res?.data ?? []
+        setCardTransactionsApi(arr)
+      })
+      .catch(() => setCardTransactionsApi([]))
+      .finally(() => setTxLoading(false))
+  }, [card?.aifory_card_id])
+
+  const loadRequisites = useCallback(async () => {
+    if (!card?.aifory_card_id) return
+    if (requisites) {
+      // Toggle off if already shown
+      setShowCardNumber((prev) => !prev)
+      return
+    }
+    setRequisitesLoading(true)
+    try {
+      const res = await api.cards.requisites(card.aifory_card_id)
+      // Expected: { pan, expiry, cvv, holder } or { card_number, expiry_date, cvv, holder_name }
+      setRequisites({
+        pan: res.pan ?? res.card_number ?? res.cardNumber ?? '',
+        expiry: res.expiry ?? res.expiry_date ?? res.expiryDate ?? '',
+        cvv: res.cvv ?? res.cvc ?? '',
+        holder: res.holder ?? res.holder_name ?? res.holderName ?? '',
+      })
+      setShowCardNumber(true)
+    } catch (e) {
+      showToast({ title: 'Не удалось получить реквизиты: ' + (e.message || 'ошибка') })
+    } finally {
+      setRequisitesLoading(false)
+    }
+  }, [card?.aifory_card_id, requisites, showToast])
 
   useEffect(() => {
     const tg = window?.Telegram?.WebApp
@@ -27,18 +70,45 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
 
   if (!card) return null
 
+  // Use loaded requisites when available; fallback to card fields (local DB)
+  const pan = requisites?.pan || card.cardNumber || ''
+  const expiryRaw = requisites?.expiry || card.expiry || ''
+  const cvvVal = requisites?.cvv || card.cvv || ''
+
   const displayNumber = showCardNumber
-    ? `${card.cardNumber?.slice(0, 4) || '0000'} ${card.cardNumber?.slice(4, 8) || '0000'} ${
-        card.cardNumber?.slice(8, 12) || '0000'
-      } ${card.cardNumber?.slice(12, 16) || card.last4}`
+    ? (pan
+        ? `${pan.slice(0, 4)} ${pan.slice(4, 8)} ${pan.slice(8, 12)} ${pan.slice(12, 16)}`
+        : `•••• •••• •••• ${card.last4}`)
     : `•••• •••• •••• ${card.last4}`
 
-  const displayExpiry = showCardNumber ? card.expiry || '12/28' : '•• / ••'
-  const displayCvv = showCardNumber ? card.cvv || '123' : '•••'
+  const displayExpiry = showCardNumber ? (expiryRaw || '•• / ••') : '•• / ••'
+  const displayCvv = showCardNumber ? (cvvVal || '•••') : '•••'
   const hiddenTextColor = '#6B7280'
   const font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif'
 
-  const cardTransactions = transactions.filter((t) => t.cardLast4 === card.last4)
+  // Prefer API-loaded per-card transactions; fallback to global prop
+  const mapApiTx = (tx) => {
+    const rawAmount = parseFloat(tx.amount ?? tx.Amount ?? 0)
+    const typeId = tx.type ?? tx.transactionType ?? tx.typeID ?? 0
+    const statusId = tx.statusID ?? tx.status_id ?? tx.statusId ?? 0
+    let txType
+    if (statusId === 3 || String(tx.status || '').toLowerCase().includes('declin')) txType = 'declined'
+    else if (rawAmount > 0 || typeId === 2) txType = 'topup'
+    else txType = 'payment'
+    return {
+      id: String(tx.id ?? tx.transactionID ?? tx.transactionId ?? Math.random()),
+      type: txType,
+      title: txType === 'topup' ? `*** ${card.last4 || ''}` : (tx.merchant || tx.merchantName || tx.description || 'Покупка'),
+      subtitle: txType === 'topup' ? 'Пополнение' : txType === 'declined' ? 'Операция отклонена' : 'Оплата',
+      cardTitle: 'Виртуальная карта',
+      cardLast4: card.last4 || '',
+      amount: txType === 'topup' ? Math.abs(rawAmount) : -Math.abs(rawAmount),
+      date: tx.date ? new Date(tx.date) : tx.createdAt ? new Date(typeof tx.createdAt === 'number' ? tx.createdAt * 1000 : tx.createdAt) : new Date(),
+    }
+  }
+  const cardTransactions = cardTransactionsApi !== null
+    ? cardTransactionsApi.map(mapApiTx)
+    : transactions.filter((t) => t.cardLast4 === card.last4)
 
   const copyToClipboard = async (text) => {
     try {
@@ -177,7 +247,8 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
               Реквизиты карты
             </h2>
             <button
-              onClick={() => setShowCardNumber(!showCardNumber)}
+              onClick={loadRequisites}
+            disabled={requisitesLoading}
               style={{
                 fontSize: 16,
                 fontWeight: 600,
@@ -190,7 +261,7 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
                 padding: 0,
               }}
             >
-              {showCardNumber ? 'Скрыть' : 'Показать'}
+              {requisitesLoading ? 'Загрузка...' : showCardNumber ? 'Скрыть' : 'Показать'}
             </button>
           </div>
 
@@ -220,7 +291,7 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
                   letterSpacing: '0.5px',
                   cursor: showCardNumber ? 'pointer' : 'default',
                 }}
-                onClick={() => showCardNumber && handleCopy('Номер карты', card.cardNumber || displayNumber.replaceAll('•', ''))}
+                onClick={() => showCardNumber && handleCopy('Номер карты', pan || displayNumber.replace(/[•\s]/g, ''))}
               >
                 {displayNumber}
               </div>
@@ -233,7 +304,7 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
                     height: 20,
                     cursor: 'pointer',
                   }}
-                  onClick={() => handleCopy('Номер карты', card.cardNumber || displayNumber.replaceAll('•', ''))}
+                  onClick={() => handleCopy('Номер карты', pan || displayNumber.replace(/[•\s]/g, ''))}
                 />
               )}
             </div>
@@ -264,7 +335,7 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
                       '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
                     cursor: showCardNumber ? 'pointer' : 'default',
                   }}
-                  onClick={() => showCardNumber && handleCopy('Срок действия', card.expiry || displayExpiry.replaceAll('•', ''))}
+                  onClick={() => showCardNumber && handleCopy('Срок действия', expiryRaw)}
                 >
                   {displayExpiry.replace('/', ' / ')}
                 </div>
@@ -277,7 +348,7 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
                       height: 20,
                       cursor: 'pointer',
                     }}
-                    onClick={() => handleCopy('Срок действия', card.expiry || displayExpiry.replaceAll('•', ''))}
+                    onClick={() => handleCopy('Срок действия', expiryRaw)}
                   />
                 )}
               </div>
@@ -306,7 +377,7 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
                       '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
                     cursor: showCardNumber ? 'pointer' : 'default',
                   }}
-                  onClick={() => showCardNumber && handleCopy('CVC', card.cvv || displayCvv.replaceAll('•', ''))}
+                  onClick={() => showCardNumber && handleCopy('CVC', cvvVal)}
                 >
                   {displayCvv}
                 </div>
@@ -319,7 +390,7 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
                       height: 20,
                       cursor: 'pointer',
                     }}
-                    onClick={() => handleCopy('CVC', card.cvv || displayCvv.replaceAll('•', ''))}
+                    onClick={() => handleCopy('CVC', cvvVal)}
                   />
                 )}
               </div>
@@ -462,6 +533,7 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
         onClose={() => setIsTopUpModalOpen(false)}
         card={card}
         onTopUp={onTopUp}
+        topupMarkupPercent={topupMarkupPercent}
       />
     </div>
   )

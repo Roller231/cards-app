@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
+import api from '../../api/client'
 import Button from './Button'
 import Portal from './Portal'
 
-const SIMULATE_SUCCESS = true
-
-function TopUpModal({ isOpen, onClose, card, onTopUp }) {
+function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) {
+  const [depositError, setDepositError] = useState('')
   const [amount, setAmount] = useState(0)
   const [amountInput, setAmountInput] = useState('')
   const [totalInput, setTotalInput] = useState('')
@@ -12,7 +12,6 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
   const [screen, setScreen] = useState('form') // 'form' | 'confirmation' | 'loading' | 'success' | 'failure'
   const amountInputRef = useRef(null)
   const totalInputRef = useRef(null)
-  const topUpCalledRef = useRef(false)
   const lastEditedRef = useRef('amount')
 
   // Auto-focus amount input when modal opens
@@ -31,31 +30,35 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
         setTotalInput('')
         setPaymentMethod('usdt')
         setScreen('form')
-        topUpCalledRef.current = false
+        setDepositError('')
         lastEditedRef.current = 'amount'
       }, 350)
       return () => clearTimeout(t)
     }
   }, [isOpen])
 
-  // 4-second loading timer
+  // Real deposit call
   useEffect(() => {
-    if (screen === 'loading') {
-      const t = setTimeout(() => {
-        setScreen(SIMULATE_SUCCESS ? 'success' : 'failure')
-      }, 4000)
-      return () => clearTimeout(t)
+    if (screen !== 'loading') return
+    if (!card?.aifory_card_id) {
+      setDepositError('Отсутствует ID карты')
+      setScreen('failure')
+      return
     }
-  }, [screen])
-
-  useEffect(() => {
-    if (screen !== 'success') return
-    if (topUpCalledRef.current) return
-    if (!card?.id) return
-    if (typeof onTopUp !== 'function') return
-    topUpCalledRef.current = true
-    onTopUp(card.id, amount, { cardLast4: card.last4, cardTitle: card.title || 'Виртуальная карта' })
-  }, [screen, card?.id, onTopUp, amount])
+    let canceled = false
+    api.cards.deposit(card.aifory_card_id, amount)
+      .then(() => {
+        if (canceled) return
+        setScreen('success')
+        if (typeof onTopUp === 'function') onTopUp()
+      })
+      .catch((e) => {
+        if (canceled) return
+        setDepositError(e.message || 'Ошибка пополнения')
+        setScreen('failure')
+      })
+    return () => { canceled = true }
+  }, [screen]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const round2 = (v) => Math.round((Number(v) + Number.EPSILON) * 100) / 100
 
@@ -75,15 +78,16 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
     return `${Math.max(visualLength, 1) + 0.5}ch`
   }
 
-  const commissionPercent = card?.cardType === 'online-plus' ? 4 : 3.8
-  const commissionRate = commissionPercent / 100
+  const commissionRate = topupMarkupPercent / 100
   const total = amount > 0 ? round2(amount * (1 + commissionRate)) : 0
   const commission = amount > 0 ? round2(total - amount) : 0
   const hasAmount = amount > 0
   const amountText = amountInput || ''
   const fullCardNumber = card?.cardNumber
     ? `${card.cardNumber.slice(0, 4)} ${card.cardNumber.slice(4, 8)} ${card.cardNumber.slice(8, 12)} ${card.cardNumber.slice(12, 16)}`
-    : ''
+    : card?.last4
+      ? `•••• •••• •••• ${card.last4}`
+      : '—'
 
   const font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif'
 
@@ -478,7 +482,7 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
                 animation: 'textAppear 0.5s ease-out 0.2s backwards',
               }}
             >
-              Не удалось связаться с банком. Проверьте интернет и повторите попытку.
+              {depositError || 'Не удалось связаться с банком. Проверьте интернет и повторите попытку.'}
             </div>
           </div>
         )}

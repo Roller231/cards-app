@@ -18,6 +18,10 @@ class TelegramLoginRequest(BaseModel):
     username: Optional[str] = None
 
 
+class TelegramWebAppRequest(BaseModel):
+    init_data: str  # Raw Telegram.WebApp.initData string
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"

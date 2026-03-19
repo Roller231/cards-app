@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     CARD_ISSUE_MARKUP_PERCENT: float = 0.0
     CARD_TOPUP_MARKUP_PERCENT: float = 0.0
 
+    TELEGRAM_BOT_TOKEN: str = ""  # Required for Telegram WebApp initData verification
+
     class Config:
         env_file = ".env"
 

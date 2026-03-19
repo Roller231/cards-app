@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import PageHeader from '../components/ui/PageHeader'
+import api from '../api/client'
+import { useAuth } from '../context/AuthContext'
 import Button from '../components/ui/Button'
-import FormField from '../components/ui/FormField'
+import PageHeader from '../components/ui/PageHeader'
 
-function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
+function IssueCardPage({ onBack, initialCardType, onCardIssued, issueMarkupPercent = 0 }) {
+  const { user } = useAuth()
+  const [offers, setOffers] = useState([])
+  const [offersLoading, setOffersLoading] = useState(true)
   const [selectedCardType, setSelectedCardType] = useState('')
   const [amount, setAmount] = useState(0)
   const [amountInput, setAmountInput] = useState('')
@@ -12,49 +16,47 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const [showConfirmation, setShowConfirmation] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
-  const [resultScreen, setResultScreen] = useState(null) // 'success' or 'failure'
+  const [resultScreen, setResultScreen] = useState(null) // 'success' | 'failure'
+  const [errorMsg, setErrorMsg] = useState('')
   const amountInputRef = useRef(null)
   const totalInputRef = useRef(null)
   const lastEditedRef = useRef('amount')
 
-  // Toggle this variable to test success/failure screens
-  const SIMULATE_SUCCESS = true // Change to false to test failure screen
+
+  // Load card offers from API
+  useEffect(() => {
+    setOffersLoading(true)
+    api.cards.offers()
+      .then((data) => {
+        setOffers(Array.isArray(data) ? data : [])
+        setOffersLoading(false)
+      })
+      .catch(() => {
+        setOffers([])
+        setOffersLoading(false)
+      })
+  }, [])
 
   useEffect(() => {
-    if (initialCardType) {
-      setSelectedCardType(initialCardType)
+    if (initialCardType && offers.length > 0) {
+      const found = offers.find((o) => String(o.id) === String(initialCardType))
+      if (found) setSelectedCardType(String(found.id))
     }
-  }, [initialCardType])
-
-  // Simulate loading delay and show result after 4 seconds
-  useEffect(() => {
-    if (isLoading) {
-      const timer = setTimeout(() => {
-        setIsLoading(false)
-        setResultScreen(SIMULATE_SUCCESS ? 'success' : 'failure')
-      }, 4000)
-
-      return () => clearTimeout(timer)
-    }
-  }, [isLoading, SIMULATE_SUCCESS])
+  }, [initialCardType, offers])
 
   useEffect(() => {
     const tg = window?.Telegram?.WebApp
     if (!tg?.BackButton) return
-
     tg.BackButton.show()
     tg.BackButton.onClick(onBack)
-
     return () => {
       tg.BackButton.hide()
       tg.BackButton.offClick(onBack)
     }
   }, [onBack])
 
-  const cardTypes = [
-    { id: 'online', name: 'Online', topUpCommissionPercent: 3.8 },
-    { id: 'online-plus', name: 'Online + Pay', topUpCommissionPercent: 4 },
-  ]
+  // Alias for display: card types = offers
+  const cardTypes = offers
 
   const round2 = (v) => Math.round((Number(v) + Number.EPSILON) * 100) / 100
 
@@ -74,72 +76,65 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
     return `${Math.max(visualLength, 1) + 0.5}ch`
   }
 
-  const selectedCard = cardTypes.find((c) => c.id === selectedCardType)
-  const commissionPercent = selectedCard?.topUpCommissionPercent || 0
-  const commissionRate = useMemo(() => commissionPercent / 100, [commissionPercent])
+  const selectedCard = cardTypes.find((c) => String(c.id) === String(selectedCardType))
+  // issueMarkupPercent = our fee charged on top (user pays amount + X%, Aifory gets amount)
+  const commissionRate = useMemo(() => issueMarkupPercent / 100, [issueMarkupPercent])
   const total = amount > 0 ? round2(amount * (1 + commissionRate)) : 0
   const commission = amount > 0 ? round2(total - amount) : 0
   const hasAmount = amount > 0
   const amountText = amountInput || ''
-  const selectedCardName = selectedCardType
-    ? cardTypes.find((c) => c.id === selectedCardType)?.name
-    : ''
+  const selectedCardName = selectedCard?.name || ''
 
   const canIssueCard = selectedCardType !== '' && amount >= 15
 
   useEffect(() => {
-    // Keep total input in sync when user edits amount.
     if (lastEditedRef.current !== 'amount') return
-    if (!amount || amount <= 0) {
-      setTotalInput('')
-      return
-    }
-    const nextTotal = round2(amount * (1 + commissionRate))
-    setTotalInput(nextTotal.toFixed(2))
+    if (!amount || amount <= 0) { setTotalInput(''); return }
+    setTotalInput(round2(amount * (1 + commissionRate)).toFixed(2))
   }, [amount, commissionRate])
 
   useEffect(() => {
-    // Keep amount input in sync when user edits total.
     if (lastEditedRef.current !== 'total') return
-    if (!amount || amount <= 0) {
-      setAmountInput('')
-      return
-    }
+    if (!amount || amount <= 0) { setAmountInput(''); return }
     setAmountInput(String(amount))
   }, [amount])
 
   useEffect(() => {
-    // When commission percent changes (switch card type), resync totals based on current amount.
     if (lastEditedRef.current !== 'amount') return
-    if (!amount || amount <= 0) {
-      setTotalInput('')
-      return
-    }
-    const nextTotal = round2(amount * (1 + commissionRate))
-    setTotalInput(nextTotal.toFixed(2))
-  }, [commissionRate])
+    if (!amount || amount <= 0) { setTotalInput(''); return }
+    setTotalInput(round2(amount * (1 + commissionRate)).toFixed(2))
+  }, [commissionRate]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    // If user last edited the total, keep total constant and recompute amount when commission changes.
     if (lastEditedRef.current !== 'total') return
-    if (!totalInput) {
-      setAmount(0)
-      setAmountInput('')
-      return
-    }
-
+    if (!totalInput) { setAmount(0); setAmountInput(''); return }
     const parsedTotal = parseFloat(totalInput) || 0
-    if (!parsedTotal || parsedTotal <= 0) {
-      setAmount(0)
-      setAmountInput('')
-      return
-    }
-
+    if (!parsedTotal || parsedTotal <= 0) { setAmount(0); setAmountInput(''); return }
     const nextAmount = commissionRate > 0 ? parsedTotal / (1 + commissionRate) : parsedTotal
     const safeAmount = nextAmount > 0 ? round2(nextAmount) : 0
     setAmount(safeAmount)
     setAmountInput(String(safeAmount))
-  }, [commissionRate, totalInput])
+  }, [commissionRate, totalInput]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Real API issue card call
+  const handleIssueCard = async () => {
+    setIsLoading(true)
+    setErrorMsg('')
+    try {
+      await api.cards.issue(
+        String(selectedCardType),
+        'Card',
+        'Holder',
+        amount,
+      )
+      setIsLoading(false)
+      setResultScreen('success')
+    } catch (e) {
+      setIsLoading(false)
+      setErrorMsg(e.message || 'Ошибка при выпуске карты')
+      setResultScreen('failure')
+    }
+  }
 
   return (
     <div className="flex-1 flex flex-col pb-10">
@@ -187,7 +182,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
                   fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
                 }}
               >
-                {selectedCardName || 'Тип карты'}
+                {offersLoading ? 'Загрузка...' : selectedCardName || 'Тип карты'}
               </span>
               <svg
                 width="16"
@@ -229,13 +224,13 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
                 <button
                   key={card.id}
                   onClick={() => {
-                    setSelectedCardType(card.id)
+                    setSelectedCardType(String(card.id))
                     setIsDropdownOpen(false)
                   }}
                   className="w-full transition-colors duration-150"
                   style={{
                     padding: '14px 16px',
-                    backgroundColor: selectedCardType === card.id ? '#F3F5F8' : 'white',
+                    backgroundColor: String(selectedCardType) === String(card.id) ? '#F3F5F8' : 'white',
                     border: 'none',
                     borderTop: index > 0 ? '1px solid #F3F5F8' : 'none',
                     cursor: 'pointer',
@@ -262,6 +257,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
             </div>
           )}
         </div>
+
 
         {/* Amount */}
         <div
@@ -732,16 +728,17 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
                 </div>
               </div>
 
+
               {/* Continue Button */}
               <Button
                 onClick={() => {
-                  setResultScreen(null)
-                  setIsLoading(true)
+                  setShowConfirmation(false)
+                  handleIssueCard()
                 }}
                 fullWidth
                 style={{ marginTop: 24 }}
               >
-                Продолжить
+                Подтвердить и выпустить
               </Button>
             </div>
           </div>
@@ -929,7 +926,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
                 animation: 'textAppear 0.5s ease-out 0.2s backwards',
               }}
             >
-              Не удалось связаться с банком. Проверьте интернет и повторите попытку.
+              {errorMsg || 'Не удалось связаться с банком. Проверьте интернет и повторите попытку.'}
             </div>
           </div>
 

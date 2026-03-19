@@ -75,10 +75,17 @@ class CardService:
             aifory_fee_percent = float(o.get("createCardFeePercent") or 0)
             display_fee_percent = aifory_fee_percent + markup
 
+            # Map card types to display names
+            bin_id = str(o.get("bin"))
+            if bin_id == "525847":
+                display_name = "Online + Pay"
+            else:
+                display_name = "Online"
+
             offers.append(
                 {
-                    "id": o.get("bin"),
-                    "name": f"Virtual Card (Category {category})",
+                    "id": bin_id,
+                    "name": display_name,
                     "currency": currency_str,
                     "currency_id": currency_id,
                     "category": category,
