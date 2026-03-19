@@ -90,8 +90,26 @@ export function AuthProvider({ children }) {
     init()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const {
+    online_issue_fee_usd = 0,
+    online_topup_markup_percent = 0,
+    online_plus_issue_fee_usd = 0,
+    online_plus_topup_markup_percent = 0,
+  } = appConfig || {}
+
   return (
-    <AuthContext.Provider value={{ user, loading, appConfig, fetchMe }}>
+    <AuthContext.Provider value={{
+      user,
+      loading,
+      appConfig,
+      commissions: {
+        online_issue_fee: online_issue_fee_usd,
+        online_topup: online_topup_markup_percent,
+        online_plus_issue_fee: online_plus_issue_fee_usd,
+        online_plus_topup: online_plus_topup_markup_percent,
+      },
+      fetchMe,
+    }}>
       {children}
     </AuthContext.Provider>
   )

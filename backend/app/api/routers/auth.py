@@ -63,11 +63,13 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     return TokenResponse(access_token=token)
 
 
-@router.get("/config", summary="Get public app config (markup percents etc)")
+@router.get("/config", summary="Get public app config (fixed issuance fees and topup percents)")
 async def get_config():
     return {
-        "card_issue_markup_percent": settings.CARD_ISSUE_MARKUP_PERCENT,
-        "card_topup_markup_percent": settings.CARD_TOPUP_MARKUP_PERCENT,
+        "online_issue_fee_usd": settings.ONLINE_ISSUE_FEE_USD,
+        "online_topup_markup_percent": settings.ONLINE_TOPUP_MARKUP_PERCENT,
+        "online_plus_issue_fee_usd": settings.ONLINE_PLUS_ISSUE_FEE_USD,
+        "online_plus_topup_markup_percent": settings.ONLINE_PLUS_TOPUP_MARKUP_PERCENT,
     }
 
 

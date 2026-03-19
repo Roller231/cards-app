@@ -8,7 +8,7 @@ import { H2, H3, H4, Description } from '../components/ui/Typography'
 import { useDragScroll } from '../hooks/useDragScroll'
 import { TxIcon } from './HistoryPage'
 
-function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNavigateToIssueCard, onCardClick, onNavigateToHistory }) {
+function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNavigateToIssueCard, onCardClick, onNavigateToHistory, commissions = {}, cardsLoading = false, transactionsLoading = false }) {
   const [expandedCard, setExpandedCard] = useState(null)
   const scrollRef = useDragScroll()
   const font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif'
@@ -120,76 +120,76 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
               }}
             >
               <div style={{ display: 'flex', gap: 12 }}>
-                {userCards.map((card) => (
-                  <div
-                    key={card.id}
+                    {userCards.map((card) => (
+                      <div
+                        key={card.id}
                     className="transition-transform duration-150 active:scale-95"
-                    style={{
+                        style={{
                       minWidth: 240,
                       height: 144,
                       borderRadius: 20,
                       padding: 18,
-                      cursor: 'pointer',
+                          cursor: 'pointer',
                       position: 'relative',
                       color: '#FFFFFF',
                       backgroundImage: 'url(/images/CardInBalance.png)',
                       backgroundSize: 'cover',
                       backgroundPosition: 'center',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      justifyContent: 'space-between',
-                      overflow: 'hidden',
-                    }}
-                    onClick={() => onCardClick && onCardClick(card)}
-                  >
-                    <div
-                      style={{
-                        fontSize: 22,
-                        fontWeight: 500,
-                        fontFamily:
-                          '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-                        lineHeight: '28px',
-                        letterSpacing: '-0.3px',
-                      }}
-                    >
-                      {Number(card.balance).toLocaleString('en-US', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}{' '}
-                      $
-                    </div>
-
-                    <div>
-                      <div
-                        style={{
-                          fontSize: 11,
-                          fontWeight: 300,
-                          fontFamily:
-                            '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-                          letterSpacing: '1.6px',
-                          marginBottom: 15,
-                          marginLeft: -3,
-                        }}
-                      >
-                        ***{card.last4}
-                      </div>
-
-                      <div
-                        style={{
                           display: 'flex',
-                          alignItems: 'flex-end',
+                          flexDirection: 'column',
                           justifyContent: 'space-between',
-                          gap: 12,
+                          overflow: 'hidden',
                         }}
+                        onClick={() => onCardClick && onCardClick(card)}
                       >
+                        <div
+                          style={{
+                            fontSize: 22,
+                            fontWeight: 500,
+                            fontFamily:
+                              '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+                            lineHeight: '28px',
+                            letterSpacing: '-0.3px',
+                          }}
+                        >
+                          {Number(card.balance).toLocaleString('en-US', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}{' '}
+                          $
+                        </div>
+
+                        <div>
+                          <div
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 300,
+                              fontFamily:
+                                '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+                              letterSpacing: '1.6px',
+                              marginBottom: 15,
+                              marginLeft: -3,
+                            }}
+                          >
+                            ***{card.last4}
+                          </div>
+
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'flex-end',
+                              justifyContent: 'space-between',
+                              gap: 12,
+                            }}
+                          >
 
 
 
+                          </div>
+                        </div>
                       </div>
-                    </div>
+                    ))}
                   </div>
-                ))}
-              </div>
             </div>
           )}
         </Card>
@@ -347,7 +347,11 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
                   <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Комиссия за операцию</div>
                 </div>
                 <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>3,8 %</div>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>${commissions.online_issue_fee || 0}</div>
+                  <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Плата за выпуск</div>
+                </div>
+                <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>{commissions.online_topup || 3.8} %</div>
                   <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Комиссия за пополнение</div>
                 </div>
               </div>
@@ -524,7 +528,11 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
                   <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Комиссия за операцию</div>
                 </div>
                 <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>4 %</div>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>${commissions.online_plus_issue_fee || 0}</div>
+                  <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Плата за выпуск</div>
+                </div>
+                <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>{commissions.online_plus_topup || 4} %</div>
                   <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Комиссия за пополнение</div>
                 </div>
               </div>

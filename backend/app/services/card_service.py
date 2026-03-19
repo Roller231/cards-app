@@ -19,10 +19,16 @@ class CardService:
     async def _get_usdt_accounts(self) -> Dict[str, str]:
         """Return USDT ERC-20 (accountID) and USDT TRC-20 (accountIDToExchange) account IDs.
 
-        Aifory processes all card operations through a USDT exchange flow:
-          accountID           = USDT ERC-20 (currencyID: 2000) - source funds
-          accountIDToExchange = USDT TRC-20 (currencyID: 2001) - exchange target
+        Uses config settings if available, otherwise auto-detects from Aifory accounts.
         """
+        # Use config settings if provided
+        if settings.USDT_ERC20_ACCOUNT_ID and settings.USDT_TRC20_ACCOUNT_ID:
+            return {
+                "account_id": settings.USDT_ERC20_ACCOUNT_ID,
+                "account_id_to_exchange": settings.USDT_TRC20_ACCOUNT_ID
+            }
+            
+        # Auto-detect from Aifory accounts
         accounts = await aifory_client.get_accounts()
         if not accounts:
             raise ValueError("No accounts found on parent Aifory account")
@@ -56,7 +62,6 @@ class CardService:
     async def get_offers(self) -> List[Dict[str, Any]]:
         """Return available card offer products from Aifory (categories 2 and 3 only)."""
         raw = await aifory_client.get_card_offers_simple()
-        markup = float(settings.CARD_ISSUE_MARKUP_PERCENT)
 
         offers = []
         for o in raw:
@@ -72,15 +77,18 @@ class CardService:
             else:
                 currency_str = str(currency_id) if currency_id else "Unknown"
 
-            aifory_fee_percent = float(o.get("createCardFeePercent") or 0)
-            display_fee_percent = aifory_fee_percent + markup
-
-            # Map card types to display names
+            # Map card types to display names and get per-type fixed fee
             bin_id = str(o.get("bin"))
             if bin_id == "525847":
                 display_name = "Online + Pay"
+                fixed_issue_fee = float(settings.ONLINE_PLUS_ISSUE_FEE_USD)
             else:
                 display_name = "Online"
+                fixed_issue_fee = float(settings.ONLINE_ISSUE_FEE_USD)
+                
+            aifory_fee_percent = float(o.get("createCardFeePercent") or 0)
+            # Display fee is now the fixed fee we charge
+            display_fee_percent = aifory_fee_percent  # Keep Aifory's percentage for reference
 
             offers.append(
                 {
@@ -89,8 +97,8 @@ class CardService:
                     "currency": currency_str,
                     "currency_id": currency_id,
                     "category": category,
-                    "issue_fee": float(o.get("createCardFixedFee") or 0),
-                    "fee_percent": display_fee_percent,
+                    "issue_fee": fixed_issue_fee,  # Our fixed fee
+                    "aifory_fee_percent": display_fee_percent,  # Aifory's percentage for reference
                     "monthly_fee": 0.0,
                     "min_amount": float(o.get("minAmount") or 15.0),
                     "max_amount": float(o.get("maxAmount") or 50000.0),
@@ -132,12 +140,15 @@ class CardService:
         # 3. Client-generated idempotency key (same key used for calculate + order)
         validate_key = str(uuid.uuid4())
 
-        # 4. Commission logic: user pays amount + our markup, Aifory gets only amount
-        # Example: user wants $20 card, pays $20 + 5% = $21, Aifory gets $20
+        # 4. Commission logic: user pays amount + our fixed fee, Aifory gets only amount
+        # Use per-card-type fixed fee based on offer_id
         card_amount_decimal = Decimal(str(card_amount))
-        markup = Decimal(str(settings.CARD_ISSUE_MARKUP_PERCENT))
-        our_fee = card_amount_decimal * markup / Decimal("100")
-        user_total = card_amount_decimal + our_fee  # User pays: $20 + $1 = $21
+        if str(offer_id) == "525847":
+            fixed_fee = Decimal(str(settings.ONLINE_PLUS_ISSUE_FEE_USD))
+        else:
+            fixed_fee = Decimal(str(settings.ONLINE_ISSUE_FEE_USD))
+        our_fee = fixed_fee
+        user_total = card_amount_decimal + our_fee
         
         # Send only the requested card amount to Aifory (without our commission)
         aifory_amount = card_amount_decimal  # Aifory gets: $20
@@ -459,9 +470,13 @@ class CardService:
         aifory_fee = Decimal(str(calc.get("fee") or 0))            # For reference/logging
 
         # Apply our markup ONLY on the base amount requested by the user
-        # Example: amount=$1, markup=5% => user pays $1.05 (not $1.09)
+        # Use per-card-type markup based on card.offer_id
         base_amount = Decimal(str(amount))
-        markup = Decimal(str(settings.CARD_TOPUP_MARKUP_PERCENT))
+        if str(card.offer_id) == "525847":
+            markup_percent = settings.ONLINE_PLUS_TOPUP_MARKUP_PERCENT
+        else:
+            markup_percent = settings.ONLINE_TOPUP_MARKUP_PERCENT
+        markup = Decimal(str(markup_percent))
         our_profit = base_amount * markup / Decimal("100")
         user_total = base_amount + our_profit
 

@@ -53,18 +53,21 @@ function mapAiforyTx(tx, card) {
 }
 
 function AppInner() {
-  const { user, loading: authLoading, appConfig } = useAuth()
+  const { user, loading: authLoading, appConfig, commissions } = useAuth()
   const [currentPage, setCurrentPage] = useState('welcome')
   const [cardTypeToIssue, setCardTypeToIssue] = useState(null)
   const [selectedCard, setSelectedCard] = useState(null)
   const [userCards, setUserCards] = useState([])
   const [transactions, setTransactions] = useState([])
+  const [cardsLoading, setCardsLoading] = useState(false)
+  const [transactionsLoading, setTransactionsLoading] = useState(false)
   const [historyFixedCardLast4, setHistoryFixedCardLast4] = useState(null)
   const [historyReturnCardId, setHistoryReturnCardId] = useState(null)
   const tgInitOnceRef = useRef(false)
 
   // Load cards from API
   const refreshCards = useCallback(async () => {
+    setCardsLoading(true)
     try {
       const cards = await api.cards.list()
       const mapped = cards.map((c) => ({
@@ -76,12 +79,15 @@ function AppInner() {
     } catch (e) {
       console.error('[Cards] failed to load cards:', e.message)
       return []
+    } finally {
+      setCardsLoading(false)
     }
   }, [])
 
   // Load transactions for all cards (first 10 each) for history page
   const refreshTransactions = useCallback(
     async (cards) => {
+      setTransactionsLoading(true)
       const allTx = []
       await Promise.allSettled(
         cards.map(async (card) => {
@@ -97,6 +103,7 @@ function AppInner() {
       )
       allTx.sort((a, b) => b.date - a.date)
       setTransactions(allTx)
+      setTransactionsLoading(false)
     },
     [],
   )
@@ -163,6 +170,18 @@ function AppInner() {
     return () => { canceled = true; clearInterval(t) }
   }, [])
 
+  // Helper to get commission for specific card type
+  const getCommissionForCardType = (cardTypeId, operationType) => {
+    const isOnlinePlus = String(cardTypeId) === '525847'
+    if (operationType === 'issue') {
+      // Return fixed fee in USD
+      return isOnlinePlus ? commissions?.online_plus_issue_fee || 0 : commissions?.online_issue_fee || 0
+    } else {
+      // Return percentage for topup
+      return isOnlinePlus ? commissions?.online_plus_topup || 0 : commissions?.online_topup || 0
+    }
+  }
+
   // While auth is loading show nothing (or a spinner)
   if (authLoading) {
     return (
@@ -183,6 +202,9 @@ function AppInner() {
         <HomePage
           userCards={userCards}
           transactions={transactions}
+          commissions={commissions}
+          cardsLoading={cardsLoading}
+          transactionsLoading={transactionsLoading}
           onNavigateToFAQ={() => setCurrentPage('faq')}
           onNavigateToIssueCard={(cardType = null) => {
             setCardTypeToIssue(cardType)
@@ -218,30 +240,27 @@ function AppInner() {
       )}
       {currentPage === 'issue-card' && (
         <IssueCardPage
-          onBack={() => {
-            setCardTypeToIssue(null)
-            setCurrentPage('home')
-          }}
+          onBack={() => setCurrentPage('home')}
           initialCardType={cardTypeToIssue}
-          issueMarkupPercent={appConfig.card_issue_markup_percent}
           onCardIssued={handleCardIssued}
+          getCommissionForCardType={getCommissionForCardType}
         />
       )}
       {currentPage === 'card-detail' && (
         <CardDetailPage
           card={selectedCard}
           transactions={transactions}
-          topupMarkupPercent={appConfig.card_topup_markup_percent}
+          onBack={() => {
+            setSelectedCard(null)
+            setCurrentPage('home')
+          }}
           onTopUp={handleDeposited}
           onNavigateToHistory={(cardLast4) => {
             setHistoryFixedCardLast4(cardLast4)
             setHistoryReturnCardId(selectedCard?.id || null)
             setCurrentPage('history')
           }}
-          onBack={() => {
-            setSelectedCard(null)
-            setCurrentPage('home')
-          }}
+          getCommissionForCardType={getCommissionForCardType}
         />
       )}
     </Layout>

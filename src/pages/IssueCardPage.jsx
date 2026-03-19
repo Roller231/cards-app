@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import Button from '../components/ui/Button'
 import PageHeader from '../components/ui/PageHeader'
 
-function IssueCardPage({ onBack, initialCardType, onCardIssued, issueMarkupPercent = 0 }) {
+function IssueCardPage({ onBack, initialCardType, onCardIssued, getCommissionForCardType }) {
   const { user } = useAuth()
   const [offers, setOffers] = useState([])
   const [offersLoading, setOffersLoading] = useState(true)
@@ -77,10 +77,13 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, issueMarkupPerce
   }
 
   const selectedCard = cardTypes.find((c) => String(c.id) === String(selectedCardType))
-  // issueMarkupPercent = our fee charged on top (user pays amount + X%, Aifory gets amount)
-  const commissionRate = useMemo(() => issueMarkupPercent / 100, [issueMarkupPercent])
-  const total = amount > 0 ? round2(amount * (1 + commissionRate)) : 0
-  const commission = amount > 0 ? round2(total - amount) : 0
+  // Get fixed fee for selected card type
+  const fixedFee = useMemo(() => {
+    if (!selectedCardType || !getCommissionForCardType) return 0
+    return getCommissionForCardType(selectedCardType, 'issue')  // Returns fixed USD amount
+  }, [selectedCardType, getCommissionForCardType])
+  const total = amount > 0 ? round2(amount + fixedFee) : 0
+  const commission = fixedFee
   const hasAmount = amount > 0
   const amountText = amountInput || ''
   const selectedCardName = selectedCard?.name || ''
@@ -90,8 +93,8 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, issueMarkupPerce
   useEffect(() => {
     if (lastEditedRef.current !== 'amount') return
     if (!amount || amount <= 0) { setTotalInput(''); return }
-    setTotalInput(round2(amount * (1 + commissionRate)).toFixed(2))
-  }, [amount, commissionRate])
+    setTotalInput(round2(amount + fixedFee).toFixed(2))
+  }, [amount, fixedFee])
 
   useEffect(() => {
     if (lastEditedRef.current !== 'total') return
@@ -102,19 +105,19 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, issueMarkupPerce
   useEffect(() => {
     if (lastEditedRef.current !== 'amount') return
     if (!amount || amount <= 0) { setTotalInput(''); return }
-    setTotalInput(round2(amount * (1 + commissionRate)).toFixed(2))
-  }, [commissionRate]) // eslint-disable-line react-hooks/exhaustive-deps
+    setTotalInput(round2(amount + fixedFee).toFixed(2))
+  }, [fixedFee]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (lastEditedRef.current !== 'total') return
     if (!totalInput) { setAmount(0); setAmountInput(''); return }
     const parsedTotal = parseFloat(totalInput) || 0
     if (!parsedTotal || parsedTotal <= 0) { setAmount(0); setAmountInput(''); return }
-    const nextAmount = commissionRate > 0 ? parsedTotal / (1 + commissionRate) : parsedTotal
+    const nextAmount = parsedTotal - fixedFee
     const safeAmount = nextAmount > 0 ? round2(nextAmount) : 0
     setAmount(safeAmount)
     setAmountInput(String(safeAmount))
-  }, [commissionRate, totalInput]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fixedFee, totalInput]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Real API issue card call
   const handleIssueCard = async () => {
@@ -372,7 +375,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, issueMarkupPerce
                 lastEditedRef.current = 'total'
                 setTotalInput(next)
                 const parsedTotal = parseFloat(next) || 0
-                const nextAmount = commissionRate > 0 ? parsedTotal / (1 + commissionRate) : parsedTotal
+                const nextAmount = parsedTotal - fixedFee
                 const safeAmount = nextAmount > 0 ? round2(nextAmount) : 0
                 setAmount(safeAmount)
                 setAmountInput(next ? String(safeAmount) : '')
