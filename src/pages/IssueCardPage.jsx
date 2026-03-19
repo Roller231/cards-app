@@ -851,7 +851,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, getCommissionFor
                 animation: 'textAppear 0.5s ease-out 0.2s backwards',
               }}
             >
-              Карта готова!
+              Карта будет создана в течение 5 минут
             </div>
           </div>
 

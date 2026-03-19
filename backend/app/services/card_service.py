@@ -217,31 +217,59 @@ class CardService:
                     currency_id = card_data.get("currencyID") or offer.get("createCardCurrency")
                     currency_str = "USD" if currency_id == 1010 else ("EUR" if currency_id == 1020 else str(currency_id or ""))
                     
-                    card = Card(
-                        user_id=user.id,
-                        aifory_card_id=str(aifory_card_id),
-                        category=card_data.get("category") or offer.get("category"),
-                        card_status=card_data.get("cardStatus"),
-                        expired_at=card_data.get("expiredAt"),
-                        last4=str(card_data.get("cardNumberLastDigits") or ""),
-                        holder_name=f"{holder_first_name} {holder_last_name}",
-                        currency=currency_str,
-                        currency_id=currency_id,
-                        payment_system_id=card_data.get("paymentSystemID"),
-                        balance=Decimal(str(card_data.get("balance") or card_amount)),
-                        status="active" if card_data.get("cardStatus") == 2 else "inactive",
-                        offer_id=offer_id,
+                    # Check if card already exists to avoid duplicates
+                    existing_card_result = await db.execute(
+                        select(Card).where(Card.aifory_card_id == str(aifory_card_id))
                     )
-                    db.add(card)
-                    await db.flush()
+                    existing_card = existing_card_result.scalar_one_or_none()
                     
-                    # Link order to card
-                    order.card_id = card.id
-                    
-                    logger.info(
-                        "Card created immediately: card_id=%s aifory_card_id=%s user_id=%s",
-                        card.id, aifory_card_id, user.id
-                    )
+                    if existing_card:
+                        # Update existing card with fresh data
+                        existing_card.category = card_data.get("category") or existing_card.category
+                        existing_card.card_status = card_data.get("cardStatus")
+                        existing_card.expired_at = card_data.get("expiredAt") or existing_card.expired_at
+                        existing_card.last4 = str(card_data.get("cardNumberLastDigits") or existing_card.last4 or "")
+                        existing_card.currency = currency_str
+                        existing_card.currency_id = currency_id
+                        existing_card.payment_system_id = card_data.get("paymentSystemID") or existing_card.payment_system_id
+                        existing_card.balance = Decimal(str(card_data.get("balance") or card_amount))
+                        existing_card.status = "active" if card_data.get("cardStatus") == 2 else "inactive"
+                        existing_card.offer_id = offer_id or existing_card.offer_id
+                        
+                        # Link order to existing card
+                        order.card_id = existing_card.id
+                        
+                        logger.info(
+                            "Updated existing card: card_id=%s aifory_card_id=%s user_id=%s",
+                            existing_card.id, aifory_card_id, user.id
+                        )
+                    else:
+                        # Create new card with all available data
+                        card = Card(
+                            user_id=user.id,
+                            aifory_card_id=str(aifory_card_id),
+                            category=card_data.get("category") or offer.get("category"),
+                            card_status=card_data.get("cardStatus"),
+                            expired_at=card_data.get("expiredAt"),
+                            last4=str(card_data.get("cardNumberLastDigits") or ""),
+                            holder_name=f"{holder_first_name} {holder_last_name}",
+                            currency=currency_str,
+                            currency_id=currency_id,
+                            payment_system_id=card_data.get("paymentSystemID"),
+                            balance=Decimal(str(card_data.get("balance") or card_amount)),
+                            status="active" if card_data.get("cardStatus") == 2 else "inactive",
+                            offer_id=offer_id,
+                        )
+                        db.add(card)
+                        await db.flush()
+                        
+                        # Link order to new card
+                        order.card_id = card.id
+                        
+                        logger.info(
+                            "Card created immediately: card_id=%s aifory_card_id=%s user_id=%s balance=%s",
+                            card.id, aifory_card_id, user.id, card.balance
+                        )
                 else:
                     logger.warning("Card data not found in Aifory cards list for cardID=%s", aifory_card_id)
             else:

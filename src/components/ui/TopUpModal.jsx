@@ -442,7 +442,7 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) 
                 animation: 'textAppear 0.5s ease-out 0.2s backwards',
               }}
             >
-              Готово!
+              В течение минуты деньги зачислятся на карту
             </div>
           </div>
         )}

@@ -54,7 +54,13 @@ function mapAiforyTx(tx, card) {
 
 function AppInner() {
   const { user, loading: authLoading, appConfig, commissions } = useAuth()
-  const [currentPage, setCurrentPage] = useState('welcome')
+  const [currentPage, setCurrentPage] = useState(() => {
+    try {
+      return localStorage.getItem('pp_seen_welcome') ? 'home' : 'welcome'
+    } catch {
+      return 'welcome'
+    }
+  })
   const [cardTypeToIssue, setCardTypeToIssue] = useState(null)
   const [selectedCard, setSelectedCard] = useState(null)
   const [userCards, setUserCards] = useState([])
@@ -108,13 +114,32 @@ function AppInner() {
     [],
   )
 
-  // When user is authenticated and on home page, refresh cards
+  // When user is authenticated, immediately fetch orders and cards.
+  // If user already has orders or cards, skip Welcome and go Home.
   useEffect(() => {
     if (!user) return
-    refreshCards().then((cards) => {
-      if (cards.length > 0) refreshTransactions(cards)
-    })
-  }, [user, refreshCards, refreshTransactions])
+    let canceled = false
+    ;(async () => {
+      try {
+        const [ordersRes, cards] = await Promise.all([
+          api.orders.list().catch(() => []),
+          refreshCards(),
+        ])
+        if (canceled) return
+        const orders = Array.isArray(ordersRes) ? ordersRes : []
+        if (cards.length > 0) {
+          refreshTransactions(cards)
+        }
+        const seen = (() => { try { return localStorage.getItem('pp_seen_welcome') } catch { return null } })()
+        const shouldSkipWelcome = orders.length > 0 || cards.length > 0
+        if (!seen && shouldSkipWelcome) {
+          try { localStorage.setItem('pp_seen_welcome', '1') } catch {}
+          if (currentPage === 'welcome') setCurrentPage('home')
+        }
+      } catch {}
+    })()
+    return () => { canceled = true }
+  }, [user, refreshCards, refreshTransactions, currentPage])
 
   // After card issued: reload cards list
   const handleCardIssued = useCallback(async () => {
@@ -196,7 +221,12 @@ function AppInner() {
   return (
     <Layout background={currentPage === 'welcome' ? 'white' : '#F3F5F8'}>
       {currentPage === 'welcome' && (
-        <WelcomePage onStart={() => setCurrentPage('home')} />
+        <WelcomePage onStart={async () => {
+          try { localStorage.setItem('pp_seen_welcome', '1') } catch {}
+          setCurrentPage('home')
+          const cards = await refreshCards()
+          if (cards.length > 0) refreshTransactions(cards)
+        }} />
       )}
       {currentPage === 'home' && (
         <HomePage

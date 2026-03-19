@@ -49,6 +49,9 @@ export const api = {
     me: () => req('GET', '/auth/me'),
     config: () => req('GET', '/auth/config'),
   },
+  orders: {
+    list: () => req('GET', '/orders'),
+  },
   cards: {
     offers: () => req('GET', '/cards/offers'),
     issue: (offerId, holderFirstName, holderLastName, amount) =>
