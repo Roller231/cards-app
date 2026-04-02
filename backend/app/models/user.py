@@ -17,3 +17,4 @@ class User(Base):
     cards = relationship("Card", back_populates="user", lazy="select")
     orders = relationship("Order", back_populates="user", lazy="select")
     topup_requests = relationship("BalanceTopUpRequest", back_populates="user", lazy="select")
+    crypto_payments = relationship("CryptoPayment", back_populates="user", lazy="select")

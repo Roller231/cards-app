@@ -22,9 +22,10 @@ class CardService:
         Uses config settings if available, otherwise auto-detects from Aifory accounts.
         """
         # Use config settings if provided
-        if settings.USDT_ERC20_ACCOUNT_ID and settings.USDT_TRC20_ACCOUNT_ID:
+        # TODO: both set to TRC20 for now; change account_id back to USDT_ERC20_ACCOUNT_ID if needed
+        if settings.USDT_TRC20_ACCOUNT_ID:
             return {
-                "account_id": settings.USDT_ERC20_ACCOUNT_ID,
+                "account_id": settings.USDT_TRC20_ACCOUNT_ID,
                 "account_id_to_exchange": settings.USDT_TRC20_ACCOUNT_ID
             }
             
@@ -53,7 +54,8 @@ class CardService:
         if not usdt_trc20:
             raise ValueError("USDT TRC-20 account (currencyID=2001) not found on parent Aifory account")
 
-        return {"account_id": usdt_erc20, "account_id_to_exchange": usdt_trc20}
+        # TODO: both set to TRC20; revert account_id to usdt_erc20 if needed
+        return {"account_id": usdt_trc20, "account_id_to_exchange": usdt_trc20}
 
     # ------------------------------------------------------------------
     # Offers
@@ -64,10 +66,17 @@ class CardService:
         raw = await aifory_client.get_card_offers_simple()
 
         offers = []
+        seen_names: set = set()
         for o in raw:
             category = o.get("category")
             if category == 1:
                 continue
+
+            raw_bin = o.get("bin")
+            # Skip offers with empty/null/zero bins — they are non-functional placeholders
+            if not raw_bin or str(raw_bin) in ("", "0", "None", "null"):
+                continue
+            bin_id = str(raw_bin)
 
             currency_id = o.get("createCardCurrency")
             if currency_id == 1010:
@@ -78,17 +87,19 @@ class CardService:
                 currency_str = str(currency_id) if currency_id else "Unknown"
 
             # Map card types to display names and get per-type fixed fee
-            bin_id = str(o.get("bin"))
             if bin_id == "525847":
                 display_name = "Online + Pay"
                 fixed_issue_fee = float(settings.ONLINE_PLUS_ISSUE_FEE_USD)
             else:
                 display_name = "Online"
                 fixed_issue_fee = float(settings.ONLINE_ISSUE_FEE_USD)
-                
+
+            # Deduplicate: keep only the first offer with this display name
+            if display_name in seen_names:
+                continue
+            seen_names.add(display_name)
+
             aifory_fee_percent = float(o.get("createCardFeePercent") or 0)
-            # Display fee is now the fixed fee we charge
-            display_fee_percent = aifory_fee_percent  # Keep Aifory's percentage for reference
 
             offers.append(
                 {
@@ -97,8 +108,8 @@ class CardService:
                     "currency": currency_str,
                     "currency_id": currency_id,
                     "category": category,
-                    "issue_fee": fixed_issue_fee,  # Our fixed fee
-                    "aifory_fee_percent": display_fee_percent,  # Aifory's percentage for reference
+                    "issue_fee": fixed_issue_fee,
+                    "aifory_fee_percent": aifory_fee_percent,
                     "monthly_fee": 0.0,
                     "min_amount": float(o.get("minAmount") or 15.0),
                     "max_amount": float(o.get("maxAmount") or 50000.0),
@@ -119,6 +130,7 @@ class CardService:
         holder_first_name: str,
         holder_last_name: str,
         amount: Optional[float] = None,
+        skip_balance_check: bool = False,
     ) -> Dict[str, Any]:
         """
         Create a card issuance order via Aifory.
@@ -154,8 +166,8 @@ class CardService:
         aifory_amount = card_amount_decimal  # Aifory gets: $20
         our_profit = our_fee  # Our profit: $1
 
-        # 6. Check user balance
-        if Decimal(str(user.balance)) < user_total:
+        # 6. Check user balance (skip when payment already confirmed via crypto)
+        if not skip_balance_check and Decimal(str(user.balance)) < user_total:
             raise ValueError(
                 f"Insufficient balance. Required: {user_total:.2f} USD, available: {user.balance}"
             )
@@ -176,8 +188,9 @@ class CardService:
             partner_order_id, user.id, card_amount, user_total,
         )
 
-        # 8. Deduct from user balance
-        user.balance = Decimal(str(user.balance)) - user_total
+        # 8. Deduct from user balance (skip when payment already confirmed via crypto)
+        if not skip_balance_check:
+            user.balance = Decimal(str(user.balance)) - user_total
 
         # 9. Save order record with completed status
         order = Order(
@@ -502,6 +515,7 @@ class CardService:
         user: User,
         card_id: str,
         amount: float,
+        skip_balance_check: bool = False,
     ) -> Dict[str, Any]:
         """
         Top up a specific card balance via Aifory deposit order.
@@ -550,8 +564,8 @@ class CardService:
         our_profit = base_amount * markup / Decimal("100")
         user_total = base_amount + our_profit
 
-        # Check user balance
-        if Decimal(str(user.balance)) < user_total:
+        # Check user balance (skip when payment already confirmed via crypto)
+        if not skip_balance_check and Decimal(str(user.balance)) < user_total:
             raise ValueError(
                 f"Insufficient balance. Required: {user_total:.2f} USD, available: {user.balance}"
             )
@@ -566,8 +580,9 @@ class CardService:
         )
         partner_order_id = result.get("orderID") or result.get("orderId") or result.get("id")
 
-        # Deduct from user balance
-        user.balance = Decimal(str(user.balance)) - user_total
+        # Deduct from user balance (skip when payment already confirmed via crypto)
+        if not skip_balance_check:
+            user.balance = Decimal(str(user.balance)) - user_total
 
         # Save order record
         order = Order(

@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import Button from '../components/ui/Button'
 import PageHeader from '../components/ui/PageHeader'
 
-function IssueCardPage({ onBack, initialCardType, onCardIssued, getCommissionForCardType }) {
+function IssueCardPage({ onBack, initialCardType, onCardIssued, onCryptoPaymentInitiated, getCommissionForCardType }) {
   const { user } = useAuth()
   const [offers, setOffers] = useState([])
   const [offersLoading, setOffersLoading] = useState(true)
@@ -13,6 +13,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, getCommissionFor
   const [amountInput, setAmountInput] = useState('')
   const [totalInput, setTotalInput] = useState('')
   const [paymentMethod, setPaymentMethod] = useState('usdt')
+  const [network, setNetwork] = useState('TRC-20')
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const [showConfirmation, setShowConfirmation] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
@@ -119,22 +120,23 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, getCommissionFor
     setAmountInput(String(safeAmount))
   }, [fixedFee, totalInput]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Real API issue card call
-  const handleIssueCard = async () => {
+  // Initiate crypto payment for card issuance
+  const handleInitiateCrypto = async () => {
     setIsLoading(true)
     setErrorMsg('')
     try {
-      await api.cards.issue(
+      const paymentData = await api.cryptoPayments.initiate(
         String(selectedCardType),
-        'Card',
-        'Holder',
         amount,
+        network,
       )
       setIsLoading(false)
-      setResultScreen('success')
+      if (onCryptoPaymentInitiated) {
+        onCryptoPaymentInitiated(paymentData)
+      }
     } catch (e) {
       setIsLoading(false)
-      setErrorMsg(e.message || 'Ошибка при выпуске карты')
+      setErrorMsg(e.message || 'Ошибка при создании платежа')
       setResultScreen('failure')
     }
   }
@@ -185,7 +187,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, getCommissionFor
                   fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
                 }}
               >
-                {offersLoading ? 'Загрузка...' : selectedCardName || 'Тип карты'}
+                {offersLoading ? 'Загрузка...' : selectedCardName || 'Выберите тип карты'}
               </span>
               <svg
                 width="16"
@@ -471,54 +473,61 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, getCommissionFor
             </button>
 
             <button
-              onClick={() => setPaymentMethod('sbp')}
-              className="transition-transform duration-150 active:scale-95"
+              disabled
               style={{
                 backgroundColor: 'white',
-                border: paymentMethod === 'sbp' ? '2px solid #111827' : '2px solid transparent',
+                border: '2px solid transparent',
                 borderRadius: 12,
                 padding: '20px 16px',
-                cursor: 'pointer',
+                cursor: 'not-allowed',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
                 gap: 8,
+                opacity: 0.45,
+                pointerEvents: 'none',
               }}
             >
-<div
-  style={{
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#F3F5F8',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-  }}
->
-  <img
-    src="/images/sbp.png"
-    alt="QR Code"
-    style={{
-      width: 38,
-      height: 38,
-      objectFit: 'contain',
-    }}
-  />
-</div>
-              <span
-                style={{
-                  fontSize: 15,
-                  fontWeight: 600,
-                  color: '#111827',
-                  fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-                }}
-              >
-                СБП
-              </span>
+              <div style={{
+                width: 50, height: 50, borderRadius: 25,
+                backgroundColor: '#F3F5F8',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <img src="/images/sbp.png" alt="СБП" style={{ width: 38, height: 38, objectFit: 'contain' }} />
+              </div>
+              <span style={{
+                fontSize: 15, fontWeight: 600, color: '#111827',
+                fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+              }}>СБП</span>
+              <span style={{ fontSize: 11, fontWeight: 500, color: '#9CA3AF', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif', marginTop: -4 }}>Скоро</span>
             </button>
           </div>
         </div>
+
+        {/* Network selector (shown only for USDT) */}
+        {paymentMethod === 'usdt' && (
+          <div style={{ display: 'flex', gap: 8 }}>
+            {['TRC-20', 'ERC-20'].map((net) => (
+              <button
+                key={net}
+                onClick={() => setNetwork(net)}
+                className="transition-transform duration-150 active:scale-[0.97]"
+                style={{
+                  flex: 1, padding: '10px 0',
+                  backgroundColor: network === net ? '#111827' : 'white',
+                  color: network === net ? 'white' : '#6B7280',
+                  border: 'none', borderRadius: 10,
+                  fontSize: 13, fontWeight: 600,
+                  fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+                  cursor: 'pointer',
+                  transition: 'background-color 0.15s, color 0.15s',
+                }}
+              >
+                {net}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Issue Button */}
         <Button
@@ -736,7 +745,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, getCommissionFor
               <Button
                 onClick={() => {
                   setShowConfirmation(false)
-                  handleIssueCard()
+                  handleInitiateCrypto()
                 }}
                 fullWidth
                 style={{ marginTop: 24 }}
@@ -796,7 +805,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, getCommissionFor
               fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
             }}
           >
-            Начинаем выпуск карты...
+            Создаём платёж...
           </div>
         </div>
       )}

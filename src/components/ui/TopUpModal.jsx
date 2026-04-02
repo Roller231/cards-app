@@ -3,12 +3,13 @@ import api from '../../api/client'
 import Button from './Button'
 import Portal from './Portal'
 
-function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) {
+function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0, onCryptoPaymentInitiated }) {
   const [depositError, setDepositError] = useState('')
   const [amount, setAmount] = useState(0)
   const [amountInput, setAmountInput] = useState('')
   const [totalInput, setTotalInput] = useState('')
   const [paymentMethod, setPaymentMethod] = useState('usdt')
+  const [network, setNetwork] = useState('TRC-20')
   const [screen, setScreen] = useState('form') // 'form' | 'confirmation' | 'loading' | 'success' | 'failure'
   const amountInputRef = useRef(null)
   const totalInputRef = useRef(null)
@@ -37,7 +38,7 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) 
     }
   }, [isOpen])
 
-  // Real deposit call
+  // Deposit call — only for SBP (USDT goes through CryptoPaymentPage)
   useEffect(() => {
     if (screen !== 'loading') return
     if (!card?.aifory_card_id) {
@@ -59,6 +60,27 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) 
       })
     return () => { canceled = true }
   }, [screen]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Crypto topup initiation
+  const handleCryptoInitiate = async () => {
+    if (!card?.aifory_card_id) return
+    setScreen('loading-crypto')
+    try {
+      const paymentData = await api.cryptoPayments.initiateTopup(
+        card.aifory_card_id,
+        card.offer_id || '',
+        amount,
+        network,
+      )
+      onClose()
+      if (typeof onCryptoPaymentInitiated === 'function') {
+        onCryptoPaymentInitiated(paymentData)
+      }
+    } catch (e) {
+      setDepositError(e.message || 'Ошибка при создании платежа')
+      setScreen('failure')
+    }
+  }
 
   const round2 = (v) => Math.round((Number(v) + Number.EPSILON) * 100) / 100
 
@@ -144,65 +166,67 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) 
   )
 
   const PaymentButtons = () => (
-    <div className="grid grid-cols-2 gap-3">
-      {[
-        {
-          id: 'usdt',
-          label: 'TRC',
-          iconSrc: '/images/TRC.png',
-          iconAlt: 'TRC',
-          iconSize: 32,
-        },
-        {
-          id: 'sbp',
-          label: 'СБП',
-          iconSrc: '/images/sbp.png',
-          iconAlt: 'СБП',
-          iconSize: 38,
-        },
-      ].map(({ id, label, iconSrc, iconAlt, iconSize }) => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div className="grid grid-cols-2 gap-3">
+        {/* USDT button */}
         <button
-          key={id}
-          onClick={() => setPaymentMethod(id)}
+          onClick={() => setPaymentMethod('usdt')}
           className="transition-transform duration-150 active:scale-95"
           style={{
             backgroundColor: 'white',
-            border: paymentMethod === id ? '2px solid #111827' : '2px solid transparent',
-            borderRadius: 12,
-            padding: '20px 16px',
-            cursor: 'pointer',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: 8,
+            border: paymentMethod === 'usdt' ? '2px solid #111827' : '2px solid transparent',
+            borderRadius: 12, padding: '20px 16px', cursor: 'pointer',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
           }}
         >
-          <div
-            style={{
-              width: 50,
-              height: 50,
-              borderRadius: 25,
-              backgroundColor: '#F3F5F8',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <img
-              src={iconSrc}
-              alt={iconAlt}
-              style={{
-                width: iconSize,
-                height: iconSize,
-                objectFit: 'contain',
-              }}
-            />
+          <div style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: '#F3F5F8', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <img src="/images/TRC.png" alt="USDT" style={{ width: 32, height: 32, objectFit: 'contain' }} />
           </div>
-          <span style={{ fontSize: 15, fontWeight: 600, color: '#111827', fontFamily: font }}>
-            {label}
-          </span>
+          <span style={{ fontSize: 15, fontWeight: 600, color: '#111827', fontFamily: font }}>USDT</span>
         </button>
-      ))}
+
+        {/* SBP button — disabled */}
+        <button
+          disabled
+          style={{
+            backgroundColor: 'white',
+            border: '2px solid transparent',
+            borderRadius: 12, padding: '20px 16px',
+            cursor: 'not-allowed', opacity: 0.45, pointerEvents: 'none',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+          }}
+        >
+          <div style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: '#F3F5F8', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <img src="/images/sbp.png" alt="СБП" style={{ width: 38, height: 38, objectFit: 'contain' }} />
+          </div>
+          <span style={{ fontSize: 15, fontWeight: 600, color: '#111827', fontFamily: font }}>СБП</span>
+          <span style={{ fontSize: 11, fontWeight: 500, color: '#9CA3AF', fontFamily: font, marginTop: -4 }}>Скоро</span>
+        </button>
+      </div>
+
+      {/* Network selector — shown for USDT */}
+      {paymentMethod === 'usdt' && (
+        <div style={{ display: 'flex', gap: 8 }}>
+          {['TRC-20', 'ERC-20'].map((net) => (
+            <button
+              key={net}
+              onClick={() => setNetwork(net)}
+              className="transition-transform duration-150 active:scale-[0.97]"
+              style={{
+                flex: 1, padding: '10px 0',
+                backgroundColor: network === net ? '#111827' : 'white',
+                color: network === net ? 'white' : '#6B7280',
+                border: 'none', borderRadius: 10,
+                fontSize: 13, fontWeight: 600, fontFamily: font,
+                cursor: 'pointer',
+                transition: 'background-color 0.15s, color 0.15s',
+              }}
+            >
+              {net}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 
@@ -379,6 +403,28 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) 
           </div>
         )}
 
+        {/* LOADING-CRYPTO SCREEN */}
+        {screen === 'loading-crypto' && (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 24,
+              flex: 1,
+              transform: 'translateY(16px)',
+            }}
+          >
+            <svg width="48" height="48" viewBox="0 0 48 48" style={{ animation: 'spin 1s linear infinite' }}>
+              <circle cx="24" cy="24" r="20" fill="none" stroke="#DC4D35" strokeWidth="4" strokeLinecap="round" strokeDasharray="94.25 31.42" />
+            </svg>
+            <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font }}>
+              Создаём платёж...
+            </div>
+          </div>
+        )}
+
         {/* LOADING SCREEN (inside sheet) */}
         {screen === 'loading' && (
           <div
@@ -497,7 +543,10 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) 
             )}
 
             {screen === 'confirmation' && (
-              <Button onClick={() => setScreen('loading')} fullWidth>
+              <Button
+                onClick={() => paymentMethod === 'usdt' ? handleCryptoInitiate() : setScreen('loading')}
+                fullWidth
+              >
                 Продолжить
               </Button>
             )}

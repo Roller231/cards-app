@@ -8,7 +8,7 @@ import { useToast } from '../components/ui/ToastProvider'
 import TopUpModal from '../components/ui/TopUpModal'
 import { TxIcon } from './HistoryPage'
 
-function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateToHistory, getCommissionForCardType }) {
+function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateToHistory, getCommissionForCardType, onCryptoPaymentInitiated }) {
   const [showCardNumber, setShowCardNumber] = useState(false)
   const [isTopUpModalOpen, setIsTopUpModalOpen] = useState(false)
   const [requisites, setRequisites] = useState(null)  // { pan, expiry, cvv, holder }
@@ -534,6 +534,7 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
         card={card}
         onTopUp={onTopUp}
         topupMarkupPercent={card?.offer_id ? getCommissionForCardType(card.offer_id, 'topup') : 0}
+        onCryptoPaymentInitiated={onCryptoPaymentInitiated}
       />
     </div>
   )

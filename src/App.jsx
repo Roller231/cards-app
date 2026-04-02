@@ -9,6 +9,7 @@ import HistoryPage from './pages/HistoryPage'
 import HomePage from './pages/HomePage'
 import IssueCardPage from './pages/IssueCardPage'
 import WelcomePage from './pages/WelcomePage'
+import CryptoPaymentPage from './pages/CryptoPaymentPage'
 
 // Map raw Aifory transaction to frontend shape
 function mapAiforyTx(tx, card) {
@@ -69,9 +70,11 @@ function AppInner() {
   const [transactionsLoading, setTransactionsLoading] = useState(false)
   const [historyFixedCardLast4, setHistoryFixedCardLast4] = useState(null)
   const [historyReturnCardId, setHistoryReturnCardId] = useState(null)
+  const [cryptoPaymentData, setCryptoPaymentData] = useState(null)
+  const [dataReady, setDataReady] = useState(false)
   const tgInitOnceRef = useRef(false)
 
-  // Load cards from API
+  // Load cards from API; enrich cards missing last4 from their requisites
   const refreshCards = useCallback(async () => {
     setCardsLoading(true)
     try {
@@ -80,6 +83,19 @@ function AppInner() {
         ...c,
         title: 'Виртуальная карта',
       }))
+      // For any card that has no last4, fetch requisites to get it
+      const needEnrich = mapped.filter((c) => !c.last4 && c.aifory_card_id)
+      if (needEnrich.length > 0) {
+        await Promise.allSettled(
+          needEnrich.map(async (c) => {
+            try {
+              const req = await api.cards.requisites(c.aifory_card_id)
+              const num = req?.card_number || req?.cardNumber
+              if (num) c.last4 = String(num).slice(-4)
+            } catch {}
+          }),
+        )
+      }
       setUserCards(mapped)
       return mapped
     } catch (e) {
@@ -137,6 +153,7 @@ function AppInner() {
           if (currentPage === 'welcome') setCurrentPage('home')
         }
       } catch {}
+      setDataReady(true)
     })()
     return () => { canceled = true }
   }, [user, refreshCards, refreshTransactions, currentPage])
@@ -207,8 +224,8 @@ function AppInner() {
     }
   }
 
-  // While auth is loading show nothing (or a spinner)
-  if (authLoading) {
+  // Show spinner while auth is loading OR while initial data fetch is in progress
+  if (authLoading || (user && !dataReady)) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100dvh', background: '#F3F5F8' }}>
         <svg width="48" height="48" viewBox="0 0 48 48" style={{ animation: 'spin 1s linear infinite' }}>
@@ -273,7 +290,29 @@ function AppInner() {
           onBack={() => setCurrentPage('home')}
           initialCardType={cardTypeToIssue}
           onCardIssued={handleCardIssued}
+          onCryptoPaymentInitiated={(paymentData) => {
+            setCryptoPaymentData(paymentData)
+            setCurrentPage('crypto-payment')
+          }}
           getCommissionForCardType={getCommissionForCardType}
+        />
+      )}
+      {currentPage === 'crypto-payment' && cryptoPaymentData && (
+        <CryptoPaymentPage
+          paymentData={cryptoPaymentData}
+          onBack={() => {
+            const isTopup = cryptoPaymentData?.type === 'topup'
+            setCryptoPaymentData(null)
+            setCurrentPage(isTopup ? 'card-detail' : 'issue-card')
+          }}
+          onSuccess={async () => {
+            const isTopup = cryptoPaymentData?.type === 'topup'
+            setCryptoPaymentData(null)
+            if (!isTopup) setCardTypeToIssue(null)
+            setCurrentPage(isTopup ? 'card-detail' : 'home')
+            const cards = await refreshCards()
+            if (cards.length > 0) refreshTransactions(cards)
+          }}
         />
       )}
       {currentPage === 'card-detail' && (
@@ -291,6 +330,10 @@ function AppInner() {
             setCurrentPage('history')
           }}
           getCommissionForCardType={getCommissionForCardType}
+          onCryptoPaymentInitiated={(paymentData) => {
+            setCryptoPaymentData(paymentData)
+            setCurrentPage('crypto-payment')
+          }}
         />
       )}
     </Layout>

@@ -91,7 +91,8 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
             </Button>
           </div>
 
-          {userCards.length === 0 ? (
+          {/* Single scroll container — ref stays stable so drag-scroll listeners survive reloads */}
+          {(!cardsLoading && userCards.length === 0) ? (
             <div
               className="pb-6 font-semibold"
               style={{
@@ -120,7 +121,18 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
               }}
             >
               <div style={{ display: 'flex', gap: 12 }}>
-                    {userCards.map((card) => (
+                {cardsLoading
+                  ? [1, 2].map((i) => (
+                      <div
+                        key={i}
+                        style={{
+                          minWidth: 240, height: 144, borderRadius: 20,
+                          backgroundColor: '#E5E7EB', flexShrink: 0,
+                          animation: 'pulse 1.5s ease-in-out infinite',
+                        }}
+                      />
+                    ))
+                  : userCards.map((card) => (
                       <div
                         key={card.id}
                     className="transition-transform duration-150 active:scale-95"

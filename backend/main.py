@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from fastapi import FastAPI
@@ -5,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.database import create_tables
 from app.api.routers import auth, cards, orders, balance, transactions, aifory_dev
+from app.api.routers import crypto_payments
 
 logging.basicConfig(level=logging.INFO)
 
@@ -35,9 +37,20 @@ app.add_middleware(
 )
 
 
+async def _crypto_poll_loop() -> None:
+    from app.services.crypto_payment_service import poll_pending_payments
+    while True:
+        try:
+            await poll_pending_payments()
+        except Exception as exc:
+            logging.getLogger(__name__).error("Crypto poll loop error: %s", exc)
+        await asyncio.sleep(20)
+
+
 @app.on_event("startup")
 async def startup():
     await create_tables()
+    asyncio.create_task(_crypto_poll_loop())
 
 
 app.include_router(auth.router)
@@ -46,6 +59,7 @@ app.include_router(orders.router)
 app.include_router(balance.router)
 app.include_router(transactions.router)
 app.include_router(aifory_dev.router)
+app.include_router(crypto_payments.router)
 
 
 @app.get("/health", tags=["health"])
