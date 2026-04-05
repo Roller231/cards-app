@@ -232,19 +232,31 @@ function AppInner() {
   useEffect(() => {
     if (!user || !pendingPaymentId || currentPage === 'crypto-payment') return
 
+    const _clearPending = () => {
+      setPendingPaymentId(null)
+      try { localStorage.removeItem('pp_pending_payment_id'); localStorage.removeItem('pp_pending_check_count') } catch {}
+    }
+
     const check = async () => {
       try {
         const data = await api.cryptoPayments.status(pendingPaymentId)
         if (data.status === 'completed') {
-          setPendingPaymentId(null)
-          try { localStorage.removeItem('pp_pending_payment_id') } catch {}
+          _clearPending()
           const isTopup = data.type === 'topup'
           showToast({ title: isTopup ? '✅ Пополнение карты выполнено!' : '✅ Карта успешно выпущена!' })
           const cards = await refreshCards()
           if (cards.length > 0) refreshTransactions(cards)
         } else if (data.status === 'failed') {
-          setPendingPaymentId(null)
-          try { localStorage.removeItem('pp_pending_payment_id') } catch {}
+          _clearPending()
+        } else {
+          try {
+            const count = parseInt(localStorage.getItem('pp_pending_check_count') || '0', 10) + 1
+            if (count >= 500) {
+              _clearPending()
+            } else {
+              localStorage.setItem('pp_pending_check_count', String(count))
+            }
+          } catch {}
         }
       } catch {}
     }
@@ -323,7 +335,7 @@ function AppInner() {
           onCryptoPaymentInitiated={(paymentData) => {
             setCryptoPaymentData(paymentData)
             setPendingPaymentId(paymentData.payment_id)
-            try { localStorage.setItem('pp_pending_payment_id', paymentData.payment_id) } catch {}
+            try { localStorage.setItem('pp_pending_payment_id', paymentData.payment_id); localStorage.setItem('pp_pending_check_count', '0') } catch {}
             setCurrentPage('crypto-payment')
           }}
           getCommissionForCardType={getCommissionForCardType}
@@ -367,7 +379,7 @@ function AppInner() {
           onCryptoPaymentInitiated={(paymentData) => {
             setCryptoPaymentData(paymentData)
             setPendingPaymentId(paymentData.payment_id)
-            try { localStorage.setItem('pp_pending_payment_id', paymentData.payment_id) } catch {}
+            try { localStorage.setItem('pp_pending_payment_id', paymentData.payment_id); localStorage.setItem('pp_pending_check_count', '0') } catch {}
             setCurrentPage('crypto-payment')
           }}
         />
