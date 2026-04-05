@@ -580,6 +580,7 @@ class AiforyClient:
             "email": self._email,
             "code": (pyotp.TOTP(self._totp_secret).now() if self._totp_secret else "000000"),
         }
+        logger.info("Aifory create_card_order payload: %s", {k: v for k, v in payload.items() if k != "code"})
         return await self._request(
             "POST",
             "/virtual-cards/order",

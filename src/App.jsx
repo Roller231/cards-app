@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import api from './api/client'
 import Layout from './components/Layout'
-import { ToastProvider } from './components/ui/ToastProvider'
+import { ToastProvider, useToast } from './components/ui/ToastProvider'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import CardDetailPage from './pages/CardDetailPage'
 import FAQPage from './pages/FAQPage'
@@ -72,6 +72,10 @@ function AppInner() {
   const [historyReturnCardId, setHistoryReturnCardId] = useState(null)
   const [cryptoPaymentData, setCryptoPaymentData] = useState(null)
   const [dataReady, setDataReady] = useState(false)
+  const [pendingPaymentId, setPendingPaymentId] = useState(() => {
+    try { return localStorage.getItem('pp_pending_payment_id') || null } catch { return null }
+  })
+  const { showToast } = useToast()
   const tgInitOnceRef = useRef(false)
 
   // Load cards from API; enrich cards missing last4 from their requisites
@@ -224,6 +228,32 @@ function AppInner() {
     }
   }
 
+  // Background polling for pending crypto payment (runs from any page, not just CryptoPaymentPage)
+  useEffect(() => {
+    if (!user || !pendingPaymentId || currentPage === 'crypto-payment') return
+
+    const check = async () => {
+      try {
+        const data = await api.cryptoPayments.status(pendingPaymentId)
+        if (data.status === 'completed') {
+          setPendingPaymentId(null)
+          try { localStorage.removeItem('pp_pending_payment_id') } catch {}
+          const isTopup = data.type === 'topup'
+          showToast({ title: isTopup ? '✅ Пополнение карты выполнено!' : '✅ Карта успешно выпущена!' })
+          const cards = await refreshCards()
+          if (cards.length > 0) refreshTransactions(cards)
+        } else if (data.status === 'failed') {
+          setPendingPaymentId(null)
+          try { localStorage.removeItem('pp_pending_payment_id') } catch {}
+        }
+      } catch {}
+    }
+
+    check()
+    const interval = setInterval(check, 20000)
+    return () => clearInterval(interval)
+  }, [user, pendingPaymentId, currentPage, showToast, refreshCards, refreshTransactions])
+
   // Show spinner while auth is loading OR while initial data fetch is in progress
   if (authLoading || (user && !dataReady)) {
     return (
@@ -292,6 +322,8 @@ function AppInner() {
           onCardIssued={handleCardIssued}
           onCryptoPaymentInitiated={(paymentData) => {
             setCryptoPaymentData(paymentData)
+            setPendingPaymentId(paymentData.payment_id)
+            try { localStorage.setItem('pp_pending_payment_id', paymentData.payment_id) } catch {}
             setCurrentPage('crypto-payment')
           }}
           getCommissionForCardType={getCommissionForCardType}
@@ -309,6 +341,8 @@ function AppInner() {
             const isTopup = cryptoPaymentData?.type === 'topup'
             setCryptoPaymentData(null)
             if (!isTopup) setCardTypeToIssue(null)
+            setPendingPaymentId(null)
+            try { localStorage.removeItem('pp_pending_payment_id') } catch {}
             setCurrentPage(isTopup ? 'card-detail' : 'home')
             const cards = await refreshCards()
             if (cards.length > 0) refreshTransactions(cards)
@@ -332,6 +366,8 @@ function AppInner() {
           getCommissionForCardType={getCommissionForCardType}
           onCryptoPaymentInitiated={(paymentData) => {
             setCryptoPaymentData(paymentData)
+            setPendingPaymentId(paymentData.payment_id)
+            try { localStorage.setItem('pp_pending_payment_id', paymentData.payment_id) } catch {}
             setCurrentPage('crypto-payment')
           }}
         />
