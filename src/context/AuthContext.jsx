@@ -47,13 +47,17 @@ export function AuthProvider({ children }) {
     const init = async () => {
       setLoading(true)
 
-      // Load public config (markup percents) first – no auth needed
+      // Load public config first – no auth needed
       await loadConfig()
 
-      // Strict mode: always authenticate via Telegram WebApp initData when available
       const tg = window?.Telegram?.WebApp
+      // Signal Telegram the app is ready (required for some clients to expose initData)
+      try { tg?.ready?.() } catch {}
       const initData = tg?.initData
+
+      // Case 1: initData present → always do a fresh TG auth (ignores any cached token)
       if (initData) {
+        clearToken()
         try {
           setAuthError('')
           await loginWithTelegramWebApp(initData)
@@ -63,15 +67,27 @@ export function AuthProvider({ children }) {
           console.error('[Auth] Telegram WebApp auth failed:', e.message)
           clearToken()
           setUser(null)
-          setAuthError('Не удалось авторизоваться через Telegram. Откройте приложение заново из Telegram.')
+          setAuthError(`Ошибка авторизации Telegram: ${e.message}. Попробуйте переоткрыть из бота.`)
           setLoading(false)
           return
         }
       }
 
-      clearToken()
-      setUser(null)
+      // Case 2: no initData (Desktop Telegram, direct URL open, etc.)
+      // Allow reuse of an existing token ONLY if user was previously TG-authenticated
+      if (getToken()) {
+        const me = await fetchMe()
+        if (me?.telegram_user_id) {
+          // Legitimate returning TG user with cached session
+          setLoading(false)
+          return
+        }
+        // No TG ID → stale dev/default session, reject it
+        clearToken()
+        setUser(null)
+      }
 
+      // Case 3: no initData, no valid TG token → block
       setAuthError('Доступ только через Telegram WebApp. Откройте приложение из Telegram-бота.')
       setLoading(false)
     }

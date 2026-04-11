@@ -1,7 +1,10 @@
 import hashlib
 import hmac
 import json
+import logging as _logging
 import urllib.parse
+
+_auth_log = _logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -53,11 +56,8 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    # Passwordless-friendly login for dev / mini app: if no password provided,
-    # allow login as long as the user exists and is active.
-    if body.password:
-        if not user.hashed_password or not verify_password(body.password, user.hashed_password):
-            raise HTTPException(status_code=401, detail="Invalid credentials")
+    if not body.password or not user.hashed_password or not verify_password(body.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
 
     token = create_access_token(str(user.id))
     return TokenResponse(access_token=token)
@@ -116,6 +116,8 @@ def _verify_telegram_init_data(init_data: str) -> dict:
     expected_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
 
     if not hmac.compare_digest(expected_hash, received_hash):
+        _auth_log.warning("initData HMAC mismatch | expected=%s | received=%s | dcs=%r",
+                         expected_hash[:12], received_hash[:12], data_check_string[:120])
         raise HTTPException(status_code=401, detail="Invalid Telegram initData signature")
 
     user_json = params.get("user")
@@ -135,6 +137,7 @@ def _verify_telegram_init_data(init_data: str) -> dict:
 )
 async def telegram_webapp_auth(body: TelegramWebAppRequest, db: AsyncSession = Depends(get_db)):
     """Verifies initData HMAC, then registers or logs in the user."""
+    _auth_log.info("telegram-webapp called, initData length=%d", len(body.init_data))
     tg_user = _verify_telegram_init_data(body.init_data)
 
     tg_id = str(tg_user.get("id", ""))
