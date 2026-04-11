@@ -50,17 +50,7 @@ export function AuthProvider({ children }) {
       // Load public config (markup percents) first – no auth needed
       await loadConfig()
 
-      // If we already have a token, try to reuse it
-      if (getToken()) {
-        const me = await fetchMe()
-        if (me) {
-          setLoading(false)
-          return
-        }
-        clearToken()
-      }
-
-      // Try Telegram WebApp initData
+      // Strict mode: always authenticate via Telegram WebApp initData when available
       const tg = window?.Telegram?.WebApp
       const initData = tg?.initData
       if (initData) {
@@ -72,11 +62,15 @@ export function AuthProvider({ children }) {
         } catch (e) {
           console.error('[Auth] Telegram WebApp auth failed:', e.message)
           clearToken()
+          setUser(null)
           setAuthError('Не удалось авторизоваться через Telegram. Откройте приложение заново из Telegram.')
           setLoading(false)
           return
         }
       }
+
+      clearToken()
+      setUser(null)
 
       setAuthError('Доступ только через Telegram WebApp. Откройте приложение из Telegram-бота.')
       setLoading(false)

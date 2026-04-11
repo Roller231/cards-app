@@ -44,8 +44,6 @@ export const api = {
   auth: {
     telegramWebApp: (initData) =>
       req('POST', '/auth/telegram-webapp', { init_data: initData }),
-    telegramLogin: (telegramUserId, username) =>
-      req('POST', '/auth/telegram-login', { telegram_user_id: telegramUserId, username }),
     me: () => req('GET', '/auth/me'),
     config: () => req('GET', '/auth/config'),
   },
