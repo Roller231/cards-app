@@ -1,16 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import api, { clearToken, getToken, setToken } from '../api/client'
 
-// Dev fallback local test user (username=string, tgID=string)
-const DEV_TG_ID = 'string'
-const DEV_USERNAME = 'string'
-
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
   const [banned, setBanned] = useState(false)
+  const [authError, setAuthError] = useState('')
   const [appConfig, setAppConfig] = useState({
     card_issue_markup_percent: 0,
     card_topup_markup_percent: 0,
@@ -46,12 +43,6 @@ export function AuthProvider({ children }) {
     [fetchMe],
   )
 
-  const loginDev = useCallback(async () => {
-    const res = await api.auth.telegramLogin(DEV_TG_ID, DEV_USERNAME)
-    setToken(res.access_token)
-    return fetchMe()
-  }, [fetchMe])
-
   useEffect(() => {
     const init = async () => {
       setLoading(true)
@@ -74,21 +65,20 @@ export function AuthProvider({ children }) {
       const initData = tg?.initData
       if (initData) {
         try {
+          setAuthError('')
           await loginWithTelegramWebApp(initData)
           setLoading(false)
           return
         } catch (e) {
           console.error('[Auth] Telegram WebApp auth failed:', e.message)
+          clearToken()
+          setAuthError('Не удалось авторизоваться через Telegram. Откройте приложение заново из Telegram.')
+          setLoading(false)
+          return
         }
       }
 
-      // Dev fallback: log in as local test user (username=string, tgID=string)
-      try {
-        await loginDev()
-      } catch (e) {
-        console.error('[Auth] Dev fallback login failed:', e.message)
-      }
-
+      setAuthError('Доступ только через Telegram WebApp. Откройте приложение из Telegram-бота.')
       setLoading(false)
     }
 
@@ -107,6 +97,7 @@ export function AuthProvider({ children }) {
       user,
       loading,
       banned,
+      authError,
       appConfig,
       commissions: {
         online_issue_fee: online_issue_fee_usd,

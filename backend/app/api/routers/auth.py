@@ -90,35 +90,10 @@ async def me(current_user: User = Depends(get_current_user)):
     summary="Passwordless auth: login or create user by Telegram ID",
 )
 async def telegram_login(body: TelegramLoginRequest, db: AsyncSession = Depends(get_db)):
-    # Try to find by telegram_user_id first
-    result = await db.execute(select(User).where(User.telegram_user_id == body.telegram_user_id))
-    user = result.scalar_one_or_none()
-
-    if not user:
-        # Ensure a unique username
-        base_username = body.username or f"tg_{body.telegram_user_id}"
-        candidate = base_username
-        suffix = 1
-        while True:
-            check = await db.execute(select(User).where(User.username == candidate))
-            if not check.scalar_one_or_none():
-                break
-            suffix += 1
-            candidate = f"{base_username}_{suffix}"
-
-        user = User(
-            username=candidate,
-            hashed_password=None,
-            telegram_user_id=body.telegram_user_id,
-        )
-        db.add(user)
-        await db.flush()
-
-    if not user.is_active:
-        raise HTTPException(status_code=401, detail="User is inactive")
-
-    token = create_access_token(str(user.id))
-    return TokenResponse(access_token=token)
+    raise HTTPException(
+        status_code=403,
+        detail="Use /auth/telegram-webapp with valid Telegram initData",
+    )
 
 
 def _verify_telegram_init_data(init_data: str) -> dict:
