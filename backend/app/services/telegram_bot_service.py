@@ -32,7 +32,7 @@ _last_update_id: int = 0
 
 def _token() -> str:
     from app.core.config import settings
-    tok = settings.TELEGRAM_BOT_TOKEN
+    tok = (settings.TELEGRAM_BOT_TOKEN or "").strip()
     if not tok:
         raise ValueError("TELEGRAM_BOT_TOKEN not configured")
     return tok

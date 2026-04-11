@@ -98,7 +98,8 @@ async def telegram_login(body: TelegramLoginRequest, db: AsyncSession = Depends(
 
 def _verify_telegram_init_data(init_data: str) -> dict:
     """Verify Telegram WebApp initData HMAC. Returns parsed user dict."""
-    if not settings.TELEGRAM_BOT_TOKEN:
+    bot_token = (settings.TELEGRAM_BOT_TOKEN or "").strip()
+    if not bot_token:
         raise HTTPException(status_code=500, detail="TELEGRAM_BOT_TOKEN not configured")
 
     try:
@@ -112,7 +113,7 @@ def _verify_telegram_init_data(init_data: str) -> dict:
 
     data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(params.items()))
 
-    secret_key = hmac.new(b"WebAppData", settings.TELEGRAM_BOT_TOKEN.encode(), hashlib.sha256).digest()
+    secret_key = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
     expected_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
 
     if not hmac.compare_digest(expected_hash, received_hash):
