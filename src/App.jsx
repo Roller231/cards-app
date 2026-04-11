@@ -54,7 +54,7 @@ function mapAiforyTx(tx, card) {
 }
 
 function AppInner() {
-  const { user, loading: authLoading, appConfig, commissions } = useAuth()
+  const { user, loading: authLoading, banned, appConfig, commissions } = useAuth()
   const [currentPage, setCurrentPage] = useState(() => {
     try {
       return localStorage.getItem('pp_seen_welcome') ? 'home' : 'welcome'
@@ -265,6 +265,17 @@ function AppInner() {
     const interval = setInterval(check, 20000)
     return () => clearInterval(interval)
   }, [user, pendingPaymentId, currentPage, showToast, refreshCards, refreshTransactions])
+
+  // Banned screen
+  if (banned) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100dvh', background: '#F3F5F8', padding: 32, textAlign: 'center' }}>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>🚫</div>
+        <h2 style={{ margin: '0 0 8px', fontSize: 22, fontWeight: 700, color: '#111827' }}>Аккаунт заблокирован</h2>
+        <p style={{ margin: 0, fontSize: 15, color: '#6b7280', maxWidth: 300 }}>Ваш аккаунт был заблокирован администратором. Обратитесь в поддержку для получения информации.</p>
+      </div>
+    )
+  }
 
   // Show spinner while auth is loading OR while initial data fetch is in progress
   if (authLoading || (user && !dataReady)) {

@@ -24,5 +24,5 @@ async def get_db():
 
 async def create_tables():
     async with engine.begin() as conn:
-        from app.models import User, Card, Order, BalanceTopUpRequest, CryptoPayment  # noqa: F401
+        from app.models import User, Card, Order, BalanceTopUpRequest, CryptoPayment, AdminSetting  # noqa: F401
         await conn.run_sync(Base.metadata.create_all)

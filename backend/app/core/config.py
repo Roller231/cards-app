@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     USDT_ERC20_ACCOUNT_ID: str = ""  # currencyID=2000, will auto-detect if empty
     USDT_TRC20_ACCOUNT_ID: str = ""  # currencyID=2001, will auto-detect if empty
 
+    ADMIN_EMAIL: str = "exprontopay@gmail.com"
+    ADMIN_PASSWORD: str = "exprontoPay2026."
+
     TELEGRAM_BOT_TOKEN: str = ""  # Required for Telegram WebApp initData verification
 
     # ABCEX crypto payment gateway

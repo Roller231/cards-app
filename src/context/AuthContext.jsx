@@ -10,6 +10,7 @@ const AuthContext = createContext(null)
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [banned, setBanned] = useState(false)
   const [appConfig, setAppConfig] = useState({
     card_issue_markup_percent: 0,
     card_topup_markup_percent: 0,
@@ -25,9 +26,13 @@ export function AuthProvider({ children }) {
   const fetchMe = useCallback(async () => {
     try {
       const me = await api.auth.me()
+      setBanned(false)
       setUser(me)
       return me
-    } catch {
+    } catch (err) {
+      if (err.status === 403 && err.message === 'ACCOUNT_BANNED') {
+        setBanned(true)
+      }
       return null
     }
   }, [])
@@ -101,6 +106,7 @@ export function AuthProvider({ children }) {
     <AuthContext.Provider value={{
       user,
       loading,
+      banned,
       appConfig,
       commissions: {
         online_issue_fee: online_issue_fee_usd,

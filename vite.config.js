@@ -11,6 +11,12 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
       },
+      '/uploads': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
     },
   },
+  // SPA fallback: /admin/* → index.html
+  appType: 'spa',
 })
