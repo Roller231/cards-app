@@ -70,6 +70,10 @@ async def get_config():
         "online_topup_markup_percent": settings.ONLINE_TOPUP_MARKUP_PERCENT,
         "online_plus_issue_fee_usd": settings.ONLINE_PLUS_ISSUE_FEE_USD,
         "online_plus_topup_markup_percent": settings.ONLINE_PLUS_TOPUP_MARKUP_PERCENT,
+        "online_card_validity_text": settings.ONLINE_CARD_VALIDITY_TEXT,
+        "online_plus_card_validity_text": settings.ONLINE_PLUS_CARD_VALIDITY_TEXT,
+        "online_operation_fee_usd": settings.ONLINE_OPERATION_FEE_USD,
+        "online_plus_operation_fee_usd": settings.ONLINE_PLUS_OPERATION_FEE_USD,
     }
 
 

@@ -37,6 +37,10 @@ SETTINGS_KEYS: Dict[str, Dict[str, Any]] = {
     "ONLINE_TOPUP_MARKUP_PERCENT": {"desc": "Online card top-up markup (%)", "type": float},
     "ONLINE_PLUS_ISSUE_FEE_USD": {"desc": "Online+ card issue fee (USD)", "type": float},
     "ONLINE_PLUS_TOPUP_MARKUP_PERCENT": {"desc": "Online+ card top-up markup (%)", "type": float},
+    "ONLINE_CARD_VALIDITY_TEXT": {"desc": "Online card validity text", "type": str},
+    "ONLINE_PLUS_CARD_VALIDITY_TEXT": {"desc": "Online+ card validity text", "type": str},
+    "ONLINE_OPERATION_FEE_USD": {"desc": "Online card operation fee (USD)", "type": float},
+    "ONLINE_PLUS_OPERATION_FEE_USD": {"desc": "Online+ card operation fee (USD)", "type": float},
     "ABCEX_CRYPTO_PAYMENT_EXPIRY_MINUTES": {"desc": "Crypto payment expiry (minutes)", "type": int},
 }
 

@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     ONLINE_TOPUP_MARKUP_PERCENT: float = 3.8
     ONLINE_PLUS_ISSUE_FEE_USD: float = 0.0  # Fixed fee for Online + Pay card issuance
     ONLINE_PLUS_TOPUP_MARKUP_PERCENT: float = 4.0
+    ONLINE_CARD_VALIDITY_TEXT: str = "1 год"
+    ONLINE_PLUS_CARD_VALIDITY_TEXT: str = "1 год"
+    ONLINE_OPERATION_FEE_USD: float = 0.4
+    ONLINE_PLUS_OPERATION_FEE_USD: float = 0.4
     
     # USDT account settings (move from hardcoded logic)
     USDT_ERC20_ACCOUNT_ID: str = ""  # currencyID=2000, will auto-detect if empty

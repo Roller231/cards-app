@@ -100,6 +100,10 @@ export function AuthProvider({ children }) {
     online_topup_markup_percent = 0,
     online_plus_issue_fee_usd = 0,
     online_plus_topup_markup_percent = 0,
+    online_card_validity_text = '1 год',
+    online_plus_card_validity_text = '1 год',
+    online_operation_fee_usd = 0.4,
+    online_plus_operation_fee_usd = 0.4,
   } = appConfig || {}
 
   return (
@@ -114,6 +118,10 @@ export function AuthProvider({ children }) {
         online_topup: online_topup_markup_percent,
         online_plus_issue_fee: online_plus_issue_fee_usd,
         online_plus_topup: online_plus_topup_markup_percent,
+        online_validity_text: online_card_validity_text,
+        online_plus_validity_text: online_plus_card_validity_text,
+        online_operation_fee: online_operation_fee_usd,
+        online_plus_operation_fee: online_plus_operation_fee_usd,
       },
       fetchMe,
     }}>

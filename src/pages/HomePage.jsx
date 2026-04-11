@@ -330,32 +330,15 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
                 >
                   Бесплатное обслуживание
                 </div>
-                <div
-                  style={{
-                    padding: '6px 12px',
-                    backgroundColor: '#3B82F6',
-                    borderRadius: 8,
-                    fontSize: 12,
-                    fontWeight: 400,
-                    color: '#FFFFFF',
-                    fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-                  }}
-                >
-                  Бесплатный выпуск
-                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3" style={{ marginBottom: 16 }}>
                 <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>0 $</div>
-                  <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Выпуск карты</div>
-                </div>
-                <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>1 год</div>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>{commissions.online_validity_text || '1 год'}</div>
                   <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Срок действия</div>
                 </div>
                 <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>0,4 $</div>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>{commissions.online_operation_fee || 0.4} $</div>
                   <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Комиссия за операцию</div>
                 </div>
                 <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
@@ -511,32 +494,15 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
                 >
                   Бесплатное обслуживание
                 </div>
-                <div
-                  style={{
-                    padding: '6px 12px',
-                    backgroundColor: '#3B82F6',
-                    borderRadius: 8,
-                    fontSize: 12,
-                    fontWeight: 400,
-                    color: '#FFFFFF',
-                    fontFamily: font,
-                  }}
-                >
-                  Бесплатный выпуск
-                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3" style={{ marginBottom: 16 }}>
                 <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>0 $</div>
-                  <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Выпуск карты</div>
-                </div>
-                <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>1 год</div>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>{commissions.online_plus_validity_text || '1 год'}</div>
                   <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Срок действия</div>
                 </div>
                 <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>0,4 $</div>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>{commissions.online_plus_operation_fee || 0.4} $</div>
                   <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Комиссия за операцию</div>
                 </div>
                 <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>

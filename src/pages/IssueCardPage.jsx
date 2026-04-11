@@ -5,7 +5,7 @@ import Button from '../components/ui/Button'
 import PageHeader from '../components/ui/PageHeader'
 
 function IssueCardPage({ onBack, initialCardType, onCardIssued, onCryptoPaymentInitiated, getCommissionForCardType }) {
-  const { user } = useAuth()
+  const { user, commissions } = useAuth()
   const [offers, setOffers] = useState([])
   const [offersLoading, setOffersLoading] = useState(true)
   const [selectedCardType, setSelectedCardType] = useState('')
@@ -78,6 +78,10 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, onCryptoPaymentI
   }
 
   const selectedCard = cardTypes.find((c) => String(c.id) === String(selectedCardType))
+  const isOnlinePlusSelected = String(selectedCardType) === '525847'
+  const cardValidityText = isOnlinePlusSelected
+    ? (commissions?.online_plus_validity_text || '1 год')
+    : (commissions?.online_validity_text || '1 год')
   // Get fixed fee for selected card type
   const fixedFee = useMemo(() => {
     if (!selectedCardType || !getCommissionForCardType) return 0
@@ -660,7 +664,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, onCryptoPaymentI
                       fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
                     }}
                   >
-                    7 лет
+                    {cardValidityText}
                   </div>
                 </div>
 
