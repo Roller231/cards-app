@@ -35,6 +35,9 @@ class Settings(BaseSettings):
 
     TELEGRAM_BOT_TOKEN: str = ""  # Required for Telegram WebApp initData verification
 
+    # Public app URL used for external OAuth callbacks (e.g. https://prontopay.pro)
+    PUBLIC_BASE_URL: str = ""
+
     # Gmail API OAuth2 for Apple Pay codes
     GMAIL_CLIENT_ID: str = ""
     GMAIL_CLIENT_SECRET: str = ""

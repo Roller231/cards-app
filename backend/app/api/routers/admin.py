@@ -743,6 +743,13 @@ async def update_notification_settings(
 _GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.modify"
 
 
+def _gmail_redirect_uri(request: Request) -> str:
+    base = (settings.PUBLIC_BASE_URL or "").strip().rstrip("/")
+    if base:
+        return f"{base}/api/admin/gmail/callback"
+    return str(request.base_url).rstrip("/") + "/api/admin/gmail/callback"
+
+
 @router.get("/gmail/status", summary="Gmail API connection status")
 async def gmail_status(db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
     from app.core.config import settings as cfg
@@ -767,7 +774,7 @@ async def gmail_auth_url(request: Request, _=Depends(get_admin)):
     if not cfg.GMAIL_CLIENT_ID:
         raise HTTPException(400, "GMAIL_CLIENT_ID not configured in .env")
 
-    redirect_uri = str(request.base_url).rstrip("/") + "/api/admin/gmail/callback"
+    redirect_uri = _gmail_redirect_uri(request)
     params = {
         "client_id": cfg.GMAIL_CLIENT_ID,
         "redirect_uri": redirect_uri,
@@ -784,7 +791,7 @@ async def gmail_callback(request: Request, code: str, db: AsyncSession = Depends
     import httpx
     from app.core.config import settings as cfg
 
-    redirect_uri = str(request.base_url).rstrip("/") + "/api/admin/gmail/callback"
+    redirect_uri = _gmail_redirect_uri(request)
     async with httpx.AsyncClient(timeout=15) as client:
         resp = await client.post("https://oauth2.googleapis.com/token", data={
             "code": code,
