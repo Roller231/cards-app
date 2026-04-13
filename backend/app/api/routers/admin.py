@@ -9,7 +9,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import func, select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -737,26 +738,109 @@ async def update_notification_settings(
     return {"ok": True}
 
 
-# =====================  GMAIL SETTINGS  =====================
+# =====================  GMAIL OAuth2  =====================
 
-@router.get("/gmail/settings", summary="Get Gmail polling credentials")
-async def get_gmail_settings(_=Depends(get_admin)):
+_GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.modify"
+
+
+@router.get("/gmail/status", summary="Gmail API connection status")
+async def gmail_status(db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
     from app.core.config import settings as cfg
+    row = (await db.execute(
+        select(AdminSetting).where(AdminSetting.key == "GMAIL_REFRESH_TOKEN")
+    )).scalar_one_or_none()
+    email_row = (await db.execute(
+        select(AdminSetting).where(AdminSetting.key == "GMAIL_CONNECTED_EMAIL")
+    )).scalar_one_or_none()
     return {
-        "gmail_email": cfg.GMAIL_EMAIL,
-        "gmail_app_password_set": bool(cfg.GMAIL_APP_PASSWORD),
+        "connected": bool(row and row.value),
+        "email": email_row.value if email_row else None,
+        "client_id_set": bool(cfg.GMAIL_CLIENT_ID),
     }
 
 
-class GmailSettingsUpdate(BaseModel):
-    gmail_email: str
-    gmail_app_password: str = ""
-
-
-@router.put("/gmail/settings", summary="Update Gmail polling credentials")
-async def update_gmail_settings(body: GmailSettingsUpdate, _=Depends(get_admin)):
+@router.get("/gmail/auth-url", summary="Get Google OAuth2 authorize URL")
+async def gmail_auth_url(request: Request, _=Depends(get_admin)):
+    from urllib.parse import urlencode
     from app.core.config import settings as cfg
-    cfg.GMAIL_EMAIL = body.gmail_email.strip()
-    if body.gmail_app_password:
-        cfg.GMAIL_APP_PASSWORD = body.gmail_app_password.strip().replace(" ", "")
+
+    if not cfg.GMAIL_CLIENT_ID:
+        raise HTTPException(400, "GMAIL_CLIENT_ID not configured in .env")
+
+    redirect_uri = str(request.base_url).rstrip("/") + "/api/admin/gmail/callback"
+    params = {
+        "client_id": cfg.GMAIL_CLIENT_ID,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": _GMAIL_SCOPE,
+        "access_type": "offline",
+        "prompt": "consent",
+    }
+    return {"auth_url": f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}"}
+
+
+@router.get("/gmail/callback", summary="OAuth2 callback — exchanges code for tokens", include_in_schema=False)
+async def gmail_callback(request: Request, code: str, db: AsyncSession = Depends(get_db)):
+    import httpx
+    from app.core.config import settings as cfg
+
+    redirect_uri = str(request.base_url).rstrip("/") + "/api/admin/gmail/callback"
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.post("https://oauth2.googleapis.com/token", data={
+            "code": code,
+            "client_id": cfg.GMAIL_CLIENT_ID,
+            "client_secret": cfg.GMAIL_CLIENT_SECRET,
+            "redirect_uri": redirect_uri,
+            "grant_type": "authorization_code",
+        })
+    if resp.status_code != 200:
+        return HTMLResponse(f"<h3>❌ Ошибка авторизации</h3><pre>{resp.text}</pre>", status_code=400)
+
+    tokens = resp.json()
+    refresh_token = tokens.get("refresh_token")
+    if not refresh_token:
+        return HTMLResponse("<h3>❌ Google не вернул refresh_token. Попробуйте ещё раз.</h3>", status_code=400)
+
+    await _upsert_setting(db, "GMAIL_REFRESH_TOKEN", refresh_token, "Gmail OAuth2 refresh token")
+
+    # fetch connected email
+    access_token = tokens.get("access_token", "")
+    gmail_email = ""
+    if access_token:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                profile = await client.get(
+                    "https://gmail.googleapis.com/gmail/v1/users/me/profile",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                )
+            if profile.status_code == 200:
+                gmail_email = profile.json().get("emailAddress", "")
+        except Exception:
+            pass
+    if gmail_email:
+        await _upsert_setting(db, "GMAIL_CONNECTED_EMAIL", gmail_email, "Gmail подключённый email")
+
+    await db.commit()
+    return HTMLResponse(
+        "<html><body style='font-family:sans-serif;text-align:center;padding:60px'>"
+        "<h2>✅ Gmail подключён!</h2>"
+        f"<p>Аккаунт: <b>{gmail_email or '—'}</b></p>"
+        "<p>Можете закрыть эту вкладку.</p>"
+        "<script>window.opener&&window.opener.postMessage('gmail_connected','*');setTimeout(()=>window.close(),2000)</script>"
+        "</body></html>"
+    )
+
+
+@router.delete("/gmail/disconnect", summary="Disconnect Gmail — remove refresh token")
+async def gmail_disconnect(db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+    for key in ("GMAIL_REFRESH_TOKEN", "GMAIL_CONNECTED_EMAIL"):
+        row = (await db.execute(select(AdminSetting).where(AdminSetting.key == key))).scalar_one_or_none()
+        if row:
+            await db.delete(row)
+    await db.commit()
+    # clear cached token in gmail_service
+    from app.services.gmail_service import _cached_access_token, _token_expires_at
+    import app.services.gmail_service as _gs
+    _gs._cached_access_token = None
+    _gs._token_expires_at = 0
     return {"ok": True}

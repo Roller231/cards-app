@@ -103,9 +103,9 @@ const adminApi = {
     updateNotificationSettings: (data) => req('PUT', '/admin/bot/notification-settings', data),
   },
   gmail: {
-    getSettings: () => req('GET', '/admin/gmail/settings'),
-    updateSettings: (gmail_email, gmail_app_password) =>
-      req('PUT', '/admin/gmail/settings', { gmail_email, gmail_app_password }),
+    status: () => req('GET', '/admin/gmail/status'),
+    authUrl: () => req('GET', '/admin/gmail/auth-url'),
+    disconnect: () => req('DELETE', '/admin/gmail/disconnect'),
   },
 }
 

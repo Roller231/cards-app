@@ -611,10 +611,10 @@ function BotPage() {
   const [notifSaving, setNotifSaving] = useState(false)
 
   // — gmail tab state —
+  const [gmailConnected, setGmailConnected] = useState(false)
   const [gmailEmail, setGmailEmail] = useState('')
-  const [gmailPass, setGmailPass] = useState('')
-  const [gmailPassSet, setGmailPassSet] = useState(false)
-  const [gmailSaving, setGmailSaving] = useState(false)
+  const [gmailClientIdSet, setGmailClientIdSet] = useState(false)
+  const [gmailLoading, setGmailLoading] = useState(false)
 
   useEffect(() => {
     adminApi.bot.getSettings().then(s => {
@@ -625,9 +625,10 @@ function BotPage() {
       setImageUrl(s.image_url ? s.image_url + '?t=' + Date.now() : null)
     }).catch(() => {})
     adminApi.bot.getNotificationSettings().then(s => setNotifHeaders(s || {})).catch(() => {})
-    adminApi.gmail.getSettings().then(s => {
-      setGmailEmail(s.gmail_email || '')
-      setGmailPassSet(s.gmail_app_password_set || false)
+    adminApi.gmail.status().then(s => {
+      setGmailConnected(s.connected)
+      setGmailEmail(s.email || '')
+      setGmailClientIdSet(s.client_id_set)
     }).catch(() => {})
   }, [])
 
@@ -692,11 +693,26 @@ function BotPage() {
     finally { setNotifSaving(false) }
   }
 
-  const saveGmail = async () => {
-    setGmailSaving(true)
-    try { await adminApi.gmail.updateSettings(gmailEmail, gmailPass); setGmailPass(''); setGmailPassSet(!!gmailEmail); alert('Сохранено') }
+  const connectGmail = async () => {
+    setGmailLoading(true)
+    try {
+      const { auth_url } = await adminApi.gmail.authUrl()
+      const w = window.open(auth_url, 'gmail_auth', 'width=600,height=700')
+      const onMsg = (e) => {
+        if (e.data === 'gmail_connected') {
+          window.removeEventListener('message', onMsg)
+          adminApi.gmail.status().then(s => { setGmailConnected(s.connected); setGmailEmail(s.email || '') })
+        }
+      }
+      window.addEventListener('message', onMsg)
+    } catch (e) { alert(e.message) }
+    finally { setGmailLoading(false) }
+  }
+
+  const disconnectGmail = async () => {
+    if (!confirm('Отключить Gmail?')) return
+    try { await adminApi.gmail.disconnect(); setGmailConnected(false); setGmailEmail('') }
     catch (e) { alert(e.message) }
-    finally { setGmailSaving(false) }
   }
 
   const tabs = [
@@ -902,19 +918,32 @@ function BotPage() {
 
       {tab === 'gmail' && (
         <div style={{ maxWidth: 500, background: '#fff', borderRadius: 14, padding: 24, boxShadow: '0 1px 3px rgba(0,0,0,.08)' }}>
-          <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 600 }}>📧 Gmail IMAP (Apple Pay коды)</h3>
+          <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 600 }}>📧 Gmail API (Apple Pay коды)</h3>
           <p style={{ fontSize: 12, color: '#6b7280', marginTop: 0, marginBottom: 16 }}>
-            Бот каждые 10 секунд проверяет этот почтовый ящик на наличие писем с кодами Apple Pay от SUNRATE.
-            При обнаружении — автоматически отправляет код пользователю в Telegram.
+            Бот каждые 10 секунд проверяет почту через Gmail API на наличие писем с кодами Apple Pay от SUNRATE.
+            При обнаружении — отправляет <b>только самый свежий</b> код для каждой карты пользователю в Telegram.
           </p>
-          <Input label="Email адрес" value={gmailEmail} onChange={e => setGmailEmail(e.target.value)} placeholder="user@gmail.com" />
-          <Input label={gmailPassSet ? 'App Password (установлен, оставьте пустым чтобы не менять)' : 'Google App Password'}
-            value={gmailPass} onChange={e => setGmailPass(e.target.value)} placeholder={gmailPassSet ? '••••••••' : 'xxxx xxxx xxxx xxxx'} />
-          <div style={{ marginTop: 10, padding: 10, background: '#fef9c3', borderRadius: 8, fontSize: 11, lineHeight: 1.6, marginBottom: 16 }}>
-            ⚠️ Используйте <b>Google App Password</b>, а не обычный пароль.
-            Создать: Google Аккаунт → Безопасность → Пароли приложений.
-          </div>
-          <Btn onClick={saveGmail} disabled={gmailSaving}>{gmailSaving ? 'Сохранение...' : 'Сохранить'}</Btn>
+
+          {gmailConnected ? (
+            <div>
+              <div style={{ padding: '14px 18px', borderRadius: 10, background: '#f0fdf4', border: '1px solid #86efac', marginBottom: 16 }}>
+                <span style={{ fontSize: 14, fontWeight: 600 }}>✅ Gmail подключён</span><br />
+                <span style={{ fontSize: 13, color: '#374151' }}>{gmailEmail || '—'}</span>
+              </div>
+              <Btn variant="danger" small onClick={disconnectGmail}>Отключить Gmail</Btn>
+            </div>
+          ) : (
+            <div>
+              {!gmailClientIdSet && (
+                <div style={{ padding: 10, background: '#fef9c3', borderRadius: 8, fontSize: 11, lineHeight: 1.6, marginBottom: 16 }}>
+                  ⚠️ Сначала задайте <b>GMAIL_CLIENT_ID</b> и <b>GMAIL_CLIENT_SECRET</b> в <code>.env</code> файле бэкенда и перезапустите сервер.
+                </div>
+              )}
+              <Btn onClick={connectGmail} disabled={gmailLoading || !gmailClientIdSet}>
+                {gmailLoading ? '⏳ Открытие...' : '🔗 Подключить Gmail'}
+              </Btn>
+            </div>
+          )}
         </div>
       )}
     </div>
