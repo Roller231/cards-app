@@ -119,6 +119,14 @@ def _extract_apple_pay_code(text: str) -> Tuple[str, str]:
     return "", ""
 
 
+def _mime_tree(payload: dict, depth: int = 0) -> List[str]:
+    mime = payload.get("mimeType", "")
+    out = [f"{'  ' * depth}- {mime}"]
+    for part in payload.get("parts", []) or []:
+        out.extend(_mime_tree(part, depth + 1))
+    return out
+
+
 # ── notification ──────────────────────────────────────────────────────────
 async def _send_apple_pay_notification(last4: str, code: str) -> None:
     from sqlalchemy import select
@@ -204,7 +212,12 @@ async def check_gmail_once() -> None:
         last4, code = _extract_apple_pay_code(full_text)
         if not last4 or not code:
             logger.info("Gmail API: parse miss for msg_id=%s subject=%r", msg_id, subject[:120])
+            logger.info("Gmail API: snippet msg_id=%s snippet=%r", msg_id, (msg.get("snippet") or "")[:300])
+            logger.info("Gmail API: mime tree msg_id=%s\n%s", msg_id, "\n".join(_mime_tree(payload)))
+            logger.info("Gmail API: full_text preview msg_id=%s text=%r", msg_id, re.sub(r"\s+", " ", full_text)[:800])
             continue
+
+        logger.info("Gmail API: parsed msg_id=%s last4=%s code=***%s", msg_id, last4, code[-2:])
 
         ids_to_mark.append(msg_id)
         if last4 not in codes_by_last4:
