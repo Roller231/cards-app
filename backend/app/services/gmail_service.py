@@ -93,8 +93,11 @@ async def _gmail_post(path: str, json_body: dict = None) -> Optional[dict]:
 def _decode_body(payload: dict) -> str:
     body = ""
     mime = payload.get("mimeType", "")
-    if mime == "text/plain" and payload.get("body", {}).get("data"):
-        body += base64.urlsafe_b64decode(payload["body"]["data"]).decode("utf-8", errors="ignore")
+    if mime in ("text/plain", "text/html") and payload.get("body", {}).get("data"):
+        decoded = base64.urlsafe_b64decode(payload["body"]["data"]).decode("utf-8", errors="ignore")
+        if mime == "text/html":
+            decoded = re.sub(r"<[^>]+>", " ", decoded)
+        body += decoded
     for part in payload.get("parts", []):
         body += _decode_body(part)
     return body
@@ -102,8 +105,15 @@ def _decode_body(payload: dict) -> str:
 
 def _extract_apple_pay_code(text: str) -> Tuple[str, str]:
     """Return (last4, code) or ('', '') if not an Apple Pay code email."""
-    last4_m = re.search(r"Ending in (\d{4})", text, re.IGNORECASE)
-    code_m = re.search(r"\b(\d{6})\b", text)
+    last4_m = (
+        re.search(r"ending\s+(?:in|with)\s*[:#-]?\s*(\d{4})", text, re.IGNORECASE)
+        or re.search(r"card\D{0,25}(\d{4})", text, re.IGNORECASE)
+        or re.search(r"(?:\*|•|x){2,}\s*(\d{4})", text, re.IGNORECASE)
+    )
+    code_m = (
+        re.search(r"(?:code|verification|one[-\s]?time|otp)\D{0,20}(\d{6})", text, re.IGNORECASE)
+        or re.search(r"\b(\d{6})\b", text)
+    )
     if last4_m and code_m:
         return last4_m.group(1), code_m.group(1)
     return "", ""
@@ -185,13 +195,15 @@ async def check_gmail_once() -> None:
         hdrs = {h["name"].lower(): h["value"] for h in payload.get("headers", [])}
         subject = hdrs.get("subject", "")
         body = _decode_body(payload)
-        combined = (subject + " " + body).lower()
+        full_text = f"{subject}\n{body}"
+        combined = full_text.lower()
 
         if "apple pay" not in combined and "activate" not in combined:
             continue
 
-        last4, code = _extract_apple_pay_code(body)
+        last4, code = _extract_apple_pay_code(full_text)
         if not last4 or not code:
+            logger.info("Gmail API: parse miss for msg_id=%s subject=%r", msg_id, subject[:120])
             continue
 
         ids_to_mark.append(msg_id)
