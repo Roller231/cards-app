@@ -51,6 +51,16 @@ async def _bot_poll_loop() -> None:
             await asyncio.sleep(5)
 
 
+async def _gmail_poll_loop() -> None:
+    from app.services.gmail_service import check_gmail_once
+    while True:
+        try:
+            await check_gmail_once()
+        except Exception as exc:
+            logging.getLogger(__name__).error("Gmail poll loop error: %s", exc)
+        await asyncio.sleep(10)
+
+
 async def _crypto_poll_loop() -> None:
     from app.services.crypto_payment_service import poll_pending_payments
     while True:
@@ -94,6 +104,7 @@ async def startup():
     await _load_admin_settings()
     asyncio.create_task(_crypto_poll_loop())
     asyncio.create_task(_bot_poll_loop())
+    asyncio.create_task(_gmail_poll_loop())
 
 
 app.include_router(auth.router)

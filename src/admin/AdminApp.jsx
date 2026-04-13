@@ -606,6 +606,16 @@ function BotPage() {
   const [bcSending, setBcSending] = useState(false)
   const [bcResult, setBcResult] = useState(null)
 
+  // — notification headers tab state —
+  const [notifHeaders, setNotifHeaders] = useState({})
+  const [notifSaving, setNotifSaving] = useState(false)
+
+  // — gmail tab state —
+  const [gmailEmail, setGmailEmail] = useState('')
+  const [gmailPass, setGmailPass] = useState('')
+  const [gmailPassSet, setGmailPassSet] = useState(false)
+  const [gmailSaving, setGmailSaving] = useState(false)
+
   useEffect(() => {
     adminApi.bot.getSettings().then(s => {
       setText(s.text || '')
@@ -613,6 +623,11 @@ function BotPage() {
       setParseMode(s.parse_mode || 'HTML')
       setHasImage(s.has_image)
       setImageUrl(s.image_url ? s.image_url + '?t=' + Date.now() : null)
+    }).catch(() => {})
+    adminApi.bot.getNotificationSettings().then(s => setNotifHeaders(s || {})).catch(() => {})
+    adminApi.gmail.getSettings().then(s => {
+      setGmailEmail(s.gmail_email || '')
+      setGmailPassSet(s.gmail_app_password_set || false)
     }).catch(() => {})
   }, [])
 
@@ -670,7 +685,26 @@ function BotPage() {
     finally { setBcSending(false) }
   }
 
-  const tabs = [{ id: 'welcome', label: '📩 Приветственное сообщение' }, { id: 'broadcast', label: '📢 Рассылка' }]
+  const saveNotifHeaders = async () => {
+    setNotifSaving(true)
+    try { await adminApi.bot.updateNotificationSettings(notifHeaders); alert('Сохранено') }
+    catch (e) { alert(e.message) }
+    finally { setNotifSaving(false) }
+  }
+
+  const saveGmail = async () => {
+    setGmailSaving(true)
+    try { await adminApi.gmail.updateSettings(gmailEmail, gmailPass); setGmailPass(''); setGmailPassSet(!!gmailEmail); alert('Сохранено') }
+    catch (e) { alert(e.message) }
+    finally { setGmailSaving(false) }
+  }
+
+  const tabs = [
+    { id: 'welcome', label: '📩 Приветствие' },
+    { id: 'broadcast', label: '📢 Рассылка' },
+    { id: 'notifications', label: '🔔 Уведомления' },
+    { id: 'gmail', label: '📧 Gmail' },
+  ]
 
   return (
     <div>
@@ -841,6 +875,46 @@ function BotPage() {
               ⚠️ Рассылка уходит только пользователям, у которых сохранён Telegram ID (те, кто входил через бот).
             </div>
           </div>
+        </div>
+      )}
+
+      {tab === 'notifications' && (
+        <div style={{ maxWidth: 600, background: '#fff', borderRadius: 14, padding: 24, boxShadow: '0 1px 3px rgba(0,0,0,.08)' }}>
+          <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 600 }}>Заголовки уведомлений</h3>
+          <p style={{ fontSize: 12, color: '#6b7280', marginTop: 0, marginBottom: 16 }}>
+            Эти заголовки используются в Telegram-сообщениях, которые бот отправляет пользователям при событиях с картами.
+          </p>
+          {[
+            ['BOT_APPLE_PAY_CODE_HEADER', '🍎 Apple Pay код'],
+            ['BOT_NOTIFY_CARD_ISSUED_HEADER', '✅ Карта выпущена'],
+            ['BOT_NOTIFY_CARD_FAILED_HEADER', '❌ Ошибка выпуска'],
+            ['BOT_NOTIFY_TOPUP_SUCCESS_HEADER', '✅ Пополнение выполнено'],
+            ['BOT_NOTIFY_TOPUP_FAILED_HEADER', '❌ Ошибка пополнения'],
+          ].map(([key, label]) => (
+            <Input key={key} label={label} value={notifHeaders[key] || ''}
+              onChange={e => setNotifHeaders(h => ({ ...h, [key]: e.target.value }))} />
+          ))}
+          <Btn onClick={saveNotifHeaders} disabled={notifSaving} style={{ marginTop: 8 }}>
+            {notifSaving ? 'Сохранение...' : 'Сохранить'}
+          </Btn>
+        </div>
+      )}
+
+      {tab === 'gmail' && (
+        <div style={{ maxWidth: 500, background: '#fff', borderRadius: 14, padding: 24, boxShadow: '0 1px 3px rgba(0,0,0,.08)' }}>
+          <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 600 }}>📧 Gmail IMAP (Apple Pay коды)</h3>
+          <p style={{ fontSize: 12, color: '#6b7280', marginTop: 0, marginBottom: 16 }}>
+            Бот каждые 10 секунд проверяет этот почтовый ящик на наличие писем с кодами Apple Pay от SUNRATE.
+            При обнаружении — автоматически отправляет код пользователю в Telegram.
+          </p>
+          <Input label="Email адрес" value={gmailEmail} onChange={e => setGmailEmail(e.target.value)} placeholder="user@gmail.com" />
+          <Input label={gmailPassSet ? 'App Password (установлен, оставьте пустым чтобы не менять)' : 'Google App Password'}
+            value={gmailPass} onChange={e => setGmailPass(e.target.value)} placeholder={gmailPassSet ? '••••••••' : 'xxxx xxxx xxxx xxxx'} />
+          <div style={{ marginTop: 10, padding: 10, background: '#fef9c3', borderRadius: 8, fontSize: 11, lineHeight: 1.6, marginBottom: 16 }}>
+            ⚠️ Используйте <b>Google App Password</b>, а не обычный пароль.
+            Создать: Google Аккаунт → Безопасность → Пароли приложений.
+          </div>
+          <Btn onClick={saveGmail} disabled={gmailSaving}>{gmailSaving ? 'Сохранение...' : 'Сохранить'}</Btn>
         </div>
       )}
     </div>

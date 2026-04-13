@@ -99,6 +99,13 @@ const adminApi = {
     },
     broadcast: (text, parse_mode, buttons, image_key) =>
       req('POST', '/admin/bot/broadcast', { text, parse_mode, buttons, image_key: image_key || null }),
+    getNotificationSettings: () => req('GET', '/admin/bot/notification-settings'),
+    updateNotificationSettings: (data) => req('PUT', '/admin/bot/notification-settings', data),
+  },
+  gmail: {
+    getSettings: () => req('GET', '/admin/gmail/settings'),
+    updateSettings: (gmail_email, gmail_app_password) =>
+      req('PUT', '/admin/gmail/settings', { gmail_email, gmail_app_password }),
   },
 }
 

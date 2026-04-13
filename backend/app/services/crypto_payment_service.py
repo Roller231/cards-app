@@ -226,6 +226,29 @@ async def _execute_payment(payment: CryptoPayment, db: AsyncSession) -> None:
     except Exception as exc:
         logger.error("Failed to execute payment %s type=%s: %s", payment.id, payment.type, exc)
         payment.status = "failed"
+        # Notify user about failure
+        try:
+            from app.services.telegram_bot_service import notify_card_issued, notify_topup_result
+            if payment.type == "topup":
+                await notify_topup_result(
+                    db=db, user=user,
+                    card_last4="",
+                    amount=float(payment.amount_usd),
+                    fee=0.0,
+                    success=False,
+                    error_msg=str(exc),
+                )
+            else:
+                await notify_card_issued(
+                    db=db, user=user,
+                    card_amount=float(payment.amount_usd),
+                    card_last4="",
+                    fee=0.0,
+                    success=False,
+                    error_msg=str(exc),
+                )
+        except Exception as _n:
+            logger.debug("Failure notification error: %s", _n)
 
 
 # ------------------------------------------------------------------

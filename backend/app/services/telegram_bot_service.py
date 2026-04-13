@@ -217,6 +217,92 @@ async def broadcast_message(
     return {"sent": sent, "failed": failed, "total": len(users)}
 
 
+# ─── direct user notifications ─────────────────────────────────────────────
+
+async def send_notification(telegram_user_id: str, text: str, parse_mode: str = "HTML") -> None:
+    """Send a plain Telegram message directly to one user."""
+    try:
+        await _tg_post("sendMessage", {
+            "chat_id": telegram_user_id,
+            "text": text,
+            "parse_mode": parse_mode,
+        })
+    except Exception as exc:
+        logger.error("send_notification failed for %s: %s", telegram_user_id, exc)
+
+
+async def notify_card_issued(
+    db: AsyncSession,
+    user: User,
+    card_amount: float,
+    card_last4: str,
+    fee: float,
+    success: bool,
+    error_msg: str = "",
+) -> None:
+    """Notify user via Telegram about card issuance success or failure."""
+    if not user.telegram_user_id:
+        return
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).strftime("%d.%m.%Y %H:%M UTC")
+    if success:
+        header = await _get_setting(db, "BOT_NOTIFY_CARD_ISSUED_HEADER", "✅ Карта успешно выпущена")
+        last4_str = f"\n💳 Карта: <b>•••• {card_last4}</b>" if card_last4 else ""
+        text = (
+            f"<b>{header}</b>\n"
+            f"{last4_str}\n"
+            f"💵 Баланс карты: <b>${card_amount:.2f}</b>\n"
+            f"💰 Комиссия за выпуск: <b>${fee:.2f}</b>\n"
+            f"🕐 {now}"
+        )
+    else:
+        header = await _get_setting(db, "BOT_NOTIFY_CARD_FAILED_HEADER", "❌ Ошибка выпуска карты")
+        text = (
+            f"<b>{header}</b>\n\n"
+            f"💵 Сумма: <b>${card_amount:.2f}</b>\n"
+            f"⚠️ {error_msg or 'Неизвестная ошибка'}\n"
+            f"🕐 {now}"
+        )
+    await send_notification(user.telegram_user_id, text)
+
+
+async def notify_topup_result(
+    db: AsyncSession,
+    user: User,
+    card_last4: str,
+    amount: float,
+    fee: float,
+    success: bool,
+    error_msg: str = "",
+) -> None:
+    """Notify user via Telegram about card top-up success or failure."""
+    if not user.telegram_user_id:
+        return
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).strftime("%d.%m.%Y %H:%M UTC")
+    if success:
+        header = await _get_setting(db, "BOT_NOTIFY_TOPUP_SUCCESS_HEADER", "✅ Пополнение карты выполнено")
+        last4_str = f"\n💳 Карта: <b>•••• {card_last4}</b>" if card_last4 else ""
+        text = (
+            f"<b>{header}</b>\n"
+            f"{last4_str}\n"
+            f"💵 Зачислено на карту: <b>${amount:.2f}</b>\n"
+            f"💰 Комиссия: <b>${fee:.2f}</b>\n"
+            f"🕐 {now}"
+        )
+    else:
+        header = await _get_setting(db, "BOT_NOTIFY_TOPUP_FAILED_HEADER", "❌ Ошибка пополнения карты")
+        last4_str = f"\n💳 Карта: <b>•••• {card_last4}</b>" if card_last4 else ""
+        text = (
+            f"<b>{header}</b>\n"
+            f"{last4_str}\n"
+            f"💵 Сумма: <b>${amount:.2f}</b>\n"
+            f"⚠️ {error_msg or 'Неизвестная ошибка'}\n"
+            f"🕐 {now}"
+        )
+    await send_notification(user.telegram_user_id, text)
+
+
 # ─── polling loop ──────────────────────────────────────────────────────────
 
 async def poll_once() -> None:

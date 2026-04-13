@@ -35,6 +35,10 @@ class Settings(BaseSettings):
 
     TELEGRAM_BOT_TOKEN: str = ""  # Required for Telegram WebApp initData verification
 
+    # Gmail polling for Apple Pay codes
+    GMAIL_EMAIL: str = ""
+    GMAIL_APP_PASSWORD: str = ""  # Google App Password (spaces will be stripped)
+
     # ABCEX crypto payment gateway
     ABCEX_API_KEY: str = ""  # Bearer JWT token for ABCEX API
     ABCEX_CRYPTO_PAYMENT_EXPIRY_MINUTES: int = 30  # Payment window before expiry

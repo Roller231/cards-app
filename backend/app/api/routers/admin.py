@@ -695,3 +695,68 @@ async def send_broadcast(body: BroadcastRequest, db: AsyncSession = Depends(get_
             pass
 
     return result
+
+
+# =====================  BOT NOTIFICATION SETTINGS  =====================
+
+_NOTIF_DEFAULTS = {
+    "BOT_APPLE_PAY_CODE_HEADER": "🍎 Код активации Apple Pay",
+    "BOT_NOTIFY_CARD_ISSUED_HEADER": "✅ Карта успешно выпущена",
+    "BOT_NOTIFY_CARD_FAILED_HEADER": "❌ Ошибка выпуска карты",
+    "BOT_NOTIFY_TOPUP_SUCCESS_HEADER": "✅ Пополнение карты выполнено",
+    "BOT_NOTIFY_TOPUP_FAILED_HEADER": "❌ Ошибка пополнения карты",
+}
+
+
+@router.get("/bot/notification-settings", summary="Get notification message headers")
+async def get_notification_settings(db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+    keys = list(_NOTIF_DEFAULTS.keys())
+    res = await db.execute(select(AdminSetting).where(AdminSetting.key.in_(keys)))
+    sm = {s.key: s.value for s in res.scalars().all()}
+    return {k: sm.get(k, v) for k, v in _NOTIF_DEFAULTS.items()}
+
+
+class NotificationSettingsUpdate(BaseModel):
+    BOT_APPLE_PAY_CODE_HEADER: str = "🍎 Код активации Apple Pay"
+    BOT_NOTIFY_CARD_ISSUED_HEADER: str = "✅ Карта успешно выпущена"
+    BOT_NOTIFY_CARD_FAILED_HEADER: str = "❌ Ошибка выпуска карты"
+    BOT_NOTIFY_TOPUP_SUCCESS_HEADER: str = "✅ Пополнение карты выполнено"
+    BOT_NOTIFY_TOPUP_FAILED_HEADER: str = "❌ Ошибка пополнения карты"
+
+
+@router.put("/bot/notification-settings", summary="Update notification message headers")
+async def update_notification_settings(
+    body: NotificationSettingsUpdate,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_admin),
+):
+    for key in _NOTIF_DEFAULTS:
+        value = getattr(body, key)
+        await _upsert_setting(db, key, value, _NOTIF_DEFAULTS[key])
+    await db.commit()
+    return {"ok": True}
+
+
+# =====================  GMAIL SETTINGS  =====================
+
+@router.get("/gmail/settings", summary="Get Gmail polling credentials")
+async def get_gmail_settings(_=Depends(get_admin)):
+    from app.core.config import settings as cfg
+    return {
+        "gmail_email": cfg.GMAIL_EMAIL,
+        "gmail_app_password_set": bool(cfg.GMAIL_APP_PASSWORD),
+    }
+
+
+class GmailSettingsUpdate(BaseModel):
+    gmail_email: str
+    gmail_app_password: str = ""
+
+
+@router.put("/gmail/settings", summary="Update Gmail polling credentials")
+async def update_gmail_settings(body: GmailSettingsUpdate, _=Depends(get_admin)):
+    from app.core.config import settings as cfg
+    cfg.GMAIL_EMAIL = body.gmail_email.strip()
+    if body.gmail_app_password:
+        cfg.GMAIL_APP_PASSWORD = body.gmail_app_password.strip().replace(" ", "")
+    return {"ok": True}

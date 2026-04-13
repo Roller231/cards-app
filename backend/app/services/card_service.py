@@ -206,6 +206,7 @@ class CardService:
         await db.flush()
 
         # 10. Immediately fetch order details to get card data
+        _notif_last4 = ""
         try:
             details = await aifory_client.get_order_details(partner_order_id)
             aifory_card_id = details.get("cardID") or details.get("cardId")
@@ -242,6 +243,7 @@ class CardService:
                         existing_card.card_status = card_data.get("cardStatus")
                         existing_card.expired_at = card_data.get("expiredAt") or existing_card.expired_at
                         existing_card.last4 = str(card_data.get("cardNumberLastDigits") or existing_card.last4 or "")
+                        _notif_last4 = existing_card.last4
                         existing_card.currency = currency_str
                         existing_card.currency_id = currency_id
                         existing_card.payment_system_id = card_data.get("paymentSystemID") or existing_card.payment_system_id
@@ -258,13 +260,14 @@ class CardService:
                         )
                     else:
                         # Create new card with all available data
+                        _notif_last4 = str(card_data.get("cardNumberLastDigits") or "")
                         card = Card(
                             user_id=user.id,
                             aifory_card_id=str(aifory_card_id),
                             category=card_data.get("category") or offer.get("category"),
                             card_status=card_data.get("cardStatus"),
                             expired_at=card_data.get("expiredAt"),
-                            last4=str(card_data.get("cardNumberLastDigits") or ""),
+                            last4=_notif_last4,
                             holder_name=f"{holder_first_name} {holder_last_name}",
                             currency=currency_str,
                             currency_id=currency_id,
@@ -290,7 +293,19 @@ class CardService:
                 
         except Exception as exc:
             logger.error("Failed to fetch order details immediately: %s", exc)
-            # Don't fail the whole operation, just log the error
+
+        # Notify user about successful card issuance
+        try:
+            from app.services.telegram_bot_service import notify_card_issued
+            await notify_card_issued(
+                db=db, user=user,
+                card_amount=float(aifory_amount),
+                card_last4=_notif_last4,
+                fee=float(our_profit),
+                success=True,
+            )
+        except Exception as _n:
+            logger.debug("Card issue notification error: %s", _n)
 
         return {"local_order_id": order.id, "partner_order_id": partner_order_id}
 
@@ -597,6 +612,19 @@ class CardService:
         )
         db.add(order)
         await db.flush()
+
+        # Notify user about successful top-up
+        try:
+            from app.services.telegram_bot_service import notify_topup_result
+            await notify_topup_result(
+                db=db, user=user,
+                card_last4=card.last4 or "",
+                amount=float(amount),
+                fee=float(our_profit),
+                success=True,
+            )
+        except Exception as _n:
+            logger.debug("Topup notification error: %s", _n)
 
         return {"local_order_id": order.id, "partner_order_id": partner_order_id}
 
