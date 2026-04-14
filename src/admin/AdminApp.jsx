@@ -979,6 +979,9 @@ function FAQPage() {
 }
 
 // ─────────── MAIN ADMIN APP ───────────
+import BotPage from './BotPage'
+import FAQPage from './FAQPage'
+import SettingsPage from './SettingsPage'
 export default function AdminApp() {
   const [authed, setAuthed] = useState(!!getAdminToken())
   const [page, setPage] = useState('dashboard')

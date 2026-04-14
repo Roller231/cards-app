@@ -537,20 +537,45 @@ class CardService:
                 # Use getattr to safely check for attribute existence to handle cases where column might not be in DB yet
                 last_notified_id = getattr(card, 'last_notified_transaction_id', None)
                 if last_notified_id is None or last_notified_id != latest_txn.get('id'):
-                    await notify_card_transaction(
-                        db=db,
-                        user=user,
-                        card_last4=card.last4 if card.last4 else "",
-                        amount=float(latest_txn.get('amount', 0)),
-                        currency=latest_txn.get('currency', 'USD'),
-                        merchant=latest_txn.get('merchant') or latest_txn.get('merchantName') or latest_txn.get('description', ''),
-                        date=latest_txn.get('date') or latest_txn.get('createdAt') or latest_txn.get('created_at', ''),
-                        status=latest_txn.get('status', '')
-                    )
-                    # Update the last notified transaction ID only if the attribute exists
-                    if hasattr(card, 'last_notified_transaction_id'):
-                        card.last_notified_transaction_id = latest_txn.get('id')
-                        await db.commit()
+                    # Additional check to avoid notifying for old transactions
+                    from datetime import datetime, timedelta
+                    txn_date_str = latest_txn.get('date') or latest_txn.get('createdAt') or latest_txn.get('created_at', '')
+                    if txn_date_str:
+                        try:
+                            txn_date = datetime.strptime(txn_date_str, '%Y-%m-%dT%H:%M:%S.%fZ') if 'T' in txn_date_str else datetime.strptime(txn_date_str, '%Y-%m-%d %H:%M:%S')
+                            if datetime.now() - txn_date < timedelta(minutes=5):
+                                await notify_card_transaction(
+                                    db=db,
+                                    user=user,
+                                    card_last4=card.last4 if card.last4 else "",
+                                    amount=float(latest_txn.get('amount', 0)),
+                                    currency=latest_txn.get('currency', 'USD'),
+                                    merchant=latest_txn.get('merchant') or latest_txn.get('merchantName') or latest_txn.get('description', ''),
+                                    date=txn_date_str,
+                                    status=latest_txn.get('status', '')
+                                )
+                                # Update the last notified transaction ID only if the attribute exists
+                                if hasattr(card, 'last_notified_transaction_id'):
+                                    card.last_notified_transaction_id = latest_txn.get('id')
+                                    await db.commit()
+                        except ValueError:
+                            # If date parsing fails, notify anyway to be safe
+                            await notify_card_transaction(
+                                db=db,
+                                user=user,
+                                card_last4=card.last4 if card.last4 else "",
+                                amount=float(latest_txn.get('amount', 0)),
+                                currency=latest_txn.get('currency', 'USD'),
+                                merchant=latest_txn.get('merchant') or latest_txn.get('merchantName') or latest_txn.get('description', ''),
+                                date=txn_date_str,
+                                status=latest_txn.get('status', '')
+                            )
+                            if hasattr(card, 'last_notified_transaction_id'):
+                                card.last_notified_transaction_id = latest_txn.get('id')
+                                await db.commit()
+                else:
+                    # If the latest transaction ID matches the last notified ID, skip notification
+                    pass
         
         return transactions
 
