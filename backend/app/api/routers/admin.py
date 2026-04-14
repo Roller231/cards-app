@@ -23,9 +23,11 @@ from app.integrations.aifory_client import aifory_client
 from app.models.admin_setting import AdminSetting
 from app.models.card import Card
 from app.models.crypto_payment import CryptoPayment
+from app.models.faq import FAQ
 from app.models.order import Order
 from app.models.topup import BalanceTopUpRequest
 from app.models.user import User
+from app.seed.faq_seed import seed_faqs
 
 logger = logging.getLogger(__name__)
 
@@ -548,6 +550,92 @@ async def analytics(db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
         "top_users": top_users,
         "orders_by_type": {"issue": issue_count, "topup": topup_count},
     }
+
+
+# =====================  SETTINGS  =====================
+
+
+class FAQCreateRequest(BaseModel):
+    question: str
+    answer: str
+
+
+class FAQUpdateRequest(BaseModel):
+    question: Optional[str] = None
+    answer: Optional[str] = None
+
+
+@router.get("/faq", summary="List FAQ items")
+async def list_faq(db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+    faqs = (await db.execute(select(FAQ).order_by(FAQ.id.asc()))).scalars().all()
+    return {
+        "items": [
+            {
+                "id": f.id,
+                "question": f.question,
+                "answer": f.answer,
+                "created_at": f.created_at.isoformat() if f.created_at else None,
+                "updated_at": f.updated_at.isoformat() if f.updated_at else None,
+            }
+            for f in faqs
+        ],
+        "total": len(faqs),
+    }
+
+
+@router.post("/faq/seed-default", summary="Seed default FAQ if empty")
+async def seed_default_faq(db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+    inserted = await seed_faqs(db, only_if_empty=True)
+    return {"inserted": inserted}
+
+
+@router.post("/faq", summary="Create FAQ item")
+async def create_faq(body: FAQCreateRequest, db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+    item = FAQ(question=body.question, answer=body.answer)
+    db.add(item)
+    await db.flush()
+    return {
+        "id": item.id,
+        "question": item.question,
+        "answer": item.answer,
+        "created_at": item.created_at.isoformat() if item.created_at else None,
+        "updated_at": item.updated_at.isoformat() if item.updated_at else None,
+    }
+
+
+@router.put("/faq/{faq_id}", summary="Update FAQ item")
+async def update_faq(
+    faq_id: int,
+    body: FAQUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_admin),
+):
+    item = (await db.execute(select(FAQ).where(FAQ.id == faq_id))).scalar_one_or_none()
+    if not item:
+        raise HTTPException(404, "FAQ item not found")
+
+    if body.question is not None:
+        item.question = body.question
+    if body.answer is not None:
+        item.answer = body.answer
+
+    await db.flush()
+    return {
+        "id": item.id,
+        "question": item.question,
+        "answer": item.answer,
+        "created_at": item.created_at.isoformat() if item.created_at else None,
+        "updated_at": item.updated_at.isoformat() if item.updated_at else None,
+    }
+
+
+@router.delete("/faq/{faq_id}", summary="Delete FAQ item")
+async def delete_faq(faq_id: int, db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+    item = (await db.execute(select(FAQ).where(FAQ.id == faq_id))).scalar_one_or_none()
+    if not item:
+        raise HTTPException(404, "FAQ item not found")
+    await db.delete(item)
+    return {"ok": True}
 
 
 # =====================  SETTINGS  =====================

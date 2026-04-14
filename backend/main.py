@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.core.database import create_tables
-from app.api.routers import auth, cards, orders, balance, transactions, aifory_dev
+from app.api.routers import auth, cards, orders, balance, transactions, aifory_dev, faq
 from app.api.routers import crypto_payments
 from app.api.routers import admin as admin_router_mod
 
@@ -115,6 +115,7 @@ app.include_router(transactions.router)
 app.include_router(aifory_dev.router)
 app.include_router(crypto_payments.router)
 app.include_router(admin_router_mod.router)
+app.include_router(faq.router)
 
 
 @app.get("/health", tags=["health"])

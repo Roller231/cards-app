@@ -7,6 +7,7 @@ from app.api.deps import get_current_user, get_db
 from app.models.faq import FAQ
 from app.models.user import User
 from app.schemas.faq import FAQCreate, FAQUpdate, FAQItem, FAQListResponse
+from app.seed.faq_seed import seed_faqs
 
 router = APIRouter(prefix="/faq", tags=["faq"])
 
@@ -30,8 +31,12 @@ async def create_faq(
 
 @router.get("/", response_model=FAQListResponse)
 async def get_faqs(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(FAQ))
+    result = await db.execute(select(FAQ).order_by(FAQ.id.asc()))
     faqs = result.scalars().all()
+    if not faqs:
+        await seed_faqs(db, only_if_empty=True)
+        result = await db.execute(select(FAQ).order_by(FAQ.id.asc()))
+        faqs = result.scalars().all()
     return {"faqs": faqs}
 
 

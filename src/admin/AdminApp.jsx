@@ -961,18 +961,139 @@ function BotPage() {
 
 // ─────────── FAQ PAGE ───────────
 function FAQPage() {
+  const [faqs, setFaqs] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [editingFaqId, setEditingFaqId] = useState(null)
+  const [question, setQuestion] = useState('')
+  const [answer, setAnswer] = useState('')
+  const [createMode, setCreateMode] = useState(false)
+
+  const loadFaqs = useCallback(async () => {
+    try {
+      setLoading(true)
+      setError('')
+      const data = await adminApi.faq.list()
+      setFaqs(data.items || [])
+    } catch (e) {
+      setError(e.message || 'Не удалось загрузить FAQ')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadFaqs()
+  }, [loadFaqs])
+
+  const startCreate = () => {
+    setCreateMode(true)
+    setEditingFaqId(null)
+    setQuestion('')
+    setAnswer('')
+  }
+
+  const startEdit = (item) => {
+    setCreateMode(false)
+    setEditingFaqId(item.id)
+    setQuestion(item.question)
+    setAnswer(item.answer)
+  }
+
+  const cancelEdit = () => {
+    setCreateMode(false)
+    setEditingFaqId(null)
+    setQuestion('')
+    setAnswer('')
+  }
+
+  const saveFaq = async () => {
+    if (!question.trim() || !answer.trim()) {
+      alert('Заполните вопрос и ответ')
+      return
+    }
+
+    try {
+      if (createMode) {
+        await adminApi.faq.create(question.trim(), answer.trim())
+      } else if (editingFaqId) {
+        await adminApi.faq.update(editingFaqId, question.trim(), answer.trim())
+      }
+      await loadFaqs()
+      cancelEdit()
+    } catch (e) {
+      alert(e.message || 'Не удалось сохранить FAQ')
+    }
+  }
+
+  const removeFaq = async (id) => {
+    if (!confirm('Удалить этот FAQ?')) return
+    try {
+      await adminApi.faq.remove(id)
+      await loadFaqs()
+    } catch (e) {
+      alert(e.message || 'Не удалось удалить FAQ')
+    }
+  }
+
+  const seedDefaultFaq = async () => {
+    try {
+      const result = await adminApi.faq.seedDefault()
+      await loadFaqs()
+      if (!result.inserted) {
+        alert('FAQ уже заполнен, дефолтный текст не добавлялся')
+      }
+    } catch (e) {
+      alert(e.message || 'Не удалось заполнить FAQ дефолтным текстом')
+    }
+  }
+
+  if (loading) return <p>Загрузка...</p>
+
   return (
     <div>
       <h2 style={{ margin: '0 0 20px', fontSize: 22, fontWeight: 700 }}>FAQ</h2>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, marginBottom: 28 }}>
-        <div style={{ background: '#fff', borderRadius: 14, padding: 20, flex: '1 1 200px', minWidth: 180, boxShadow: '0 1px 3px rgba(0,0,0,.08)' }}>
-          <div style={{ fontSize: 13, color: '#6b7280', fontWeight: 500, marginBottom: 4 }}>Вопрос 1</div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: '#111827' }}>Ответ 1</div>
+      {error && <div style={{ marginBottom: 16, color: '#dc2626', fontSize: 13 }}>{error}</div>}
+
+      <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+        <Btn small onClick={startCreate}>+ Добавить вопрос</Btn>
+        <Btn small variant="ghost" onClick={seedDefaultFaq}>Заполнить дефолтным FAQ</Btn>
+      </div>
+
+      {(createMode || editingFaqId) && (
+        <div style={{ background: '#fff', borderRadius: 14, padding: 20, marginBottom: 20, boxShadow: '0 1px 3px rgba(0,0,0,.08)' }}>
+          <Input label="Вопрос" value={question} onChange={e => setQuestion(e.target.value)} />
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4, color: '#374151' }}>Ответ</label>
+            <textarea
+              value={answer}
+              onChange={e => setAnswer(e.target.value)}
+              style={{ width: '100%', minHeight: 120, padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14, boxSizing: 'border-box', outline: 'none' }}
+            />
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Btn small onClick={saveFaq}>Сохранить</Btn>
+            <Btn small variant="ghost" onClick={cancelEdit}>Отмена</Btn>
+          </div>
         </div>
-        <div style={{ background: '#fff', borderRadius: 14, padding: 20, flex: '1 1 200px', minWidth: 180, boxShadow: '0 1px 3px rgba(0,0,0,.08)' }}>
-          <div style={{ fontSize: 13, color: '#6b7280', fontWeight: 500, marginBottom: 4 }}>Вопрос 2</div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: '#111827' }}>Ответ 2</div>
-        </div>
+      )}
+
+      <div style={{ display: 'grid', gap: 10 }}>
+        {faqs.map(item => (
+          <div key={item.id} style={{ background: '#fff', borderRadius: 14, padding: 16, boxShadow: '0 1px 3px rgba(0,0,0,.08)' }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#111827', marginBottom: 8 }}>{item.question}</div>
+            <div style={{ fontSize: 13, color: '#6b7280', whiteSpace: 'pre-line', marginBottom: 10 }}>{item.answer}</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Btn small variant="ghost" onClick={() => startEdit(item)}>Редактировать</Btn>
+              <Btn small variant="danger" onClick={() => removeFaq(item.id)}>Удалить</Btn>
+            </div>
+          </div>
+        ))}
+        {faqs.length === 0 && (
+          <div style={{ background: '#fff', borderRadius: 14, padding: 20, color: '#6b7280', fontSize: 14 }}>
+            FAQ пуст. Нажмите «Заполнить дефолтным FAQ», чтобы перенести текущий текст из фронта в БД.
+          </div>
+        )}
       </div>
     </div>
   )

@@ -65,6 +65,13 @@ const adminApi = {
       req('GET', `/admin/crypto-payments?status_filter=${statusFilter}&limit=${limit}&offset=${offset}`),
   },
   analytics: () => req('GET', '/admin/analytics'),
+  faq: {
+    list: () => req('GET', '/admin/faq'),
+    create: (question, answer) => req('POST', '/admin/faq', { question, answer }),
+    update: (id, question, answer) => req('PUT', `/admin/faq/${id}`, { question, answer }),
+    remove: (id) => req('DELETE', `/admin/faq/${id}`),
+    seedDefault: () => req('POST', '/admin/faq/seed-default'),
+  },
   settings: {
     list: () => req('GET', '/admin/settings'),
     update: (items) => req('PUT', '/admin/settings', { settings: items }),

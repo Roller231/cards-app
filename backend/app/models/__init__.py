@@ -4,5 +4,6 @@ from app.models.order import Order
 from app.models.topup import BalanceTopUpRequest
 from app.models.crypto_payment import CryptoPayment
 from app.models.admin_setting import AdminSetting
+from app.models.faq import FAQ
 
-__all__ = ["User", "Card", "Order", "BalanceTopUpRequest", "CryptoPayment", "AdminSetting"]
+__all__ = ["User", "Card", "Order", "BalanceTopUpRequest", "CryptoPayment", "AdminSetting", "FAQ"]
