@@ -303,6 +303,38 @@ async def notify_topup_result(
     await send_notification(user.telegram_user_id, text)
 
 
+async def notify_card_transaction(
+    db: AsyncSession,
+    user: User,
+    card_last4: str,
+    amount: float,
+    currency: str,
+    merchant: str,
+    date: str,
+    status: str
+) -> None:
+    """Notify user via Telegram about a new card transaction."""
+    if not user.telegram_user_id:
+        return
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).strftime("%d.%m.%Y %H:%M UTC")
+    header = await _get_setting(db, "BOT_NOTIFY_TRANSACTION_HEADER", "🔔 Новая транзакция по карте")
+    last4_str = f"\n💳 Карта: <b>•••• {card_last4}</b>" if card_last4 else ""
+    merchant_str = f"\n🏬 Продавец: <b>{merchant}</b>" if merchant else ""
+    status_str = f"\n📊 Статус: <b>{status}</b>" if status else ""
+    date_str = f"\n📅 Дата: <b>{date}</b>" if date else ""
+    text = (
+        f"<b>{header}</b>\n"
+        f"{last4_str}\n"
+        f"💵 Сумма: <b>${amount:.2f} {currency}</b>"
+        f"{merchant_str}"
+        f"{status_str}"
+        f"{date_str}"
+        f"\n🕐 {now}"
+    )
+    await send_notification(user.telegram_user_id, text)
+
+
 # ─── polling loop ──────────────────────────────────────────────────────────
 
 async def poll_once() -> None:

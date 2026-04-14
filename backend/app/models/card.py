@@ -21,6 +21,7 @@ class Card(Base):
     status = Column(String(50), nullable=True)
     balance = Column(Numeric(18, 2), default=0, nullable=False)
     offer_id = Column(String(255), nullable=True)
+    last_notified_transaction_id = Column(String(255), nullable=True)
 
     user = relationship("User", back_populates="cards")
     orders = relationship("Order", back_populates="card", lazy="select")

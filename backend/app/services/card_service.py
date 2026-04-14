@@ -11,6 +11,7 @@ from app.integrations.aifory_client import aifory_client
 from app.models.card import Card
 from app.models.order import Order
 from app.models.user import User
+from app.services.telegram_bot_service import telegram_bot_service
 
 logger = logging.getLogger(__name__)
 
@@ -303,8 +304,7 @@ class CardService:
 
         # Notify user about successful card issuance
         try:
-            from app.services.telegram_bot_service import notify_card_issued
-            await notify_card_issued(
+            await telegram_bot_service.notify_card_issued(
                 db=db, user=user,
                 card_amount=float(aifory_amount),
                 card_last4=_notif_last4,
@@ -524,8 +524,32 @@ class CardService:
             raise ValueError("Card not found")
         if not card.aifory_card_id:
             raise ValueError("Card is not yet linked to Aifory (issuance may still be pending)")
-        return await aifory_client.get_card_transactions(card.aifory_card_id, limit=limit, offset=offset)
-
+        transactions = await aifory_client.get_card_transactions(card.aifory_card_id, limit=limit, offset=offset)
+        
+        # Check for new transactions and notify user
+        if transactions:
+            result = await db.execute(select(User).where(User.id == user_id))
+            user = result.scalar_one_or_none()
+            if user and user.telegram_user_id:
+                # Assuming the first transaction is the latest
+                latest_txn = transactions[0]
+                # Check if this transaction is new (you might need a better way to track this)
+                if not hasattr(card, 'last_notified_transaction_id') or card.last_notified_transaction_id != latest_txn.get('id'):
+                    await telegram_bot_service.notify_card_transaction(
+                        db=db,
+                        user=user,
+                        card_last4=card.last4 if card.last4 else "",
+                        amount=float(latest_txn.get('amount', 0)),
+                        currency=latest_txn.get('currency', 'USD'),
+                        merchant=latest_txn.get('merchant') or latest_txn.get('merchantName') or latest_txn.get('description', ''),
+                        date=latest_txn.get('date') or latest_txn.get('createdAt') or latest_txn.get('created_at', ''),
+                        status=latest_txn.get('status', '')
+                    )
+                    # Update the last notified transaction ID
+                    card.last_notified_transaction_id = latest_txn.get('id')
+                    await db.commit()
+        
+        return transactions
 
     # ------------------------------------------------------------------
     # Deposit (top-up card balance via Aifory)
@@ -622,8 +646,7 @@ class CardService:
 
         # Notify user about successful top-up
         try:
-            from app.services.telegram_bot_service import notify_topup_result
-            await notify_topup_result(
+            await telegram_bot_service.notify_topup_result(
                 db=db, user=user,
                 card_last4=card.last4 or "",
                 amount=float(amount),

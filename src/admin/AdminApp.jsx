@@ -65,7 +65,7 @@ function LoginPage({ onLogin }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#f3f4f6' }}>
       <form onSubmit={submit} style={{ background: '#fff', padding: 40, borderRadius: 16, width: 380, boxShadow: '0 4px 20px rgba(0,0,0,.08)' }}>
-        <h1 style={{ margin: '0 0 8px', fontSize: 24, fontWeight: 700, color: '#111827' }}>Админ-панель</h1>
+        <h1 style={{ margin: '0 0 8px', fontSize: 24, fontWeight: 700 }}>Админ-панель</h1>
         <p style={{ margin: '0 0 24px', fontSize: 14, color: '#6b7280' }}>Войдите для управления системой</p>
         {error && <div style={{ background: '#fef2f2', color: '#dc2626', padding: '8px 12px', borderRadius: 8, fontSize: 13, marginBottom: 16 }}>{error}</div>}
         <Input label="Email" type="email" value={email} onChange={e => setEmail(e.target.value)} required />
@@ -87,6 +87,7 @@ const NAV = [
   { id: 'payments', icon: '💰', label: 'Платежи' },
   { id: 'analytics', icon: '📈', label: 'Аналитика' },
   { id: 'bot', icon: '🤖', label: 'Telegram Бот' },
+  { id: 'faq', icon: '❓', label: 'FAQ' },
   { id: 'settings', icon: '⚙️', label: 'Настройки' },
 ]
 function Sidebar({ page, setPage }) {
@@ -814,7 +815,6 @@ function BotPage() {
                   ['<u>текст</u>', 'подчёркнутый'],
                   ['<s>текст</s>', 'зачёркнутый'],
                   ['<code>текст</code>', 'моноширинный'],
-                  ['<pre>текст</pre>', 'блок кода'],
                   ['<a href="URL">текст</a>', 'ссылка'],
                   ['🔥 😊 ✅', 'эмодзи'],
                 ].map(([tag, desc]) => (
@@ -858,7 +858,7 @@ function BotPage() {
             {bcImagePreview && (
               <div style={{ marginBottom: 10 }}>
                 <img src={bcImagePreview} alt="broadcast" style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8 }} />
-                <Btn small variant="danger" onClick={() => { setBcImageKey(null); setBcImagePreview(null) }} style={{ marginTop: 6 }}>Убрать</Btn>
+                <Btn small variant="danger" onClick={() => { setBcImageKey(null); setBcImagePreview(null) }}>Убрать</Btn>
               </div>
             )}
             {!bcImagePreview && (
@@ -959,6 +959,25 @@ function BotPage() {
   )
 }
 
+// ─────────── FAQ PAGE ───────────
+function FAQPage() {
+  return (
+    <div>
+      <h2 style={{ margin: '0 0 20px', fontSize: 22, fontWeight: 700 }}>FAQ</h2>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, marginBottom: 28 }}>
+        <div style={{ background: '#fff', borderRadius: 14, padding: 20, flex: '1 1 200px', minWidth: 180, boxShadow: '0 1px 3px rgba(0,0,0,.08)' }}>
+          <div style={{ fontSize: 13, color: '#6b7280', fontWeight: 500, marginBottom: 4 }}>Вопрос 1</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: '#111827' }}>Ответ 1</div>
+        </div>
+        <div style={{ background: '#fff', borderRadius: 14, padding: 20, flex: '1 1 200px', minWidth: 180, boxShadow: '0 1px 3px rgba(0,0,0,.08)' }}>
+          <div style={{ fontSize: 13, color: '#6b7280', fontWeight: 500, marginBottom: 4 }}>Вопрос 2</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: '#111827' }}>Ответ 2</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─────────── MAIN ADMIN APP ───────────
 export default function AdminApp() {
   const [authed, setAuthed] = useState(!!getAdminToken())
@@ -979,6 +998,7 @@ export default function AdminApp() {
     case 'payments': content = <PaymentsPage />; break
     case 'analytics': content = <AnalyticsPage />; break
     case 'bot': content = <BotPage />; break
+    case 'faq': content = <FAQPage />; break
     case 'settings': content = <SettingsPage />; break
     default: content = <DashboardPage />
   }
