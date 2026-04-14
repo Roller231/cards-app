@@ -594,6 +594,7 @@ async def create_faq(body: FAQCreateRequest, db: AsyncSession = Depends(get_db),
     item = FAQ(question=body.question, answer=body.answer)
     db.add(item)
     await db.flush()
+    await db.refresh(item)
     return {
         "id": item.id,
         "question": item.question,
@@ -620,6 +621,7 @@ async def update_faq(
         item.answer = body.answer
 
     await db.flush()
+    await db.refresh(item)
     return {
         "id": item.id,
         "question": item.question,
