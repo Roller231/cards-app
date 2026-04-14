@@ -38,12 +38,32 @@ SETTINGS_KEYS: Dict[str, Dict[str, Any]] = {
     "ONLINE_TOPUP_MARKUP_PERCENT": {"desc": "Online card top-up markup (%)", "type": float},
     "ONLINE_PLUS_ISSUE_FEE_USD": {"desc": "Online+ card issue fee (USD)", "type": float},
     "ONLINE_PLUS_TOPUP_MARKUP_PERCENT": {"desc": "Online+ card top-up markup (%)", "type": float},
+    "ISSUE_APPLY_TOPUP_MARKUP": {"desc": "Apply top-up markup percent during card issue", "type": bool},
     "ONLINE_CARD_VALIDITY_TEXT": {"desc": "Online card validity text", "type": str},
     "ONLINE_PLUS_CARD_VALIDITY_TEXT": {"desc": "Online+ card validity text", "type": str},
     "ONLINE_OPERATION_FEE_USD": {"desc": "Online card operation fee (USD)", "type": float},
     "ONLINE_PLUS_OPERATION_FEE_USD": {"desc": "Online+ card operation fee (USD)", "type": float},
     "ABCEX_CRYPTO_PAYMENT_EXPIRY_MINUTES": {"desc": "Crypto payment expiry (minutes)", "type": int},
 }
+
+
+def _cast_setting_value(value: Any, target_type: type) -> Any:
+    if target_type is bool:
+        if isinstance(value, bool):
+            return value
+        s = str(value).strip().lower()
+        return s in ("1", "true", "yes", "on")
+    return target_type(value)
+
+
+def _type_name(t: type) -> str:
+    if t is bool:
+        return "bool"
+    if t is int:
+        return "int"
+    if t is float:
+        return "float"
+    return "string"
 
 
 def _user_dict(u: User, cards_count: int = 0) -> dict:
@@ -541,18 +561,26 @@ async def get_settings(db: AsyncSession = Depends(get_db), _=Depends(get_admin))
     for key, meta in SETTINGS_KEYS.items():
         db_val = db_map.get(key)
         env_val = getattr(settings, key, None)
-        effective = db_val if db_val is not None else (str(env_val) if env_val is not None else "")
+        target_type = meta["type"]
+        raw = db_val if db_val is not None else env_val
+        if raw is None:
+            effective = ""
+        elif target_type is bool:
+            effective = bool(_cast_setting_value(raw, bool))
+        else:
+            effective = str(raw)
         out.append({
             "key": key,
             "value": effective,
             "description": meta["desc"],
+            "type": _type_name(target_type),
             "source": "db" if db_val is not None else "env",
         })
     return out
 
 
 class SettingsUpdateRequest(BaseModel):
-    settings: List[Dict[str, str]]  # [{ "key": "...", "value": "..." }]
+    settings: List[Dict[str, Any]]  # [{ "key": "...", "value": "..." }]
 
 
 @router.put("/settings", summary="Update settings")
@@ -563,16 +591,22 @@ async def update_settings(body: SettingsUpdateRequest, db: AsyncSession = Depend
         if key not in SETTINGS_KEYS:
             continue
 
-        existing = (await db.execute(select(AdminSetting).where(AdminSetting.key == key))).scalar_one_or_none()
-        if existing:
-            existing.value = value
-        else:
-            db.add(AdminSetting(key=key, value=value, description=SETTINGS_KEYS[key]["desc"]))
-
-        # Update in-memory settings object
         meta = SETTINGS_KEYS[key]
         try:
-            typed_val = meta["type"](value)
+            typed_val = _cast_setting_value(value, meta["type"])
+        except (ValueError, TypeError):
+            continue
+
+        db_value = "true" if meta["type"] is bool and typed_val else ("false" if meta["type"] is bool else str(typed_val))
+
+        existing = (await db.execute(select(AdminSetting).where(AdminSetting.key == key))).scalar_one_or_none()
+        if existing:
+            existing.value = db_value
+        else:
+            db.add(AdminSetting(key=key, value=db_value, description=SETTINGS_KEYS[key]["desc"]))
+
+        # Update in-memory settings object
+        try:
             setattr(settings, key, typed_val)
         except (ValueError, TypeError):
             pass

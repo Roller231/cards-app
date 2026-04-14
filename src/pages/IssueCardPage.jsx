@@ -87,8 +87,16 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, onCryptoPaymentI
     if (!selectedCardType || !getCommissionForCardType) return 0
     return getCommissionForCardType(selectedCardType, 'issue')  // Returns fixed USD amount
   }, [selectedCardType, getCommissionForCardType])
-  const total = amount > 0 ? round2(amount + fixedFee) : 0
-  const commission = fixedFee
+  const topupMarkupPercent = useMemo(() => {
+    if (!selectedCardType || !getCommissionForCardType) return 0
+    return getCommissionForCardType(selectedCardType, 'topup')
+  }, [selectedCardType, getCommissionForCardType])
+  const applyIssueTopupMarkup = !!commissions?.issue_apply_topup_markup
+  const issueTopupMarkupFee = amount > 0 && applyIssueTopupMarkup
+    ? round2((amount * topupMarkupPercent) / 100)
+    : 0
+  const commission = round2(fixedFee + issueTopupMarkupFee)
+  const total = amount > 0 ? round2(amount + commission) : 0
   const hasAmount = amount > 0
   const amountText = amountInput || ''
   const selectedCardName = selectedCard?.name || ''
@@ -98,8 +106,8 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, onCryptoPaymentI
   useEffect(() => {
     if (lastEditedRef.current !== 'amount') return
     if (!amount || amount <= 0) { setTotalInput(''); return }
-    setTotalInput(round2(amount + fixedFee).toFixed(2))
-  }, [amount, fixedFee])
+    setTotalInput(round2(amount + commission).toFixed(2))
+  }, [amount, commission])
 
   useEffect(() => {
     if (lastEditedRef.current !== 'total') return
@@ -110,19 +118,20 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, onCryptoPaymentI
   useEffect(() => {
     if (lastEditedRef.current !== 'amount') return
     if (!amount || amount <= 0) { setTotalInput(''); return }
-    setTotalInput(round2(amount + fixedFee).toFixed(2))
-  }, [fixedFee]) // eslint-disable-line react-hooks/exhaustive-deps
+    setTotalInput(round2(amount + commission).toFixed(2))
+  }, [commission]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (lastEditedRef.current !== 'total') return
     if (!totalInput) { setAmount(0); setAmountInput(''); return }
     const parsedTotal = parseFloat(totalInput) || 0
     if (!parsedTotal || parsedTotal <= 0) { setAmount(0); setAmountInput(''); return }
-    const nextAmount = parsedTotal - fixedFee
+    const divisor = applyIssueTopupMarkup ? (1 + topupMarkupPercent / 100) : 1
+    const nextAmount = (parsedTotal - fixedFee) / divisor
     const safeAmount = nextAmount > 0 ? round2(nextAmount) : 0
     setAmount(safeAmount)
     setAmountInput(String(safeAmount))
-  }, [fixedFee, totalInput]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [applyIssueTopupMarkup, fixedFee, topupMarkupPercent, totalInput]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Initiate crypto payment for card issuance
   const handleInitiateCrypto = async () => {

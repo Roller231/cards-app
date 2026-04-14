@@ -152,14 +152,21 @@ class CardService:
         # 3. Client-generated idempotency key (same key used for calculate + order)
         validate_key = str(uuid.uuid4())
 
-        # 4. Commission logic: user pays amount + our fixed fee, Aifory gets only amount
-        # Use per-card-type fixed fee based on offer_id
+        # 4. Commission logic: user pays amount + fixed fee (+ optional issue-time topup markup)
+        # Use per-card-type fixed fee and topup percent based on offer_id
         card_amount_decimal = Decimal(str(card_amount))
         if str(offer_id) == "525847":
             fixed_fee = Decimal(str(settings.ONLINE_PLUS_ISSUE_FEE_USD))
+            topup_markup_percent = Decimal(str(settings.ONLINE_PLUS_TOPUP_MARKUP_PERCENT))
         else:
             fixed_fee = Decimal(str(settings.ONLINE_ISSUE_FEE_USD))
-        our_fee = fixed_fee
+            topup_markup_percent = Decimal(str(settings.ONLINE_TOPUP_MARKUP_PERCENT))
+
+        issue_topup_markup_fee = Decimal("0")
+        if bool(settings.ISSUE_APPLY_TOPUP_MARKUP):
+            issue_topup_markup_fee = card_amount_decimal * topup_markup_percent / Decimal("100")
+
+        our_fee = fixed_fee + issue_topup_markup_fee
         user_total = card_amount_decimal + our_fee
         
         # Send only the requested card amount to Aifory (without our commission)

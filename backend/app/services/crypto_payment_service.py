@@ -23,12 +23,22 @@ def _fixed_fee(offer_id: str) -> Decimal:
     return Decimal(str(settings.ONLINE_ISSUE_FEE_USD))
 
 
-def _topup_total(offer_id: str, amount: Decimal) -> Decimal:
+def _topup_markup_percent(offer_id: str) -> Decimal:
     if str(offer_id) == "525847":
-        markup = Decimal(str(settings.ONLINE_PLUS_TOPUP_MARKUP_PERCENT))
-    else:
-        markup = Decimal(str(settings.ONLINE_TOPUP_MARKUP_PERCENT))
+        return Decimal(str(settings.ONLINE_PLUS_TOPUP_MARKUP_PERCENT))
+    return Decimal(str(settings.ONLINE_TOPUP_MARKUP_PERCENT))
+
+
+def _topup_total(offer_id: str, amount: Decimal) -> Decimal:
+    markup = _topup_markup_percent(offer_id)
     return amount + amount * markup / Decimal("100")
+
+
+def _issue_total(offer_id: str, amount: Decimal) -> Decimal:
+    total = amount + _fixed_fee(offer_id)
+    if bool(settings.ISSUE_APPLY_TOPUP_MARKUP):
+        total += amount * _topup_markup_percent(offer_id) / Decimal("100")
+    return total
 
 
 async def _make_payment(
@@ -88,7 +98,7 @@ async def initiate_payment(
     network: str = "TRC-20",
 ) -> Dict[str, Any]:
     amount_decimal = Decimal(str(amount_usd))
-    total_usdt = amount_decimal + _fixed_fee(offer_id)
+    total_usdt = _issue_total(offer_id, amount_decimal)
     return await _make_payment(db, user, amount_decimal, total_usdt, offer_id, "issue", network=network)
 
 

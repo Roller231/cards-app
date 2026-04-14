@@ -533,8 +533,17 @@ function SettingsPage() {
           <div key={s.key} style={{ marginBottom: 16 }}>
             <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 2 }}>{s.description}</label>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <input value={s.value} onChange={e => update(s.key, e.target.value)}
-                style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14, outline: 'none' }} />
+              {s.type === 'bool' ? (
+                <input
+                  type="checkbox"
+                  checked={!!s.value}
+                  onChange={e => update(s.key, e.target.checked)}
+                  style={{ width: 18, height: 18 }}
+                />
+              ) : (
+                <input value={s.value} onChange={e => update(s.key, e.target.value)}
+                  style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14, outline: 'none' }} />
+              )}
               <span style={{ fontSize: 11, color: '#9ca3af', minWidth: 30 }}>{s.source === 'db' ? 'DB' : 'ENV'}</span>
             </div>
             <span style={{ fontSize: 11, color: '#9ca3af' }}>{s.key}</span>
