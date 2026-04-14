@@ -534,7 +534,9 @@ class CardService:
                 # Assuming the first transaction is the latest
                 latest_txn = transactions[0]
                 # Check if this transaction is new (you might need a better way to track this)
-                if not hasattr(card, 'last_notified_transaction_id') or card.last_notified_transaction_id != latest_txn.get('id'):
+                # Use getattr to safely check for attribute existence to handle cases where column might not be in DB yet
+                last_notified_id = getattr(card, 'last_notified_transaction_id', None)
+                if last_notified_id is None or last_notified_id != latest_txn.get('id'):
                     await notify_card_transaction(
                         db=db,
                         user=user,
@@ -545,9 +547,10 @@ class CardService:
                         date=latest_txn.get('date') or latest_txn.get('createdAt') or latest_txn.get('created_at', ''),
                         status=latest_txn.get('status', '')
                     )
-                    # Update the last notified transaction ID
-                    card.last_notified_transaction_id = latest_txn.get('id')
-                    await db.commit()
+                    # Update the last notified transaction ID only if the attribute exists
+                    if hasattr(card, 'last_notified_transaction_id'):
+                        card.last_notified_transaction_id = latest_txn.get('id')
+                        await db.commit()
         
         return transactions
 
