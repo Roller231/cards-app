@@ -204,17 +204,13 @@ async def check_gmail_once() -> None:
         subject = hdrs.get("subject", "")
         body = _decode_body(payload)
         full_text = f"{subject}\n{body}"
-        combined = full_text.lower()
-
-        if "apple pay" not in combined and "activate" not in combined:
-            continue
 
         last4, code = _extract_apple_pay_code(full_text)
         if not last4 or not code:
-            logger.info("Gmail API: parse miss for msg_id=%s subject=%r", msg_id, subject[:120])
-            logger.info("Gmail API: snippet msg_id=%s snippet=%r", msg_id, (msg.get("snippet") or "")[:300])
-            logger.info("Gmail API: mime tree msg_id=%s\n%s", msg_id, "\n".join(_mime_tree(payload)))
-            logger.info("Gmail API: full_text preview msg_id=%s text=%r", msg_id, re.sub(r"\s+", " ", full_text)[:800])
+            logger.debug("Gmail API: parse miss for msg_id=%s subject=%r", msg_id, subject[:120])
+            logger.debug("Gmail API: snippet msg_id=%s snippet=%r", msg_id, (msg.get("snippet") or "")[:300])
+            logger.debug("Gmail API: mime tree msg_id=%s\n%s", msg_id, "\n".join(_mime_tree(payload)))
+            logger.debug("Gmail API: full_text preview msg_id=%s text=%r", msg_id, re.sub(r"\s+", " ", full_text)[:800])
             continue
 
         logger.info("Gmail API: parsed msg_id=%s last4=%s code=***%s", msg_id, last4, code[-2:])
