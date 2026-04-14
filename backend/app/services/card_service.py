@@ -11,7 +11,7 @@ from app.integrations.aifory_client import aifory_client
 from app.models.card import Card
 from app.models.order import Order
 from app.models.user import User
-from app.services.telegram_bot_service import telegram_bot_service
+from app.services.telegram_bot_service import notify_card_issued, notify_card_transaction, notify_topup_result
 
 logger = logging.getLogger(__name__)
 
@@ -304,7 +304,7 @@ class CardService:
 
         # Notify user about successful card issuance
         try:
-            await telegram_bot_service.notify_card_issued(
+            await notify_card_issued(
                 db=db, user=user,
                 card_amount=float(aifory_amount),
                 card_last4=_notif_last4,
@@ -535,7 +535,7 @@ class CardService:
                 latest_txn = transactions[0]
                 # Check if this transaction is new (you might need a better way to track this)
                 if not hasattr(card, 'last_notified_transaction_id') or card.last_notified_transaction_id != latest_txn.get('id'):
-                    await telegram_bot_service.notify_card_transaction(
+                    await notify_card_transaction(
                         db=db,
                         user=user,
                         card_last4=card.last4 if card.last4 else "",
@@ -646,7 +646,7 @@ class CardService:
 
         # Notify user about successful top-up
         try:
-            await telegram_bot_service.notify_topup_result(
+            await notify_topup_result(
                 db=db, user=user,
                 card_last4=card.last4 or "",
                 amount=float(amount),
