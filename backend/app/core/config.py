@@ -47,6 +47,13 @@ class Settings(BaseSettings):
     ABCEX_API_KEY: str = ""  # Bearer JWT token for ABCEX API
     ABCEX_CRYPTO_PAYMENT_EXPIRY_MINUTES: int = 30  # Payment window before expiry
 
+    # O-Plata API
+    OPLATA_BASE_URL: str = "https://int.o-plata.com:443"
+    OPLATA_PRODUCT_ID: str = ""
+    OPLATA_PRIVATE_KEY: str = ""  # Ed25519 seed in hex (32 bytes / 64 hex chars)
+    OPLATA_PUBLIC_KEY: str = ""
+    OPLATA_CALLBACK_PUBLIC_KEY: str = ""
+
     class Config:
         env_file = ".env"
 

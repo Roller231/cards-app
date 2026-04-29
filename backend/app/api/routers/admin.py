@@ -20,6 +20,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import create_access_token
 from app.integrations.aifory_client import aifory_client
+from app.integrations.oplata_client import oplata_client
 from app.models.admin_setting import AdminSetting
 from app.models.card import Card
 from app.models.crypto_payment import CryptoPayment
@@ -560,6 +561,10 @@ class FAQCreateRequest(BaseModel):
     answer: str
 
 
+class OPlataRegisterClientRequest(BaseModel):
+    client_id: str
+
+
 class FAQUpdateRequest(BaseModel):
     question: Optional[str] = None
     answer: Optional[str] = None
@@ -638,6 +643,27 @@ async def delete_faq(faq_id: int, db: AsyncSession = Depends(get_db), _=Depends(
         raise HTTPException(404, "FAQ item not found")
     await db.delete(item)
     return {"ok": True}
+
+
+@router.post("/oplata/register-client", summary="Register test client in O-Plata and return wallet id")
+async def oplata_register_client(body: OPlataRegisterClientRequest, _=Depends(get_admin)):
+    cid = (body.client_id or "").strip()
+    if not cid:
+        raise HTTPException(400, "client_id is required")
+
+    try:
+        data = await oplata_client.register_client(cid)
+    except ValueError as exc:
+        raise HTTPException(500, str(exc))
+    except Exception as exc:
+        raise HTTPException(502, f"O-Plata error: {exc}")
+
+    return {
+        "clientId": data.get("clientId") if isinstance(data, dict) else cid,
+        "clientWalletId": data.get("clientWalletId") if isinstance(data, dict) else None,
+        "productId": data.get("productId") if isinstance(data, dict) else None,
+        "raw": data,
+    }
 
 
 # =====================  SETTINGS  =====================
