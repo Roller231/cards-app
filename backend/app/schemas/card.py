@@ -26,23 +26,17 @@ class CardRequisitesResponse(BaseModel):
     expiry: Optional[str] = None
     cvv: Optional[str] = None
     holder_name: Optional[str] = None
-    street: Optional[str] = None
-    city: Optional[str] = None
-    postal_code: Optional[str] = None
-    country_name: Optional[str] = None
 
 
 class CardOfferItem(BaseModel):
     id: str
     name: Optional[str] = None
     currency: Optional[str] = None
-    currency_id: Optional[int] = None
-    category: Optional[int] = None
+    payment_system: Optional[str] = None
     issue_fee: Optional[float] = None
-    fee_percent: Optional[float] = None
     monthly_fee: Optional[float] = None
-    min_amount: Optional[float] = None
-    max_amount: Optional[float] = None
+    ravana_server_id: Optional[str] = None
+    type_uuid: Optional[str] = None
     description: Optional[str] = None
 
 

@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.integrations.aifory_client import aifory_client
+from app.integrations.oplata_client import oplata_client
 from app.models.card import Card
 from app.models.order import Order
 from app.models.user import User
@@ -16,108 +16,76 @@ from app.services.telegram_bot_service import notify_card_issued, notify_card_tr
 logger = logging.getLogger(__name__)
 
 
+def _client_id(user: User) -> str:
+    """Derive O-Plata clientId for a given user."""
+    return f"user_{user.id}"
+
+
+def _parse_offer_id(offer_id: str):
+    """Split 'ravanaServerId:typeUuid' offer_id into components."""
+    parts = offer_id.split(":", 1)
+    if len(parts) != 2:
+        raise ValueError(f"Invalid offer_id format '{offer_id}'. Expected 'ravanaServerId:typeUuid'")
+    return parts[0], parts[1]
+
+
+def _card_state_to_status(state: Any) -> str:
+    s = str(state or "").upper()
+    return "active" if s == "ACTIVE" else "inactive"
+
+
 class CardService:
-    async def _get_usdt_accounts(self) -> Dict[str, str]:
-        """Return USDT ERC-20 (accountID) and USDT TRC-20 (accountIDToExchange) account IDs.
-
-        Uses config settings if available, otherwise auto-detects from Aifory accounts.
-        """
-        # Use config settings if provided
-        # TODO: both set to TRC20 for now; change account_id back to USDT_ERC20_ACCOUNT_ID if needed
-        if settings.USDT_TRC20_ACCOUNT_ID:
-            return {
-                "account_id": settings.USDT_TRC20_ACCOUNT_ID,
-                "account_id_to_exchange": settings.USDT_TRC20_ACCOUNT_ID
-            }
-            
-        # Auto-detect from Aifory accounts
-        accounts = await aifory_client.get_accounts()
-        if not accounts:
-            raise ValueError("No accounts found on parent Aifory account")
-
-        usdt_erc20: Optional[str] = None
-        usdt_trc20: Optional[str] = None
-
-        for acc in accounts:
-            cid = acc.get("currencyID") or acc.get("currencyId")
-            aid = acc.get("id") or acc.get("accountId") or acc.get("accountID")
-            try:
-                cid_int = int(cid)
-            except (TypeError, ValueError):
-                continue
-            if cid_int == 2000 and aid:
-                usdt_erc20 = str(aid)
-            elif cid_int == 2001 and aid:
-                usdt_trc20 = str(aid)
-
-        if not usdt_erc20:
-            raise ValueError("USDT ERC-20 account (currencyID=2000) not found on parent Aifory account")
-        if not usdt_trc20:
-            raise ValueError("USDT TRC-20 account (currencyID=2001) not found on parent Aifory account")
-
-        # TODO: both set to TRC20; revert account_id to usdt_erc20 if needed
-        return {"account_id": usdt_trc20, "account_id_to_exchange": usdt_trc20}
 
     # ------------------------------------------------------------------
-    # Offers
+    # Offers (card types from O-Plata)
     # ------------------------------------------------------------------
 
     async def get_offers(self) -> List[Dict[str, Any]]:
-        """Return available card offer products from Aifory (categories 2 and 3 only)."""
-        raw = await aifory_client.get_card_offers_simple()
+        """Return available virtual card types from O-Plata."""
+        test_client = settings.OPLATA_TEST_CLIENT_ID or "Developer"
+        try:
+            providers = await oplata_client.get_virtual_card_list(test_client)
+        except Exception as exc:
+            logger.warning("Could not fetch O-Plata card types: %s", exc)
+            return []
 
         offers = []
-        seen_names: set = set()
-        for o in raw:
-            category = o.get("category")
-            if category == 1:
+        for provider in providers:
+            ravana_server_id = provider.get("ravanaServerId") or provider.get("ravanaId") or ""
+            if not ravana_server_id:
                 continue
-
-            raw_bin = o.get("bin")
-            # Skip offers with empty/null/zero bins — they are non-functional placeholders
-            if not raw_bin or str(raw_bin) in ("", "0", "None", "null"):
-                continue
-            bin_id = str(raw_bin)
-
-            currency_id = o.get("createCardCurrency")
-            if currency_id == 1010:
-                currency_str = "USD"
-            elif currency_id == 1020:
-                currency_str = "EUR"
-            else:
-                currency_str = str(currency_id) if currency_id else "Unknown"
-
-            # Map card types to display names and get per-type fixed fee
-            if bin_id == "525847":
-                display_name = "Online + Pay"
-                fixed_issue_fee = float(settings.ONLINE_PLUS_ISSUE_FEE_USD)
-            else:
-                display_name = "Online"
-                fixed_issue_fee = float(settings.ONLINE_ISSUE_FEE_USD)
-
-            # Deduplicate: keep only the first offer with this display name
-            if display_name in seen_names:
-                continue
-            seen_names.add(display_name)
-
-            aifory_fee_percent = float(o.get("createCardFeePercent") or 0)
-
-            offers.append(
-                {
-                    "id": bin_id,
-                    "name": display_name,
-                    "currency": currency_str,
-                    "currency_id": currency_id,
-                    "category": category,
-                    "issue_fee": fixed_issue_fee,
-                    "aifory_fee_percent": aifory_fee_percent,
+            card_types = provider.get("cardTypesList") or []
+            for ct in card_types:
+                type_uuid = ct.get("uuid") or ""
+                if not type_uuid:
+                    continue
+                payment_system = ct.get("paymentSystem") or ""
+                name = ct.get("localizedName") or f"{payment_system} Virtual Card"
+                offers.append({
+                    "id": f"{ravana_server_id}:{type_uuid}",
+                    "name": name,
+                    "payment_system": payment_system,
+                    "currency": provider.get("cardCurrency") or "USD",
+                    "issue_fee": float(settings.ONLINE_ISSUE_FEE_USD),
                     "monthly_fee": 0.0,
-                    "min_amount": float(o.get("minAmount") or 15.0),
-                    "max_amount": float(o.get("maxAmount") or 50000.0),
-                    "description": f"Min: ${o.get('minAmount')}, Max: ${o.get('maxAmount')}",
-                }
-            )
+                    "ravana_server_id": ravana_server_id,
+                    "type_uuid": type_uuid,
+                    "description": ct.get("description") or name,
+                })
         return offers
+
+    # ------------------------------------------------------------------
+    # Ensure client is registered in O-Plata
+    # ------------------------------------------------------------------
+
+    async def _ensure_client(self, client_id: str) -> str:
+        """Register client if not already registered. Returns clientWalletId."""
+        try:
+            result = await oplata_client.register_client(client_id)
+            return result.get("clientWalletId") or ""
+        except Exception as exc:
+            logger.warning("register_client for %s failed: %s", client_id, exc)
+            return ""
 
     # ------------------------------------------------------------------
     # Issue card
@@ -133,328 +101,143 @@ class CardService:
         amount: Optional[float] = None,
         skip_balance_check: bool = False,
     ) -> Dict[str, Any]:
-        """
-        Create a card issuance order via Aifory.
-        Uses USDT ERC-20/TRC-20 accounts + client-generated validateKey.
-        Charges user: Aifory's clientAmount * (1 + CARD_ISSUE_MARKUP_PERCENT / 100).
-        """
-        # 1. Find offer and determine card amount
-        offers_raw = await aifory_client.get_card_offers_simple()
-        offer = next((o for o in offers_raw if str(o.get("bin")) == str(offer_id)), None)
-        if not offer:
-            raise ValueError(f"Offer '{offer_id}' not found")
+        """Issue a virtual card via O-Plata for the given user."""
+        ravana_server_id, type_uuid = _parse_offer_id(offer_id)
+        client_id = _client_id(user)
 
-        min_amount = float(offer.get("minAmount") or 15.0)
-        card_amount = float(amount) if (amount and float(amount) >= min_amount) else min_amount
+        # 1. Register client on O-Plata (idempotent)
+        await self._ensure_client(client_id)
 
-        # 2. Get USDT ERC-20 and TRC-20 account IDs
-        usdt = await self._get_usdt_accounts()
+        # 2. Determine card amount and fee
+        card_amount = Decimal(str(amount or 0))
+        fixed_fee = Decimal(str(settings.ONLINE_ISSUE_FEE_USD))
+        user_total = card_amount + fixed_fee
 
-        # 3. Client-generated idempotency key (same key used for calculate + order)
-        validate_key = str(uuid.uuid4())
-
-        # 4. Commission logic: user pays amount + fixed fee (+ optional issue-time topup markup)
-        # Use per-card-type fixed fee and topup percent based on offer_id
-        card_amount_decimal = Decimal(str(card_amount))
-        if str(offer_id) == "525847":
-            fixed_fee = Decimal(str(settings.ONLINE_PLUS_ISSUE_FEE_USD))
-            topup_markup_percent = Decimal(str(settings.ONLINE_PLUS_TOPUP_MARKUP_PERCENT))
-        else:
-            fixed_fee = Decimal(str(settings.ONLINE_ISSUE_FEE_USD))
-            topup_markup_percent = Decimal(str(settings.ONLINE_TOPUP_MARKUP_PERCENT))
-
-        issue_topup_markup_fee = Decimal("0")
-        if bool(settings.ISSUE_APPLY_TOPUP_MARKUP):
-            issue_topup_markup_fee = card_amount_decimal * topup_markup_percent / Decimal("100")
-
-        our_fee = fixed_fee + issue_topup_markup_fee
-        user_total = card_amount_decimal + our_fee
-        
-        # Send only the requested card amount to Aifory (without our commission)
-        aifory_amount = card_amount_decimal  # Aifory gets: $20
-        our_profit = our_fee  # Our profit: $1
-
-        # 6. Check user balance (skip when payment already confirmed via crypto)
+        # 3. Check user balance
         if not skip_balance_check and Decimal(str(user.balance)) < user_total:
             raise ValueError(
                 f"Insufficient balance. Required: {user_total:.2f} USD, available: {user.balance}"
             )
 
-        # 7. Place order on Aifory - send only the card amount (without our commission)
-        result = await aifory_client.create_card_order(
-            account_id=usdt["account_id"],
-            offer_id=offer_id,
-            amount=float(aifory_amount),  # Send $20 to Aifory, not $21
-            account_id_to_exchange=usdt["account_id_to_exchange"],
-            validate_key=validate_key,
+        # 4. Issue card on O-Plata
+        holder_name = f"{holder_first_name} {holder_last_name}".strip()
+        result = await oplata_client.issue_virtual_card(
+            client_id=client_id,
+            name=holder_name or client_id,
+            ravana_server_id=ravana_server_id,
+            type_uuid=type_uuid,
         )
-        partner_order_id = (
-            result.get("orderID") or result.get("orderId") or result.get("id")
-        )
+        payment_uuid = result.get("uuid") or result.get("id") or str(uuid.uuid4())
         logger.info(
-            "Card order created: partner_order_id=%s user_id=%s card_amount=%s user_charge=%s",
-            partner_order_id, user.id, card_amount, user_total,
+            "Card issued: payment_uuid=%s client_id=%s user_id=%s",
+            payment_uuid, client_id, user.id,
         )
 
-        # 8. Deduct from user balance (skip when payment already confirmed via crypto)
+        # 5. Deduct from user balance
         if not skip_balance_check:
             user.balance = Decimal(str(user.balance)) - user_total
 
-        # 9. Save order record with completed status
+        # 6. Save order
         order = Order(
             user_id=user.id,
-            partner_order_id=partner_order_id,
+            partner_order_id=payment_uuid,
             type="issue",
             amount=user_total,
-            fee=our_profit,
-            status="completed",
-            description=f"Card issuance: offer {offer_id}, card balance: ${card_amount:.2f}",
+            fee=fixed_fee,
+            status="pending",
+            description=f"Card issuance: {ravana_server_id}:{type_uuid}",
         )
         db.add(order)
         await db.flush()
 
-        # 10. Immediately fetch order details to get card data
-        _notif_last4 = ""
-        try:
-            details = await aifory_client.get_order_details(partner_order_id)
-            aifory_card_id = details.get("cardID") or details.get("cardId")
-            status_id = details.get("statusID") or details.get("statusId")
-            
-            # Update order with Aifory status
-            if status_id is not None:
-                order.aifory_status_id = int(status_id)
-            
-            # Create card record if we have cardID
-            if aifory_card_id:
-                # Get card details from Aifory cards list
-                aifory_cards = await aifory_client.get_cards("")
-                card_data = None
-                for c in aifory_cards:
-                    cid = c.get("cardID") or c.get("cardId") or c.get("id")
-                    if str(cid) == str(aifory_card_id):
-                        card_data = c
-                        break
-                
-                if card_data:
-                    currency_id = card_data.get("currencyID") or offer.get("createCardCurrency")
-                    currency_str = "USD" if currency_id == 1010 else ("EUR" if currency_id == 1020 else str(currency_id or ""))
-                    
-                    # Check if card already exists to avoid duplicates
-                    existing_card_result = await db.execute(
-                        select(Card).where(Card.aifory_card_id == str(aifory_card_id))
-                    )
-                    existing_card = existing_card_result.scalar_one_or_none()
-                    
-                    if existing_card:
-                        # Update existing card with fresh data
-                        existing_card.category = card_data.get("category") or existing_card.category
-                        existing_card.card_status = card_data.get("cardStatus")
-                        existing_card.expired_at = card_data.get("expiredAt") or existing_card.expired_at
-                        existing_card.last4 = str(card_data.get("cardNumberLastDigits") or existing_card.last4 or "")
-                        _notif_last4 = existing_card.last4
-                        existing_card.currency = currency_str
-                        existing_card.currency_id = currency_id
-                        existing_card.payment_system_id = card_data.get("paymentSystemID") or existing_card.payment_system_id
-                        existing_card.balance = Decimal(str(card_data.get("balance") or card_amount))
-                        existing_card.status = "active" if card_data.get("cardStatus") == 2 else "inactive"
-                        existing_card.offer_id = offer_id or existing_card.offer_id
-                        
-                        # Link order to existing card
-                        order.card_id = existing_card.id
-                        
-                        logger.info(
-                            "Updated existing card: card_id=%s aifory_card_id=%s user_id=%s",
-                            existing_card.id, aifory_card_id, user.id
-                        )
-                    else:
-                        # Create new card with all available data
-                        _notif_last4 = str(card_data.get("cardNumberLastDigits") or "")
-                        card = Card(
-                            user_id=user.id,
-                            aifory_card_id=str(aifory_card_id),
-                            category=card_data.get("category") or offer.get("category"),
-                            card_status=card_data.get("cardStatus"),
-                            expired_at=card_data.get("expiredAt"),
-                            last4=_notif_last4,
-                            holder_name=f"{holder_first_name} {holder_last_name}",
-                            currency=currency_str,
-                            currency_id=currency_id,
-                            payment_system_id=card_data.get("paymentSystemID"),
-                            balance=Decimal(str(card_data.get("balance") or card_amount)),
-                            status="active" if card_data.get("cardStatus") == 2 else "inactive",
-                            offer_id=offer_id,
-                        )
-                        db.add(card)
-                        await db.flush()
-                        
-                        # Link order to new card
-                        order.card_id = card.id
-                        
-                        logger.info(
-                            "Card created immediately: card_id=%s aifory_card_id=%s user_id=%s balance=%s",
-                            card.id, aifory_card_id, user.id, card.balance
-                        )
-                else:
-                    logger.warning("Card data not found in Aifory cards list for cardID=%s", aifory_card_id)
-            else:
-                logger.warning("No cardID returned in order details for order=%s", partner_order_id)
-                
-        except Exception as exc:
-            logger.error("Failed to fetch order details immediately: %s", exc)
-
-        # Notify user about successful card issuance
+        # 7. Notify
         try:
             await notify_card_issued(
                 db=db, user=user,
-                card_amount=float(aifory_amount),
-                card_last4=_notif_last4,
-                fee=float(our_profit),
+                card_amount=float(card_amount),
+                card_last4="",
+                fee=float(fixed_fee),
                 success=True,
             )
         except Exception as _n:
             logger.debug("Card issue notification error: %s", _n)
 
-        return {"local_order_id": order.id, "partner_order_id": partner_order_id}
+        return {"local_order_id": order.id, "partner_order_id": payment_uuid}
 
     # ------------------------------------------------------------------
-    # Sync cards from Aifory into local DB
+    # Sync cards from O-Plata into local DB
     # ------------------------------------------------------------------
 
     async def sync_cards(self, db: AsyncSession, user: User) -> List[Card]:
-        """
-        Pull all cards from the parent Aifory account, update balances/status,
-        and link any un-linked pending issue orders to their resulting card.
-        """
-        # Build map of all Aifory cards: cardID → raw card dict
-        aifory_cards = await aifory_client.get_cards("")
-        aifory_map: Dict[str, Dict] = {}
-        for c in aifory_cards:
-            cid = c.get("cardID") or c.get("cardId") or c.get("id")
-            if cid:
-                aifory_map[str(cid)] = c
+        """Pull all virtual cards from O-Plata for this user and upsert into local DB."""
+        client_id = _client_id(user)
+        try:
+            history = await oplata_client.get_virtual_card_history(client_id, page_size=100)
+        except Exception as exc:
+            logger.warning("get_virtual_card_history failed for %s: %s", client_id, exc)
+            result = await db.execute(select(Card).where(Card.user_id == user.id))
+            return list(result.scalars().all())
 
-        # Update all data for already-linked cards from Aifory
-        all_cards_result = await db.execute(select(Card).where(Card.user_id == user.id))
-        for card in all_cards_result.scalars().all():
-            if card.aifory_card_id and card.aifory_card_id in aifory_map:
-                raw = aifory_map[card.aifory_card_id]
-                
-                # Update all fields from Aifory data
-                card.card_status = raw.get("cardStatus")
-                card.balance = Decimal(str(raw.get("balance") or 0))
-                card.status = "active" if raw.get("cardStatus") == 2 else "inactive"
-                card.category = raw.get("category") or card.category
-                card.expired_at = raw.get("expiredAt") or card.expired_at
-                card.last4 = str(raw.get("cardNumberLastDigits") or card.last4 or "")
-                card.currency_id = raw.get("currencyID") or card.currency_id
-                card.payment_system_id = raw.get("paymentSystemID") or card.payment_system_id
-                
-                # Update currency string based on currency_id
-                if card.currency_id:
-                    if card.currency_id == 1010:
-                        card.currency = "USD"
-                    elif card.currency_id == 1020:
-                        card.currency = "EUR"
-                    else:
-                        card.currency = str(card.currency_id)
-                
-                logger.info(
-                    "Updated card data from Aifory: card_id=%s aifory_card_id=%s balance=%s status=%s",
-                    card.id, card.aifory_card_id, card.balance, card.status
-                )
+        cards_raw = history.get("content") or []
 
-        # Find pending issue orders without a linked card
-        pending_result = await db.execute(
-            select(Order).where(
-                Order.user_id == user.id,
-                Order.type == "issue",
-                Order.card_id.is_(None),
-                Order.partner_order_id.isnot(None),
-            )
-        )
-        for order in pending_result.scalars().all():
-            try:
-                details = await aifory_client.get_order_details(order.partner_order_id)
-            except Exception as exc:
-                logger.warning("Could not fetch order %s: %s", order.partner_order_id, exc)
+        for raw in cards_raw:
+            card_id = str(raw.get("cardId") or raw.get("id") or "")
+            ravana_id = str(raw.get("ravanaServerId") or "")
+            if not card_id:
                 continue
 
-            aifory_card_id = details.get("cardID") or details.get("cardId")
-            status_id = details.get("statusID") or details.get("statusId")
-            aifory_type = details.get("type")
-            holder_name = details.get("cardHolderName")
+            masked_pan = str(raw.get("cardNumber") or "")
+            last4 = masked_pan[-4:] if len(masked_pan) >= 4 else (masked_pan or "")
+            holder = str(raw.get("holderName") or "")
+            state = raw.get("state") or ""
+            balance = Decimal(str(raw.get("balance") or 0))
+            expired_at = str(raw.get("expireAtMonth") or "")
+            currency = str(raw.get("currency") or raw.get("cardCurrency") or "USD")
 
-            if status_id is not None:
-                order.aifory_status_id = int(status_id)
-                if status_id == 2:
-                    order.status = "active"
-                elif status_id == 3:
-                    order.status = "failed"
-            if aifory_type is not None:
-                order.aifory_type = int(aifory_type)
-
-            if not aifory_card_id:
-                continue
-
-            raw = aifory_map.get(str(aifory_card_id))
-            if not raw:
-                continue
-
+            # Check if card already exists
             existing_result = await db.execute(
-                select(Card).where(Card.aifory_card_id == str(aifory_card_id))
+                select(Card).where(Card.aifory_card_id == card_id)
             )
             card = existing_result.scalar_one_or_none()
-            if not card:
-                currency_id = raw.get("currencyID")
-                currency_str = "USD" if currency_id == 1010 else ("EUR" if currency_id == 1020 else str(currency_id or ""))
-                desc_parts = (order.description or "").split("offer ")
-                extracted_offer_id = desc_parts[-1].split(",")[0] if len(desc_parts) > 1 else None
+
+            if card:
+                card.balance = balance
+                card.status = _card_state_to_status(state)
+                card.card_status = 2 if card.status == "active" else 0
+                card.last4 = last4 or card.last4
+                card.holder_name = holder or card.holder_name
+                card.expired_at = expired_at or card.expired_at
+                card.currency = currency or card.currency
+                card.offer_id = ravana_id or card.offer_id
+                logger.info("Synced card: card_id=%s user_id=%s balance=%s", card.id, user.id, balance)
+            else:
                 card = Card(
                     user_id=user.id,
-                    aifory_card_id=str(aifory_card_id),
-                    category=raw.get("category"),
-                    card_status=raw.get("cardStatus"),
-                    expired_at=raw.get("expiredAt"),
-                    last4=str(raw.get("cardNumberLastDigits") or ""),
-                    holder_name=holder_name,
-                    currency=currency_str,
-                    currency_id=currency_id,
-                    payment_system_id=raw.get("paymentSystemID"),
-                    balance=Decimal(str(raw.get("balance") or 0)),
-                    status="active" if raw.get("cardStatus") == 2 else "inactive",
-                    offer_id=extracted_offer_id or None,
+                    aifory_card_id=card_id,
+                    offer_id=ravana_id,
+                    last4=last4,
+                    holder_name=holder,
+                    currency=currency,
+                    balance=balance,
+                    status=_card_state_to_status(state),
+                    card_status=2 if _card_state_to_status(state) == "active" else 0,
+                    expired_at=expired_at,
                 )
                 db.add(card)
                 await db.flush()
-            else:
-                # Update existing card with all current Aifory data
-                card.card_status = raw.get("cardStatus")
-                card.balance = Decimal(str(raw.get("balance") or 0))
-                card.status = "active" if raw.get("cardStatus") == 2 else "inactive"
-                card.category = raw.get("category") or card.category
-                card.expired_at = raw.get("expiredAt") or card.expired_at
-                card.last4 = str(raw.get("cardNumberLastDigits") or card.last4 or "")
-                card.currency_id = raw.get("currencyID") or card.currency_id
-                card.payment_system_id = raw.get("paymentSystemID") or card.payment_system_id
-                
-                # Update currency string
-                if card.currency_id:
-                    if card.currency_id == 1010:
-                        card.currency = "USD"
-                    elif card.currency_id == 1020:
-                        card.currency = "EUR"
-                    else:
-                        card.currency = str(card.currency_id)
-                
-                if holder_name and not card.holder_name:
-                    card.holder_name = holder_name
-                
-                logger.info(
-                    "Synced existing card with Aifory data: card_id=%s aifory_card_id=%s",
-                    card.id, card.aifory_card_id
-                )
 
-            order.card_id = card.id
+                # Link pending issue order if exists
+                pending_result = await db.execute(
+                    select(Order).where(
+                        Order.user_id == user.id,
+                        Order.type == "issue",
+                        Order.card_id.is_(None),
+                    )
+                )
+                pending = pending_result.scalars().first()
+                if pending:
+                    pending.card_id = card.id
+                    pending.status = "completed"
 
         final_result = await db.execute(select(Card).where(Card.user_id == user.id))
         return list(final_result.scalars().all())
@@ -468,35 +251,31 @@ class CardService:
         return list(result.scalars().all())
 
     # ------------------------------------------------------------------
-    # Get card requisites
+    # Get card requisites (PAN / CVV)
     # ------------------------------------------------------------------
 
     async def get_card_requisites(self, db: AsyncSession, user_id: int, card_id: str) -> Dict:
-        # Prefer lookup by Aifory card ID (UUID string). Fallback to local numeric ID if digits.
-        if isinstance(card_id, str) and not card_id.isdigit():
-            result = await db.execute(
-                select(Card).where(Card.aifory_card_id == card_id, Card.user_id == user_id)
-            )
-        else:
-            result = await db.execute(
-                select(Card).where(Card.id == int(card_id), Card.user_id == user_id)
-            )
-        card = result.scalar_one_or_none()
-        if not card:
-            raise ValueError("Card not found")
-        if not card.aifory_card_id:
-            raise ValueError("Card is not yet linked to Aifory (issuance may still be pending)")
+        card = await self._resolve_card(db, user_id, card_id)
 
-        raw = await aifory_client.get_card_requisites(card.aifory_card_id)
+        if not card.aifory_card_id:
+            raise ValueError("Card has no external ID (issuance may still be pending)")
+        if not card.offer_id:
+            raise ValueError("Card has no ravanaServerId stored")
+
+        user_result = await db.execute(select(User).where(User.id == user_id))
+        user = user_result.scalar_one_or_none()
+        client_id = _client_id(user) if user else f"user_{user_id}"
+
+        raw = await oplata_client.get_card_secret(
+            client_id=client_id,
+            card_id=card.aifory_card_id,
+            ravana_server_id=card.offer_id,
+        )
         return {
-            "card_number": raw.get("cardNumber") or raw.get("pan") or raw.get("number"),
-            "expiry": raw.get("expiredAt") or raw.get("expiry") or raw.get("expiryDate"),
+            "card_number": raw.get("pan") or raw.get("cardNumber") or raw.get("number"),
+            "expiry": raw.get("expireAtMonth") or raw.get("expiry") or card.expired_at,
             "cvv": raw.get("cvv"),
-            "holder_name": raw.get("cardHolderName") or raw.get("holderName") or card.holder_name,
-            "street": raw.get("street"),
-            "city": raw.get("city"),
-            "postal_code": raw.get("postalCode"),
-            "country_name": raw.get("countryName"),
+            "holder_name": raw.get("holderName") or raw.get("cardHolderName") or card.holder_name,
         }
 
     # ------------------------------------------------------------------
@@ -511,76 +290,55 @@ class CardService:
         limit: int = 50,
         offset: int = 0,
     ) -> List[Dict]:
-        if isinstance(card_id, str) and not card_id.isdigit():
-            result = await db.execute(
-                select(Card).where(Card.aifory_card_id == card_id, Card.user_id == user_id)
-            )
-        else:
-            result = await db.execute(
-                select(Card).where(Card.id == int(card_id), Card.user_id == user_id)
-            )
-        card = result.scalar_one_or_none()
-        if not card:
-            raise ValueError("Card not found")
+        card = await self._resolve_card(db, user_id, card_id)
+
         if not card.aifory_card_id:
-            raise ValueError("Card is not yet linked to Aifory (issuance may still be pending)")
-        transactions = await aifory_client.get_card_transactions(card.aifory_card_id, limit=limit, offset=offset)
-        
-        # Check for new transactions and notify user
-        if transactions:
-            result = await db.execute(select(User).where(User.id == user_id))
-            user = result.scalar_one_or_none()
-            if user and user.telegram_user_id:
-                # Assuming the first transaction is the latest
-                latest_txn = transactions[0]
-                # Check if this transaction is new (you might need a better way to track this)
-                # Use getattr to safely check for attribute existence to handle cases where column might not be in DB yet
-                last_notified_id = getattr(card, 'last_notified_transaction_id', None)
-                if last_notified_id is None or last_notified_id != latest_txn.get('id'):
-                    # Additional check to avoid notifying for old transactions
-                    from datetime import datetime, timedelta
-                    txn_date_str = latest_txn.get('date') or latest_txn.get('createdAt') or latest_txn.get('created_at', '')
-                    if txn_date_str:
-                        try:
-                            txn_date = datetime.strptime(txn_date_str, '%Y-%m-%dT%H:%M:%S.%fZ') if 'T' in txn_date_str else datetime.strptime(txn_date_str, '%Y-%m-%d %H:%M:%S')
-                            if datetime.now() - txn_date < timedelta(minutes=5):
-                                await notify_card_transaction(
-                                    db=db,
-                                    user=user,
-                                    card_last4=card.last4 if card.last4 else "",
-                                    amount=float(latest_txn.get('amount', 0)),
-                                    currency=latest_txn.get('currency', 'USD'),
-                                    merchant=latest_txn.get('merchant') or latest_txn.get('merchantName') or latest_txn.get('description', ''),
-                                    date=txn_date_str,
-                                    status=latest_txn.get('status', '')
-                                )
-                                # Update the last notified transaction ID only if the attribute exists
-                                if hasattr(card, 'last_notified_transaction_id'):
-                                    card.last_notified_transaction_id = latest_txn.get('id')
-                                    await db.commit()
-                        except ValueError:
-                            # If date parsing fails, notify anyway to be safe
-                            await notify_card_transaction(
-                                db=db,
-                                user=user,
-                                card_last4=card.last4 if card.last4 else "",
-                                amount=float(latest_txn.get('amount', 0)),
-                                currency=latest_txn.get('currency', 'USD'),
-                                merchant=latest_txn.get('merchant') or latest_txn.get('merchantName') or latest_txn.get('description', ''),
-                                date=txn_date_str,
-                                status=latest_txn.get('status', '')
-                            )
-                            if hasattr(card, 'last_notified_transaction_id'):
-                                card.last_notified_transaction_id = latest_txn.get('id')
-                                await db.commit()
-                else:
-                    # If the latest transaction ID matches the last notified ID, skip notification
-                    pass
-        
+            raise ValueError("Card has no external ID")
+        if not card.offer_id:
+            raise ValueError("Card has no ravanaServerId stored")
+
+        user_result = await db.execute(select(User).where(User.id == user_id))
+        user = user_result.scalar_one_or_none()
+        client_id = _client_id(user) if user else f"user_{user_id}"
+
+        page_size = limit
+        page_number = offset // limit if limit > 0 else 0
+
+        response = await oplata_client.get_card_transaction_list(
+            client_id=client_id,
+            card_id=card.aifory_card_id,
+            ravana_server_id=card.offer_id,
+            page_number=page_number,
+            page_size=page_size,
+        )
+        transactions = response.get("content") or response if isinstance(response, list) else []
+
+        # Notify about latest transaction if new
+        if transactions and user and user.telegram_user_id:
+            latest_txn = transactions[0]
+            last_notified_id = getattr(card, "last_notified_transaction_id", None)
+            txn_id = str(latest_txn.get("uuid") or latest_txn.get("id") or "")
+            if txn_id and last_notified_id != txn_id:
+                try:
+                    await notify_card_transaction(
+                        db=db, user=user,
+                        card_last4=card.last4 or "",
+                        amount=float(latest_txn.get("amount") or latest_txn.get("amountNormalized") or 0),
+                        currency=str(latest_txn.get("currency") or "USD"),
+                        merchant=str(latest_txn.get("description") or latest_txn.get("merchant") or ""),
+                        date=str(latest_txn.get("date") or latest_txn.get("createdAt") or ""),
+                        status=str(latest_txn.get("state") or latest_txn.get("status") or ""),
+                    )
+                    if hasattr(card, "last_notified_transaction_id"):
+                        card.last_notified_transaction_id = txn_id
+                        await db.flush()
+                except Exception as _n:
+                    logger.debug("Transaction notification error: %s", _n)
+
         return transactions
 
     # ------------------------------------------------------------------
-    # Deposit (top-up card balance via Aifory)
+    # Deposit (top-up card balance via O-Plata)
     # ------------------------------------------------------------------
 
     async def deposit_card(
@@ -591,88 +349,52 @@ class CardService:
         amount: float,
         skip_balance_check: bool = False,
     ) -> Dict[str, Any]:
-        """
-        Top up a specific card balance via Aifory deposit order.
-        Uses USDT ERC-20/TRC-20 accounts + client-generated validateKey.
-        Charges user: Aifory's total * (1 + CARD_TOPUP_MARKUP_PERCENT / 100).
-        """
-        if isinstance(card_id, str) and not card_id.isdigit():
-            card_result = await db.execute(
-                select(Card).where(Card.aifory_card_id == card_id, Card.user_id == user.id)
-            )
-        else:
-            card_result = await db.execute(
-                select(Card).where(Card.id == int(card_id), Card.user_id == user.id)
-            )
-        card = card_result.scalar_one_or_none()
-        if not card:
-            raise ValueError("Card not found")
+        """Top up a specific card balance via O-Plata."""
+        card = await self._resolve_card(db, user.id, card_id)
+
         if not card.aifory_card_id:
-            raise ValueError("Card is not yet linked to Aifory (issuance may still be pending)")
+            raise ValueError("Card has no external ID")
+        if not card.offer_id:
+            raise ValueError("Card has no ravanaServerId stored")
 
-        # Get USDT accounts
-        usdt = await self._get_usdt_accounts()
-
-        # Client-generated idempotency key
-        validate_key = str(uuid.uuid4())
-
-        # Calculate fee (Aifory's own total is for their processing only)
-        calc = await aifory_client.calculate_deposit_order(
-            account_id=usdt["account_id"],
-            card_id=card.aifory_card_id,
-            amount=amount,
-            account_id_to_exchange=usdt["account_id_to_exchange"],
-            validate_key=validate_key,
-        )
-        aifory_total = Decimal(str(calc.get("amount") or amount))  # For reference/logging
-        aifory_fee = Decimal(str(calc.get("fee") or 0))            # For reference/logging
-
-        # Apply our markup ONLY on the base amount requested by the user
-        # Use per-card-type markup based on card.offer_id
         base_amount = Decimal(str(amount))
-        if str(card.offer_id) == "525847":
-            markup_percent = settings.ONLINE_PLUS_TOPUP_MARKUP_PERCENT
+        if str(card.offer_id).startswith("525847"):
+            markup_percent = Decimal(str(settings.ONLINE_PLUS_TOPUP_MARKUP_PERCENT))
         else:
-            markup_percent = settings.ONLINE_TOPUP_MARKUP_PERCENT
-        markup = Decimal(str(markup_percent))
-        our_profit = base_amount * markup / Decimal("100")
+            markup_percent = Decimal(str(settings.ONLINE_TOPUP_MARKUP_PERCENT))
+        our_profit = base_amount * markup_percent / Decimal("100")
         user_total = base_amount + our_profit
 
-        # Check user balance (skip when payment already confirmed via crypto)
         if not skip_balance_check and Decimal(str(user.balance)) < user_total:
             raise ValueError(
                 f"Insufficient balance. Required: {user_total:.2f} USD, available: {user.balance}"
             )
 
-        # Place deposit order on Aifory
-        result = await aifory_client.create_deposit_order(
-            account_id=usdt["account_id"],
+        client_id = _client_id(user)
+        result = await oplata_client.topup_card(
+            client_id=client_id,
             card_id=card.aifory_card_id,
+            ravana_server_id=card.offer_id,
             amount=amount,
-            account_id_to_exchange=usdt["account_id_to_exchange"],
-            validate_key=validate_key,
         )
-        partner_order_id = result.get("orderID") or result.get("orderId") or result.get("id")
+        payment_uuid = result.get("uuid") or result.get("id") or str(uuid.uuid4())
 
-        # Deduct from user balance (skip when payment already confirmed via crypto)
         if not skip_balance_check:
             user.balance = Decimal(str(user.balance)) - user_total
 
-        # Save order record
         order = Order(
             user_id=user.id,
-            partner_order_id=partner_order_id,
+            partner_order_id=payment_uuid,
             card_id=card.id,
             type="topup",
             amount=user_total,
             fee=our_profit,
             status="pending",
-            description=f"Card top-up: ${amount:.2f} to card ...{card.aifory_card_id[-8:] if card.aifory_card_id else ''}",
+            description=f"Card top-up: ${amount:.2f} to card ...{card.aifory_card_id[-8:]}",
         )
         db.add(order)
         await db.flush()
 
-        # Notify user about successful top-up
         try:
             await notify_topup_result(
                 db=db, user=user,
@@ -684,29 +406,46 @@ class CardService:
         except Exception as _n:
             logger.debug("Topup notification error: %s", _n)
 
-        return {"local_order_id": order.id, "partner_order_id": partner_order_id}
+        return {"local_order_id": order.id, "partner_order_id": payment_uuid}
 
     # ------------------------------------------------------------------
-    # Get deposit offers for a card
+    # Get deposit offers (kept for API compatibility)
     # ------------------------------------------------------------------
 
     async def get_deposit_offers(self, db: AsyncSession, user_id: int, card_id: str) -> List[Dict]:
-        """Return deposit offers available for a given card."""
+        """Return top-up options for a card."""
+        card = await self._resolve_card(db, user_id, card_id)
+        if not card:
+            raise ValueError("Card not found")
+        return [
+            {
+                "id": "topup_usd",
+                "name": "Top up USD",
+                "currency": card.currency or "USD",
+                "min_amount": 1.0,
+                "max_amount": 10000.0,
+                "markup_percent": float(settings.ONLINE_TOPUP_MARKUP_PERCENT),
+            }
+        ]
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    async def _resolve_card(self, db: AsyncSession, user_id: int, card_id: str) -> Card:
+        """Find card by external_card_id (aifory_card_id) or by local numeric id."""
         if isinstance(card_id, str) and not card_id.isdigit():
-            card_result = await db.execute(
+            result = await db.execute(
                 select(Card).where(Card.aifory_card_id == card_id, Card.user_id == user_id)
             )
         else:
-            card_result = await db.execute(
+            result = await db.execute(
                 select(Card).where(Card.id == int(card_id), Card.user_id == user_id)
             )
-        card = card_result.scalar_one_or_none()
+        card = result.scalar_one_or_none()
         if not card:
             raise ValueError("Card not found")
-        if not card.aifory_card_id:
-            raise ValueError("Card is not yet linked to Aifory")
-
-        return await aifory_client.get_deposit_offers("", card.aifory_card_id)
+        return card
 
 
 card_service = CardService()

@@ -19,7 +19,7 @@ from app.services.card_service import card_service
 router = APIRouter(prefix="/cards", tags=["cards"])
 
 
-@router.get("/offers", response_model=List[CardOfferItem], summary="List available card products from Aifory")
+@router.get("/offers", response_model=List[CardOfferItem], summary="List available virtual card types from O-Plata")
 async def list_offers(_: User = Depends(get_current_user)):
     try:
         return await card_service.get_offers()
@@ -45,7 +45,7 @@ async def issue_card(
         raise HTTPException(status_code=502, detail=str(exc))
 
 
-@router.get("", response_model=List[CardResponse], summary="Get current user's cards (syncs with Aifory first)")
+@router.get("", response_model=List[CardResponse], summary="Get current user's cards (syncs with O-Plata first)")
 async def get_cards(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -57,14 +57,11 @@ async def get_cards(
             CardResponse(
                 id=c.id,
                 aifory_card_id=c.aifory_card_id,
-                category=c.category,
                 card_status=c.card_status,
                 expired_at=c.expired_at,
                 last4=c.last4,
                 holder_name=c.holder_name,
                 currency=c.currency,
-                currency_id=c.currency_id,
-                payment_system_id=c.payment_system_id,
                 status=c.status,
                 balance=float(c.balance),
                 offer_id=c.offer_id,
@@ -90,21 +87,8 @@ async def get_requisites(
         raise HTTPException(status_code=502, detail=str(exc))
 
 
-@router.get("/{card_id}/deposit-offers", summary="List deposit (top-up) offers available for a card")
-async def get_deposit_offers(
-    card_id: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    try:
-        return await card_service.get_deposit_offers(db, current_user.id, card_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
 
-
-@router.get("/{card_id}/transactions", summary="Get card transaction history from Aifory")
+@router.get("/{card_id}/transactions", summary="Get card transaction history from O-Plata")
 async def get_card_transactions(
     card_id: str,
     limit: int = 50,
@@ -120,7 +104,7 @@ async def get_card_transactions(
         raise HTTPException(status_code=502, detail=str(exc))
 
 
-@router.post("/{card_id}/deposit", response_model=IssueCardResponse, summary="Top up a card balance via Aifory")
+@router.post("/{card_id}/deposit", response_model=IssueCardResponse, summary="Top up a card balance via O-Plata")
 async def deposit_card(
     card_id: str,
     body: CardDepositRequest,

@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.core.database import get_db
-from app.integrations.aifory_client import aifory_client
+from app.integrations.oplata_client import oplata_client
 from app.models.card import Card
 from app.models.user import User
 from app.schemas.transaction import TransactionItem, TransactionListResponse
@@ -15,11 +15,12 @@ router = APIRouter(prefix="/transactions", tags=["transactions"])
 @router.get(
     "/cards/{card_id}",
     response_model=TransactionListResponse,
-    summary="Get transaction history for a card (fetched from Aifory)",
+    summary="Get transaction history for a card (fetched from O-Plata)",
 )
 async def get_card_transactions(
     card_id: str,
     limit: int = 50,
+    offset: int = 0,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -35,25 +36,33 @@ async def get_card_transactions(
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
     if not card.aifory_card_id:
-        raise HTTPException(
-            status_code=400,
-            detail="Card is not yet linked to Aifory (issuance may still be pending)",
-        )
+        raise HTTPException(status_code=400, detail="Card has no external ID (issuance may still be pending)")
+    if not card.offer_id:
+        raise HTTPException(status_code=400, detail="Card has no ravanaServerId stored")
 
+    client_id = f"user_{current_user.id}"
+    page_number = offset // limit if limit > 0 else 0
     try:
-        raw_txns = await aifory_client.get_card_transactions(card.aifory_card_id, limit=limit)
+        response = await oplata_client.get_card_transaction_list(
+            client_id=client_id,
+            card_id=card.aifory_card_id,
+            ravana_server_id=card.offer_id,
+            page_number=page_number,
+            page_size=limit,
+        )
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
+    raw_txns = response.get("content") or (response if isinstance(response, list) else [])
     transactions = [
         TransactionItem(
-            transaction_id=t.get("id") or t.get("transactionId") or t.get("transactionID"),
-            date=t.get("date") or t.get("createdAt") or t.get("created_at"),
-            amount=t.get("amount"),
-            currency=t.get("currency"),
-            merchant=t.get("merchant") or t.get("merchantName") or t.get("description"),
-            status=t.get("status"),
-            description=t.get("description") or t.get("comment"),
+            transaction_id=str(t.get("uuid") or t.get("id") or ""),
+            date=str(t.get("date") or t.get("createdAt") or ""),
+            amount=float(t.get("amount") or t.get("amountNormalized") or 0),
+            currency=str(t.get("currency") or "USD"),
+            merchant=str(t.get("description") or t.get("merchant") or ""),
+            status=str(t.get("state") or t.get("status") or ""),
+            description=str(t.get("description") or ""),
         )
         for t in raw_txns
     ]
@@ -66,12 +75,12 @@ async def get_card_transactions(
 
 
 @router.get(
-    "/cards/{card_id}/{transaction_id}",
-    summary="Get details of a single transaction",
+    "/cards/{card_id}/{transaction_uuid}",
+    summary="Get details of a single transaction from O-Plata",
 )
 async def get_transaction_detail(
     card_id: str,
-    transaction_id: str,
+    transaction_uuid: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -87,9 +96,10 @@ async def get_transaction_detail(
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
     if not card.aifory_card_id:
-        raise HTTPException(status_code=400, detail="Card not yet linked to Aifory")
+        raise HTTPException(status_code=400, detail="Card has no external ID")
 
+    client_id = f"user_{current_user.id}"
     try:
-        return await aifory_client.get_card_transaction_details(card.aifory_card_id, transaction_id)
+        return await oplata_client.get_transaction_payment(client_id, transaction_uuid)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc))

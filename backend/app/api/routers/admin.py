@@ -19,7 +19,6 @@ from app.api.deps import get_admin
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import create_access_token
-from app.integrations.aifory_client import aifory_client
 from app.integrations.oplata_client import oplata_client
 from app.models.admin_setting import AdminSetting
 from app.models.card import Card
@@ -329,82 +328,47 @@ async def list_cards(
     return {"items": result, "total": total}
 
 
-@router.get("/cards/aifory-unassigned", summary="Aifory cards not assigned to any local user")
-async def aifory_unassigned(db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
-    try:
-        aifory_cards = await aifory_client.get_cards("")
-    except Exception as exc:
-        raise HTTPException(502, f"Aifory error: {exc}")
-
-    assigned_ids_result = await db.execute(select(Card.aifory_card_id).where(Card.aifory_card_id.isnot(None)))
-    assigned_ids = {r[0] for r in assigned_ids_result.all()}
-
-    unassigned = []
-    for c in aifory_cards:
-        cid = str(c.get("cardID") or c.get("cardId") or c.get("id") or "")
-        if cid and cid not in assigned_ids:
-            unassigned.append({
-                "aifory_card_id": cid,
-                "last4": str(c.get("cardNumberLastDigits") or ""),
-                "category": c.get("category"),
-                "card_status": c.get("cardStatus"),
-                "expired_at": c.get("expiredAt"),
-                "currency_id": c.get("currencyID"),
-                "payment_system_id": c.get("paymentSystemID"),
-                "balance": float(c.get("balance") or 0),
-            })
-    return unassigned
+@router.get("/cards/unlinked", summary="Local card records with no external card ID")
+async def unlinked_cards(db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+    """Return cards that have no external (O-Plata) card ID linked."""
+    cards = (await db.execute(
+        select(Card).where(Card.aifory_card_id.is_(None))
+    )).scalars().all()
+    return [_card_dict(c) for c in cards]
 
 
 class CardAssignRequest(BaseModel):
     user_id: int
-    aifory_card_id: str
+    external_card_id: str
+    ravana_server_id: str = ""
+    holder_name: str = ""
+    last4: str = ""
+    currency: str = "USD"
+    balance: float = 0.0
 
 
-@router.post("/cards/assign", summary="Assign an Aifory card to a user")
+@router.post("/cards/assign", summary="Manually assign an external card to a user")
 async def assign_card(body: CardAssignRequest, db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
-    # Check user exists
     user = (await db.execute(select(User).where(User.id == body.user_id))).scalar_one_or_none()
     if not user:
         raise HTTPException(404, "User not found")
 
-    # Check not already assigned
     existing = (await db.execute(
-        select(Card).where(Card.aifory_card_id == body.aifory_card_id)
+        select(Card).where(Card.aifory_card_id == body.external_card_id)
     )).scalar_one_or_none()
     if existing:
-        raise HTTPException(400, f"Card already assigned to user {existing.user_id}")
-
-    # Fetch card details from Aifory
-    try:
-        aifory_cards = await aifory_client.get_cards("")
-    except Exception as exc:
-        raise HTTPException(502, f"Aifory error: {exc}")
-
-    raw = None
-    for c in aifory_cards:
-        cid = str(c.get("cardID") or c.get("cardId") or c.get("id") or "")
-        if cid == body.aifory_card_id:
-            raw = c
-            break
-    if not raw:
-        raise HTTPException(404, "Card not found in Aifory")
-
-    currency_id = raw.get("currencyID")
-    currency_str = "USD" if currency_id == 1010 else ("EUR" if currency_id == 1020 else str(currency_id or ""))
+        raise HTTPException(400, f"Card {body.external_card_id} already assigned to user {existing.user_id}")
 
     card = Card(
         user_id=body.user_id,
-        aifory_card_id=body.aifory_card_id,
-        category=raw.get("category"),
-        card_status=raw.get("cardStatus"),
-        expired_at=raw.get("expiredAt"),
-        last4=str(raw.get("cardNumberLastDigits") or ""),
-        currency=currency_str,
-        currency_id=currency_id,
-        payment_system_id=raw.get("paymentSystemID"),
-        balance=Decimal(str(raw.get("balance") or 0)),
-        status="active" if raw.get("cardStatus") == 2 else "inactive",
+        aifory_card_id=body.external_card_id,
+        offer_id=body.ravana_server_id or None,
+        holder_name=body.holder_name or None,
+        last4=body.last4 or None,
+        currency=body.currency or "USD",
+        balance=Decimal(str(body.balance)),
+        status="active",
+        card_status=2,
     )
     db.add(card)
     await db.flush()
@@ -443,15 +407,24 @@ async def delete_card(card_id: int, db: AsyncSession = Depends(get_db), _=Depend
     return {"ok": True}
 
 
-@router.get("/cards/{card_id}/transactions", summary="Card transactions from Aifory")
-async def card_transactions(card_id: int, db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+@router.get("/cards/{card_id}/transactions", summary="Card transactions from O-Plata")
+async def card_transactions(card_id: int, page: int = 0, page_size: int = 20, db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
     card = (await db.execute(select(Card).where(Card.id == card_id))).scalar_one_or_none()
     if not card or not card.aifory_card_id:
-        raise HTTPException(404, "Card not found or not linked to Aifory")
+        raise HTTPException(404, "Card not found or has no external card ID")
+    if not card.offer_id:
+        raise HTTPException(400, "Card has no ravanaServerId (offer_id) stored — cannot fetch transactions")
+    client_id = f"user_{card.user_id}"
     try:
-        return await aifory_client.get_card_transactions(card.aifory_card_id, limit=100, offset=0)
+        return await oplata_client.get_card_transaction_list(
+            client_id=client_id,
+            card_id=card.aifory_card_id,
+            ravana_server_id=card.offer_id,
+            page_number=page,
+            page_size=page_size,
+        )
     except Exception as exc:
-        raise HTTPException(502, f"Aifory error: {exc}")
+        raise HTTPException(502, f"O-Plata error: {exc}")
 
 
 # =====================  ORDERS  =====================
@@ -645,25 +618,116 @@ async def delete_faq(faq_id: int, db: AsyncSession = Depends(get_db), _=Depends(
     return {"ok": True}
 
 
-@router.post("/oplata/register-client", summary="Register test client in O-Plata and return wallet id")
+@router.post("/oplata/register-client", summary="Register client in O-Plata and return wallet id")
 async def oplata_register_client(body: OPlataRegisterClientRequest, _=Depends(get_admin)):
     cid = (body.client_id or "").strip()
     if not cid:
         raise HTTPException(400, "client_id is required")
-
     try:
         data = await oplata_client.register_client(cid)
     except ValueError as exc:
         raise HTTPException(500, str(exc))
     except Exception as exc:
         raise HTTPException(502, f"O-Plata error: {exc}")
-
     return {
         "clientId": data.get("clientId") if isinstance(data, dict) else cid,
         "clientWalletId": data.get("clientWalletId") if isinstance(data, dict) else None,
         "productId": data.get("productId") if isinstance(data, dict) else None,
         "raw": data,
     }
+
+
+@router.get("/oplata/card-types", summary="List available virtual card types from O-Plata")
+async def oplata_card_types(client_id: str = "", _=Depends(get_admin)):
+    cid = client_id.strip() or settings.OPLATA_TEST_CLIENT_ID or "Developer"
+    try:
+        providers = await oplata_client.get_virtual_card_list(cid)
+    except Exception as exc:
+        raise HTTPException(502, f"O-Plata error: {exc}")
+    offers = []
+    for provider in providers:
+        ravana_id = provider.get("ravanaServerId") or ""
+        for ct in provider.get("cardTypesList") or []:
+            type_uuid = ct.get("uuid") or ""
+            offers.append({
+                "offer_id": f"{ravana_id}:{type_uuid}",
+                "ravana_server_id": ravana_id,
+                "type_uuid": type_uuid,
+                "name": ct.get("localizedName") or ct.get("paymentSystem"),
+                "payment_system": ct.get("paymentSystem"),
+                "currency": provider.get("cardCurrency"),
+            })
+    return {"providers": providers, "offers": offers}
+
+
+@router.get("/oplata/client-info", summary="Get O-Plata client info")
+async def oplata_client_info(client_id: str, _=Depends(get_admin)):
+    try:
+        return await oplata_client.get_client_info(client_id)
+    except Exception as exc:
+        raise HTTPException(502, f"O-Plata error: {exc}")
+
+
+@router.get("/oplata/client-balance", summary="Get all balances for an O-Plata client")
+async def oplata_client_balance(client_id: str, _=Depends(get_admin)):
+    try:
+        return await oplata_client.get_balance_all(client_id)
+    except Exception as exc:
+        raise HTTPException(502, f"O-Plata error: {exc}")
+
+
+@router.get("/oplata/client-cards", summary="Get virtual cards for an O-Plata client")
+async def oplata_client_cards(client_id: str, _=Depends(get_admin)):
+    try:
+        return await oplata_client.get_virtual_card_history(client_id, page_size=100)
+    except Exception as exc:
+        raise HTTPException(502, f"O-Plata error: {exc}")
+
+
+@router.post("/oplata/sync-user/{user_id}", summary="Sync O-Plata cards for a user into local DB")
+async def oplata_sync_user(user_id: int, db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+    from app.services.card_service import card_service
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if not user:
+        raise HTTPException(404, "User not found")
+    try:
+        cards = await card_service.sync_cards(db, user)
+        await db.commit()
+        return {"synced": len(cards), "cards": [_card_dict(c) for c in cards]}
+    except Exception as exc:
+        raise HTTPException(502, f"Sync error: {exc}")
+
+
+@router.get("/oplata/currencies", summary="List O-Plata currencies")
+async def oplata_currencies(crypto_only: Optional[bool] = None, _=Depends(get_admin)):
+    try:
+        return await oplata_client.get_currencies(is_crypto_currency=crypto_only)
+    except Exception as exc:
+        raise HTTPException(502, f"O-Plata error: {exc}")
+
+
+@router.get("/oplata/transports", summary="List O-Plata deposit/withdrawal transports")
+async def oplata_transports(currency_code: str = "", crypto_only: Optional[bool] = None, _=Depends(get_admin)):
+    try:
+        return await oplata_client.get_transports(
+            currency_code=currency_code or None,
+            is_crypto_currency=crypto_only,
+        )
+    except Exception as exc:
+        raise HTTPException(502, f"O-Plata error: {exc}")
+
+
+@router.get("/oplata/client-transactions", summary="Get O-Plata transaction list for a client")
+async def oplata_client_transactions(
+    client_id: str,
+    page: int = 0,
+    page_size: int = 20,
+    _=Depends(get_admin),
+):
+    try:
+        return await oplata_client.get_transaction_list(client_id, page_number=page, page_size=page_size)
+    except Exception as exc:
+        raise HTTPException(502, f"O-Plata error: {exc}")
 
 
 # =====================  SETTINGS  =====================

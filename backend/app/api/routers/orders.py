@@ -57,7 +57,7 @@ async def get_order(
 @router.post(
     "/{order_id}/sync",
     response_model=OrderStatusResponse,
-    summary="Pull latest order status from Aifory and update local record",
+    summary="Get latest local order status",
 )
 async def sync_order_status(
     order_id: int,

@@ -1,7 +1,7 @@
 import json
 import logging
 import os
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 import httpx
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -25,7 +25,6 @@ class OPlataClient:
             raise ValueError("OPLATA_PRODUCT_ID is not configured")
         if len(self._private_key_hex) != 64:
             raise ValueError("OPLATA_PRIVATE_KEY must be a 32-byte hex seed (64 hex chars)")
-
         try:
             seed = bytes.fromhex(self._private_key_hex)
         except ValueError as exc:
@@ -34,10 +33,8 @@ class OPlataClient:
         prefix = os.urandom(64)
         postfix = os.urandom(64)
         message = prefix + body_bytes + postfix
-
         private_key = Ed25519PrivateKey.from_private_bytes(seed)
         signature = private_key.sign(message)
-
         return {
             "NaClSignature_USER_ID": self._product_id,
             "NaClSignature_PREFIX": prefix.hex(),
@@ -59,8 +56,228 @@ class OPlataClient:
                 return {}
             return response.json()
 
+    # ====== CLIENT ======
+
     async def register_client(self, client_id: str) -> Dict[str, Any]:
+        """Register or get existing client. Idempotent."""
         return await self._post("/product/rest/client/register", {"clientId": client_id})
+
+    async def get_client_info(self, client_id: str) -> Dict[str, Any]:
+        return await self._post("/product/rest/client/info", {"clientId": client_id})
+
+    # ====== BALANCE ======
+
+    async def get_balance_all(self, client_id: str) -> Dict[str, Any]:
+        return await self._post("/product/rest/balance/all", {"clientId": client_id})
+
+    async def get_balance_currency(self, client_id: str, currency_code: str) -> Dict[str, Any]:
+        return await self._post("/product/rest/balance/currency", {"clientId": client_id, "currencyCode": currency_code})
+
+    # ====== VIRTUAL CARDS ======
+
+    async def get_virtual_card_list(self, client_id: str) -> List[Dict]:
+        """Returns providers with cardTypesList and cardsList."""
+        result = await self._post("/product/rest/card/virtual/list", {"clientId": client_id})
+        return result if isinstance(result, list) else []
+
+    async def get_virtual_card_history(
+        self, client_id: str, ravana_server_id: Optional[str] = None,
+        page_number: int = 0, page_size: int = 50,
+    ) -> Dict[str, Any]:
+        body: Dict[str, Any] = {"clientId": client_id, "pageNumber": page_number, "pageSize": page_size}
+        if ravana_server_id:
+            body["ravanaServerId"] = ravana_server_id
+        return await self._post("/product/rest/card/virtual/history", body)
+
+    async def issue_virtual_card(
+        self, client_id: str, name: str, ravana_server_id: str, type_uuid: str,
+    ) -> Dict[str, Any]:
+        return await self._post("/product/rest/card/virtual/issue", {
+            "clientId": client_id,
+            "name": name,
+            "ravanaServerId": ravana_server_id,
+            "typeUuid": type_uuid,
+        })
+
+    async def close_virtual_card(self, client_id: str, card_id: str, ravana_server_id: str) -> Dict[str, Any]:
+        return await self._post("/product/rest/card/virtual/close", {
+            "clientId": client_id, "cardId": card_id, "ravanaServerId": ravana_server_id,
+        })
+
+    async def get_card_funds_balance(self, client_id: str, card_id: str, ravana_server_id: str) -> Dict[str, Any]:
+        return await self._post("/product/rest/card/virtual/funds/balance", {
+            "clientId": client_id, "cardId": card_id, "ravanaServerId": ravana_server_id,
+        })
+
+    async def topup_card(
+        self, client_id: str, card_id: str, ravana_server_id: str, amount: float,
+    ) -> Dict[str, Any]:
+        return await self._post("/product/rest/card/virtual/funds/topup", {
+            "clientId": client_id, "cardId": card_id,
+            "ravanaServerId": ravana_server_id, "amount": amount,
+        })
+
+    async def cashout_card(
+        self, client_id: str, card_id: str, ravana_server_id: str, amount: float,
+    ) -> Any:
+        return await self._post("/product/rest/card/virtual/funds/cashout", {
+            "clientId": client_id, "cardId": card_id,
+            "ravanaServerId": ravana_server_id, "amount": amount,
+        })
+
+    async def get_card_secret(self, client_id: str, card_id: str, ravana_server_id: str) -> Dict[str, Any]:
+        return await self._post("/product/rest/card/virtual/secret", {
+            "clientId": client_id, "cardId": card_id, "ravanaServerId": ravana_server_id,
+        })
+
+    async def get_card_transaction_list(
+        self, client_id: str, card_id: str, ravana_server_id: str,
+        page_number: int = 0, page_size: int = 20,
+        period_start: Optional[int] = None, period_end: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        body: Dict[str, Any] = {
+            "clientId": client_id, "cardId": card_id,
+            "ravanaServerId": ravana_server_id,
+            "pageNumber": page_number, "pageSize": page_size,
+        }
+        if period_start is not None:
+            body["periodStart"] = period_start
+        if period_end is not None:
+            body["periodEnd"] = period_end
+        return await self._post("/product/rest/card/virtual/transaction/list", body)
+
+    async def validate_card_registration(self, client_id: str, ravana_server_id: str) -> Dict[str, Any]:
+        return await self._post("/product/rest/card/virtual/validate", {
+            "clientId": client_id, "ravanaServerId": ravana_server_id,
+        })
+
+    # ====== COMMON ======
+
+    async def get_currencies(self, is_crypto_currency: Optional[bool] = None) -> List[Dict]:
+        body: Dict[str, Any] = {}
+        if is_crypto_currency is not None:
+            body["isCryptoCurrency"] = is_crypto_currency
+        result = await self._post("/product/rest/common/currencies", body)
+        return result if isinstance(result, list) else []
+
+    async def get_currency(self, currency_code: str) -> Dict[str, Any]:
+        return await self._post("/product/rest/common/currency", {"currencyCode": currency_code})
+
+    async def get_transports(
+        self, currency_code: Optional[str] = None, is_crypto_currency: Optional[bool] = None,
+    ) -> List[Dict]:
+        body: Dict[str, Any] = {}
+        if currency_code:
+            body["currencyCode"] = currency_code
+        if is_crypto_currency is not None:
+            body["isCryptoCurrency"] = is_crypto_currency
+        result = await self._post("/product/rest/common/transports", body)
+        return result if isinstance(result, list) else []
+
+    async def get_limits(self, client_id: str, currency_code: str) -> Dict[str, Any]:
+        return await self._post("/product/rest/common/limits", {"clientId": client_id, "currencyCode": currency_code})
+
+    # ====== TRANSACTIONS ======
+
+    async def get_transaction_list(
+        self, client_id: str, page_number: int = 0, page_size: int = 20,
+        currencies: Optional[List[str]] = None, states: Optional[List[str]] = None,
+        period_start: Optional[int] = None, period_end: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        body: Dict[str, Any] = {"clientId": client_id, "pageNumber": page_number, "pageSize": page_size}
+        if currencies:
+            body["currencies"] = currencies
+        if states:
+            body["states"] = states
+        if period_start is not None:
+            body["periodStart"] = period_start
+        if period_end is not None:
+            body["periodEnd"] = period_end
+        return await self._post("/product/rest/transaction/list", body)
+
+    async def get_transaction_payment(self, client_id: str, uuid: str) -> Dict[str, Any]:
+        return await self._post("/product/rest/transaction/payment", {"clientId": client_id, "uuid": uuid})
+
+    # ====== DEPOSITS ======
+
+    async def get_deposit_transports(self, client_id: str, credit_amount: float, currency_code: str) -> List[Dict]:
+        result = await self._post("/product/rest/payment/deposit/transport", {
+            "clientId": client_id, "creditAmount": credit_amount, "currencyCode": currency_code,
+        })
+        return result if isinstance(result, list) else []
+
+    async def calculate_deposit(
+        self, client_id: str, transport_id: str, credit_amount: Optional[float] = None, debit_amount: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        body: Dict[str, Any] = {"clientId": client_id, "transportId": transport_id}
+        if credit_amount is not None:
+            body["creditAmount"] = credit_amount
+        if debit_amount is not None:
+            body["debitAmount"] = debit_amount
+        return await self._post("/product/rest/payment/deposit/calculate", body)
+
+    async def create_deposit(
+        self, client_id: str, transport_id: str, credit_amount: Optional[float] = None, debit_amount: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        body: Dict[str, Any] = {"clientId": client_id, "transportId": transport_id}
+        if credit_amount is not None:
+            body["creditAmount"] = credit_amount
+        if debit_amount is not None:
+            body["debitAmount"] = debit_amount
+        return await self._post("/product/rest/payment/deposit/create", body)
+
+    # ====== WITHDRAWALS ======
+
+    async def get_withdrawal_transports(self, client_id: str, currency_code: str, debit_amount: float) -> List[Dict]:
+        result = await self._post("/product/rest/payment/withdrawal/transport", {
+            "clientId": client_id, "currencyCode": currency_code, "debitAmount": debit_amount,
+        })
+        return result if isinstance(result, list) else []
+
+    async def calculate_withdrawal(
+        self, client_id: str, transport_id: str, debit_amount: Optional[float] = None, credit_amount: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        body: Dict[str, Any] = {"clientId": client_id, "transportId": transport_id}
+        if debit_amount is not None:
+            body["debitAmount"] = debit_amount
+        if credit_amount is not None:
+            body["creditAmount"] = credit_amount
+        return await self._post("/product/rest/payment/withdrawal/calculate", body)
+
+    async def create_withdrawal(
+        self, client_id: str, transport_id: str, wallet_id: str,
+        debit_amount: Optional[float] = None, credit_amount: Optional[float] = None,
+        wallet_tag: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        body: Dict[str, Any] = {"clientId": client_id, "transportId": transport_id, "walletId": wallet_id}
+        if debit_amount is not None:
+            body["debitAmount"] = debit_amount
+        if credit_amount is not None:
+            body["creditAmount"] = credit_amount
+        if wallet_tag:
+            body["walletTag"] = wallet_tag
+        return await self._post("/product/rest/payment/withdrawal/create", body)
+
+    # ====== RATIOS ======
+
+    async def get_rate(self, of_currency_code: str, for_currency_code: str) -> Dict[str, Any]:
+        return await self._post("/product/rest/ratio/rate", {
+            "ofCurrencyCode": of_currency_code, "forCurrencyCode": for_currency_code,
+        })
+
+    async def get_rates(self, of_currency_code: str) -> List[Dict]:
+        result = await self._post("/product/rest/ratio/rates", {"ofCurrencyCode": of_currency_code})
+        return result if isinstance(result, list) else []
+
+    # ====== TRANSFER ======
+
+    async def create_transfer(
+        self, client_id: str, currency_code: str, amount: float, wallet_id: str,
+    ) -> Dict[str, Any]:
+        return await self._post("/product/rest/payment/transfer/create", {
+            "clientId": client_id, "currencyCode": currency_code,
+            "amount": amount, "walletId": wallet_id,
+        })
 
 
 oplata_client = OPlataClient()
