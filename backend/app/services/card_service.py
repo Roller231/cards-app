@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import uuid
 from decimal import Decimal
@@ -110,11 +111,17 @@ class CardService:
             logger.warning("register_client for %s failed: %s", client_id, exc)
             wallet_id = ""
 
-        first_name = holder_first_name or "Test"
-        last_name = holder_last_name or "User"
+        # All KYC steps use a single consistent dataset matching partner/start defaults.
+        # Inconsistency between PERSON/COUNTRY/HOME and PARTNER causes
+        # InvalidObjectContentException on partner/start.
+        kyc_first_name = "Richard"
+        kyc_last_name = "Wright"
+        kyc_middle_name = "Ivanovich"
+        kyc_dob = "1990-11-30"
+        kyc_country = "RU"
+        _email = email or f"{client_id}@oplata.test"
 
         # Complete KYC email verification
-        _email = email or f"{client_id}@oplata.test"
         try:
             await oplata_client.kyc_verify_email(client_id, _email)
             logger.info("KYC email set for %s: %s", client_id, _email)
@@ -123,27 +130,66 @@ class CardService:
 
         # Complete basic KYC fields often required by card providers in test environment
         try:
-            await oplata_client.kyc_verify_person(client_id, first_name, last_name, "1990-01-01")
-            logger.info("KYC person set for %s: %s %s", client_id, first_name, last_name)
+            await oplata_client.kyc_verify_person(
+                client_id, kyc_first_name, kyc_last_name, kyc_dob, middle_name=kyc_middle_name,
+            )
+            logger.info("KYC person set for %s: %s %s", client_id, kyc_first_name, kyc_last_name)
         except Exception as exc:
             logger.warning("kyc_verify_person for %s failed: %s", client_id, exc)
         try:
-            await oplata_client.kyc_verify_country(client_id, "UK")
-            logger.info("KYC country set for %s: UK", client_id)
+            await oplata_client.kyc_verify_country(client_id, kyc_country)
+            logger.info("KYC country set for %s: %s", client_id, kyc_country)
         except Exception as exc:
             logger.warning("kyc_verify_country for %s failed: %s", client_id, exc)
         try:
             await oplata_client.kyc_verify_home(
                 client_id,
                 address="1806",
-                city="London",
-                country_code="UK",
-                state="London",
-                street="Baker Street",
+                city="Moscow",
+                country_code=kyc_country,
+                state="Moscow",
+                street="Tverskaya",
             )
             logger.info("KYC home set for %s", client_id)
         except Exception as exc:
             logger.warning("kyc_verify_home for %s failed: %s", client_id, exc)
+        # Wait for HOME_ADDRESS to reach COMPLETED before calling partner/start
+        # (partner/start is rejected if a prior KYC step is still UPDATING)
+        for _attempt in range(8):
+            try:
+                _kinfo = await oplata_client.kyc_info(client_id)
+                _home_states = [
+                    o.get("orderState") for o in _kinfo.get("orderResponses", [])
+                    if o.get("orderType") == "HOME_ADDRESS"
+                ]
+                if any(s == "UPDATING" for s in _home_states):
+                    logger.info("Waiting for HOME_ADDRESS UPDATING→COMPLETED for %s...", client_id)
+                    await asyncio.sleep(1.5)
+                else:
+                    break
+            except Exception:
+                break
+
+        try:
+            # Use client_id-derived unique document/phone to avoid cross-EON conflicts
+            _hash = abs(hash(client_id)) % 10000000000
+            _doc_number = str(_hash).zfill(10)
+            _phone = f"+7916{str(_hash % 1000000).zfill(7)}"
+            result = await oplata_client.kyc_verify_partner_start(
+                client_id,
+                first_name=kyc_first_name,
+                last_name=kyc_last_name,
+                middle_name=kyc_middle_name,
+                date_of_birth=kyc_dob,
+                country=kyc_country,
+                email=_email,
+                document_number=_doc_number,
+                phone_number=_phone,
+            )
+            logger.info("KYC partner/start for %s: %s", client_id, result)
+        except Exception as exc:
+            logger.warning("kyc_verify_partner_start for %s failed: %s", client_id, exc)
+
         try:
             kyc_info = await oplata_client.kyc_info(client_id)
             logger.info("O-Plata KYC info for %s: %s", client_id, kyc_info)

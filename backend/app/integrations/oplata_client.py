@@ -115,6 +115,45 @@ class OPlataClient:
             "street": street,
         })
 
+    async def kyc_verify_partner_start(
+        self,
+        client_id: str,
+        first_name: str = "Richard",
+        last_name: str = "Wright",
+        middle_name: str = "Ivanovich",
+        date_of_birth: str = "1990-11-30",
+        email: str = "",
+        phone_number: str = "+79163334455",
+        gender: str = "FEMALE",
+        document_number: str = "1000123123",
+        document_type: str = "CITIZEN_PASSPORT",
+        issue_date: str = "2015-12-30",
+        valid_until_date: str = "2030-12-30",
+        country: str = "RU",
+        pep: bool = False,
+    ) -> Any:
+        """Start partner KYC verification — completes IDENTIFICATION_DOCUMENT for card issuance.
+
+        Body matches O-Plata doc example exactly. CITIZEN_PASSPORT requires 10-digit Russian
+        passport number; middleName must not be null.
+        """
+        return await self._post("/product/rest/kyc/verify/partner/start", {
+            "clientId": client_id,
+            "firstName": first_name,
+            "lastName": last_name,
+            "middleName": middle_name,
+            "dateOfBirth": date_of_birth,
+            "email": email or f"{client_id}@oplata.test",
+            "phoneNumber": phone_number,
+            "gender": gender,
+            "number": document_number,
+            "type": document_type,
+            "issueDate": issue_date,
+            "validUntilDate": valid_until_date,
+            "country": country,
+            "pep": pep,
+        })
+
     async def set_identification_document(self, client_id: str, document_number: str) -> Any:
         """Best-effort submission of identification document for card issuance.
 
@@ -167,12 +206,6 @@ class OPlataClient:
         if last_exc:
             raise last_exc
         return {}
-
-    async def validate_card_registration(self, client_id: str, ravana_server_id: str) -> Dict[str, Any]:
-        """Check what is missing before card issuance. Returns status like EMAIL_ABSENT."""
-        return await self._post("/product/rest/card/virtual/validate", {
-            "clientId": client_id, "ravanaServerId": ravana_server_id,
-        })
 
     async def raw_post(self, path: str, body: Dict[str, Any]) -> Any:
         """Send a raw signed POST to any O-Plata path (for debugging)."""
@@ -260,6 +293,7 @@ class OPlataClient:
         return await self._post("/product/rest/card/virtual/transaction/list", body)
 
     async def validate_card_registration(self, client_id: str, ravana_server_id: str) -> Dict[str, Any]:
+        """Check what is missing before card issuance. Returns status like EMAIL_ABSENT."""
         return await self._post("/product/rest/card/virtual/validate", {
             "clientId": client_id, "ravanaServerId": ravana_server_id,
         })
