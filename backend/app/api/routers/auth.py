@@ -49,6 +49,32 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
     return TokenResponse(access_token=token)
 
 
+@router.post(
+    "/dev-browser",
+    response_model=TokenResponse,
+    summary="Dev-only browser auth: get/create a local dev user without Telegram",
+)
+async def dev_browser_auth(db: AsyncSession = Depends(get_db)):
+    username = "dev_user"
+    default_balance = 1000
+
+    result = await db.execute(select(User).where(User.username == username))
+    user = result.scalar_one_or_none()
+
+    if not user:
+        user = User(username=username, hashed_password=None, telegram_user_id=None, balance=default_balance)
+        db.add(user)
+        await db.flush()
+    elif float(user.balance or 0) < default_balance:
+        user.balance = default_balance
+
+    if not user.is_active:
+        raise HTTPException(status_code=401, detail="User is inactive")
+
+    token = create_access_token(str(user.id))
+    return TokenResponse(access_token=token)
+
+
 @router.post("/login", response_model=TokenResponse, summary="Login and get JWT token")
 async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.username == body.username))

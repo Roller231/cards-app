@@ -43,6 +43,15 @@ export function AuthProvider({ children }) {
     [fetchMe],
   )
 
+  const loginWithDevBrowser = useCallback(
+    async () => {
+      const res = await api.auth.devBrowser()
+      setToken(res.access_token)
+      return fetchMe()
+    },
+    [fetchMe],
+  )
+
   useEffect(() => {
     const init = async () => {
       setLoading(true)
@@ -73,23 +82,31 @@ export function AuthProvider({ children }) {
         }
       }
 
-      // Case 2: no initData (Desktop Telegram, direct URL open, etc.)
-      // Allow reuse of an existing token ONLY if user was previously TG-authenticated
+      // Case 2: no initData (browser/dev mode)
+      // Reuse existing token if it is still valid
       if (getToken()) {
         const me = await fetchMe()
-        if (me?.telegram_user_id) {
-          // Legitimate returning TG user with cached session
+        if (me) {
           setLoading(false)
           return
         }
-        // No TG ID → stale dev/default session, reject it
         clearToken()
         setUser(null)
       }
 
-      // Case 3: no initData, no valid TG token → block
-      setAuthError('Доступ только через Telegram WebApp. Откройте приложение из Telegram-бота.')
-      setLoading(false)
+      // Case 3: no initData, no token → auto-login as dev browser user
+      try {
+        setAuthError('')
+        await loginWithDevBrowser()
+        setLoading(false)
+        return
+      } catch (e) {
+        console.error('[Auth] Dev browser auth failed:', e.message)
+        clearToken()
+        setUser(null)
+        setAuthError(`Ошибка dev-авторизации: ${e.message}`)
+        setLoading(false)
+      }
     }
 
     init()

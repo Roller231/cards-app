@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import Button from '../components/ui/Button'
 import PageHeader from '../components/ui/PageHeader'
 
-function IssueCardPage({ onBack, initialCardType, onCardIssued, onCryptoPaymentInitiated, getCommissionForCardType }) {
+function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
   const { user, commissions } = useAuth()
   const [offers, setOffers] = useState([])
   const [offersLoading, setOffersLoading] = useState(true)
@@ -12,8 +12,6 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, onCryptoPaymentI
   const [amount, setAmount] = useState(0)
   const [amountInput, setAmountInput] = useState('')
   const [totalInput, setTotalInput] = useState('')
-  const [paymentMethod, setPaymentMethod] = useState('usdt')
-  const [network, setNetwork] = useState('TRC-20')
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const [showConfirmation, setShowConfirmation] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
@@ -82,26 +80,18 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, onCryptoPaymentI
   const cardValidityText = isOnlinePlusSelected
     ? (commissions?.online_plus_validity_text || '1 год')
     : (commissions?.online_validity_text || '1 год')
-  // Get fixed fee for selected card type
   const fixedFee = useMemo(() => {
-    if (!selectedCardType || !getCommissionForCardType) return 0
-    return getCommissionForCardType(selectedCardType, 'issue')  // Returns fixed USD amount
-  }, [selectedCardType, getCommissionForCardType])
-  const topupMarkupPercent = useMemo(() => {
-    if (!selectedCardType || !getCommissionForCardType) return 0
-    return getCommissionForCardType(selectedCardType, 'topup')
-  }, [selectedCardType, getCommissionForCardType])
-  const applyIssueTopupMarkup = !!commissions?.issue_apply_topup_markup
-  const issueTopupMarkupFee = amount > 0 && applyIssueTopupMarkup
-    ? round2((amount * topupMarkupPercent) / 100)
-    : 0
-  const commission = round2(fixedFee + issueTopupMarkupFee)
+    return Number(selectedCard?.issue_fee || 0)
+  }, [selectedCard])
+  const minimumCardBalance = Number(selectedCard?.minimum_card_balance || 0)
+  const availableBalance = Number(user?.balance || 0)
+  const commission = round2(fixedFee)
   const total = amount > 0 ? round2(amount + commission) : 0
   const hasAmount = amount > 0
   const amountText = amountInput || ''
   const selectedCardName = selectedCard?.name || ''
 
-  const canIssueCard = selectedCardType !== '' && amount >= 15
+  const canIssueCard = selectedCardType !== '' && amount >= minimumCardBalance && total > 0 && total <= availableBalance
 
   useEffect(() => {
     if (lastEditedRef.current !== 'amount') return
@@ -126,30 +116,31 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, onCryptoPaymentI
     if (!totalInput) { setAmount(0); setAmountInput(''); return }
     const parsedTotal = parseFloat(totalInput) || 0
     if (!parsedTotal || parsedTotal <= 0) { setAmount(0); setAmountInput(''); return }
-    const divisor = applyIssueTopupMarkup ? (1 + topupMarkupPercent / 100) : 1
-    const nextAmount = (parsedTotal - fixedFee) / divisor
+    const nextAmount = parsedTotal - fixedFee
     const safeAmount = nextAmount > 0 ? round2(nextAmount) : 0
     setAmount(safeAmount)
     setAmountInput(String(safeAmount))
-  }, [applyIssueTopupMarkup, fixedFee, topupMarkupPercent, totalInput]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fixedFee, totalInput]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Initiate crypto payment for card issuance
-  const handleInitiateCrypto = async () => {
+  const handleIssueCard = async () => {
     setIsLoading(true)
     setErrorMsg('')
     try {
-      const paymentData = await api.cryptoPayments.initiate(
-        String(selectedCardType),
+      const usernameParts = String(user?.username || '').trim().split(/\s+/).filter(Boolean)
+      const holderFirstName = usernameParts[0] || 'Test'
+      const holderLastName = usernameParts.slice(1).join(' ') || 'User'
+      await api.cards.issue({
+        offerId: String(selectedCardType),
+        holderFirstName,
+        holderLastName,
         amount,
-        network,
-      )
+        email: user?.email,
+      })
       setIsLoading(false)
-      if (onCryptoPaymentInitiated) {
-        onCryptoPaymentInitiated(paymentData)
-      }
+      setResultScreen('success')
     } catch (e) {
       setIsLoading(false)
-      setErrorMsg(e.message || 'Ошибка при создании платежа')
+      setErrorMsg(e.message || 'Ошибка при выпуске карты')
       setResultScreen('failure')
     }
   }
@@ -340,20 +331,19 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, onCryptoPaymentI
 </div>
         </div>
 
-        {hasAmount && amount < 15 && (
+        {selectedCard && (
           <div
             style={{
-              backgroundColor: '#FFFBEB',
+              backgroundColor: '#FFFFFF',
               borderRadius: 12,
               padding: '12px 16px',
-              border: '1px solid #FDE68A',
-              color: '#92400E',
+              color: '#111827',
               fontSize: 13,
               fontWeight: 600,
               fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
             }}
           >
-            Минимальная сумма пополнения 15 $
+            Минимальный баланс карты: {minimumCardBalance.toLocaleString('en-US', { maximumFractionDigits: 2 })} $ · Баланс аккаунта: {availableBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $
           </div>
         )}
 
@@ -435,112 +425,23 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, onCryptoPaymentI
               marginBottom: 12,
             }}
           >
-            Способ пополнения
+            Источник списания
           </label>
 
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              onClick={() => setPaymentMethod('usdt')}
-              className="transition-transform duration-150 active:scale-95"
-              style={{
-                backgroundColor: 'white',
-                border: paymentMethod === 'usdt' ? '2px solid #111827' : '2px solid transparent',
-                borderRadius: 12,
-                padding: '20px 16px',
-                cursor: 'pointer',
-              }}
-            >
-              <div className="flex flex-col items-center gap-2">
-                <div
-                  style={{
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-                    backgroundColor: '#F3F5F8',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <img
-                    src="/images/TRC.png"
-                    alt="TRC"
-                    style={{
-                      width: 32,
-                      height: 32,
-                      objectFit: 'contain',
-                    }}
-                  />
-                </div>
-                <span
-                  style={{
-                    fontSize: 15,
-                    fontWeight: 600,
-                    color: '#111827',
-                    fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-                  }}
-                >
-                USDT
-                </span>
-              </div>
-            </button>
-
-            <button
-              disabled
-              style={{
-                backgroundColor: 'white',
-                border: '2px solid transparent',
-                borderRadius: 12,
-                padding: '20px 16px',
-                cursor: 'not-allowed',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 8,
-                opacity: 0.45,
-                pointerEvents: 'none',
-              }}
-            >
-              <div style={{
-                width: 50, height: 50, borderRadius: 25,
-                backgroundColor: '#F3F5F8',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                <img src="/images/sbp.png" alt="СБП" style={{ width: 38, height: 38, objectFit: 'contain' }} />
-              </div>
-              <span style={{
-                fontSize: 15, fontWeight: 600, color: '#111827',
-                fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-              }}>СБП</span>
-              <span style={{ fontSize: 11, fontWeight: 500, color: '#9CA3AF', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif', marginTop: -4 }}>Скоро</span>
-            </button>
+          <div
+            style={{
+              backgroundColor: 'white',
+              borderRadius: 12,
+              padding: '16px',
+              fontSize: 15,
+              fontWeight: 600,
+              color: '#111827',
+              fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+            }}
+          >
+            С баланса аккаунта
           </div>
         </div>
-
-        {/* Network selector (shown only for USDT) */}
-        {paymentMethod === 'usdt' && (
-          <div style={{ display: 'flex', gap: 8 }}>
-            {['TRC-20', 'ERC-20'].map((net) => (
-              <button
-                key={net}
-                onClick={() => setNetwork(net)}
-                className="transition-transform duration-150 active:scale-[0.97]"
-                style={{
-                  flex: 1, padding: '10px 0',
-                  backgroundColor: network === net ? '#111827' : 'white',
-                  color: network === net ? 'white' : '#6B7280',
-                  border: 'none', borderRadius: 10,
-                  fontSize: 13, fontWeight: 600,
-                  fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-                  cursor: 'pointer',
-                  transition: 'background-color 0.15s, color 0.15s',
-                }}
-              >
-                {net}
-              </button>
-            ))}
-          </div>
-        )}
 
         {/* Issue Button */}
         <Button
@@ -738,7 +639,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, onCryptoPaymentI
                       marginBottom: 4,
                     }}
                   >
-                    Способ пополнения
+                    Источник списания
                   </div>
                   <div
                     style={{
@@ -748,7 +649,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, onCryptoPaymentI
                       fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
                     }}
                   >
-                    {paymentMethod === 'usdt' ? 'USDT' : 'СБП'}
+                    Баланс аккаунта
                   </div>
                 </div>
               </div>
@@ -758,7 +659,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, onCryptoPaymentI
               <Button
                 onClick={() => {
                   setShowConfirmation(false)
-                  handleInitiateCrypto()
+                  handleIssueCard()
                 }}
                 fullWidth
                 style={{ marginTop: 24 }}
@@ -818,7 +719,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, onCryptoPaymentI
               fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
             }}
           >
-            Создаём платёж...
+            Выпускаем карту...
           </div>
         </div>
       )}

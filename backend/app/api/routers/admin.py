@@ -698,6 +698,95 @@ async def oplata_sync_user(user_id: int, db: AsyncSession = Depends(get_db), _=D
         raise HTTPException(502, f"Sync error: {exc}")
 
 
+@router.get("/oplata/client-kyc", summary="Get KYC verification status for an O-Plata client")
+async def oplata_get_kyc(client_id: str, _=Depends(get_admin)):
+    try:
+        return await oplata_client.kyc_info(client_id)
+    except Exception as exc:
+        raise HTTPException(502, f"O-Plata error: {exc}")
+
+
+@router.get("/oplata/client-validate", summary="Check what is missing before card issuance (EMAIL_ABSENT etc)")
+async def oplata_validate_card(client_id: str, ravana_server_id: str, _=Depends(get_admin)):
+    try:
+        return await oplata_client.validate_card_registration(client_id, ravana_server_id)
+    except Exception as exc:
+        raise HTTPException(502, f"O-Plata error: {exc}")
+
+
+class OPlataKYCEmailRequest(BaseModel):
+    client_id: str
+    email: str
+
+
+@router.post("/oplata/kyc-email", summary="Complete KYC email verification for a client (sets EMAIL MDM data)")
+async def oplata_kyc_email(body: OPlataKYCEmailRequest, _=Depends(get_admin)):
+    try:
+        return await oplata_client.kyc_verify_email(body.client_id, body.email)
+    except Exception as exc:
+        raise HTTPException(502, f"O-Plata error: {exc}")
+
+
+class OPlataKYCPersonRequest(BaseModel):
+    client_id: str
+    first_name: str
+    last_name: str
+    date_of_birth: str
+    middle_name: Optional[str] = None
+
+
+@router.post("/oplata/kyc-person", summary="Complete KYC person verification for a client")
+async def oplata_kyc_person(body: OPlataKYCPersonRequest, _=Depends(get_admin)):
+    """date_of_birth format: YYYY-MM-DD (e.g. 1990-11-30)"""
+    try:
+        return await oplata_client.kyc_verify_person(
+            body.client_id, body.first_name, body.last_name, body.date_of_birth, body.middle_name
+        )
+    except Exception as exc:
+        raise HTTPException(502, f"O-Plata error: {exc}")
+
+
+class OPlataMDMBatchEntry(BaseModel):
+    type: str
+    value: str
+    extra: Optional[Dict[str, Any]] = None
+
+
+class OPlataMDMBatchRequest(BaseModel):
+    client_id: str
+    entries: List[OPlataMDMBatchEntry]
+
+
+class OPlataRawRequest(BaseModel):
+    path: str
+    body: Dict[str, Any]
+
+
+@router.post("/oplata/raw-post", summary="[DEBUG] Raw signed POST to any O-Plata path — for endpoint discovery")
+async def oplata_raw_post(body: OPlataRawRequest, _=Depends(get_admin)):
+    """
+    Use this to discover correct MDM endpoint. Example paths to try:
+    - /product/rest/client/mdm/set
+    - /product/rest/client/mdm
+    - /product/rest/client/kyc/set
+    - /product/rest/client/personal/set
+    - /product/rest/client/update
+    """
+    try:
+        return await oplata_client.raw_post(body.path, body.body)
+    except Exception as exc:
+        raise HTTPException(502, f"O-Plata error: {exc}")
+
+
+@router.post("/oplata/set-client-mdm-batch", summary="Set multiple MDM fields for an O-Plata client at once")
+async def oplata_set_mdm_batch(body: OPlataMDMBatchRequest, _=Depends(get_admin)):
+    entries = [{"type": e.type, "value": e.value, **(e.extra or {})} for e in body.entries]
+    try:
+        return await oplata_client.set_client_mdm_batch(body.client_id, entries)
+    except Exception as exc:
+        raise HTTPException(502, f"O-Plata error: {exc}")
+
+
 @router.get("/oplata/currencies", summary="List O-Plata currencies")
 async def oplata_currencies(crypto_only: Optional[bool] = None, _=Depends(get_admin)):
     try:

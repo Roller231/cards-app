@@ -37,6 +37,8 @@ async def issue_card(
         result = await card_service.issue_card(
             db, current_user, body.offer_id, body.holder_first_name, body.holder_last_name,
             amount=body.amount,
+            email=body.email,
+            document_number=body.document_number,
         )
         return IssueCardResponse(**result)
     except ValueError as exc:

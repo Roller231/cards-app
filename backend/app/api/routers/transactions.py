@@ -53,16 +53,16 @@ async def get_card_transactions(
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
-    raw_txns = response.get("content") or (response if isinstance(response, list) else [])
+    raw_txns = response.get("data") or response.get("content") or (response if isinstance(response, list) else [])
     transactions = [
         TransactionItem(
-            transaction_id=str(t.get("uuid") or t.get("id") or ""),
-            date=str(t.get("date") or t.get("createdAt") or ""),
-            amount=float(t.get("amount") or t.get("amountNormalized") or 0),
+            transaction_id=str(t.get("id") or t.get("uuid") or ""),
+            date=str(t.get("transactionAt") or t.get("createdAt") or ""),
+            amount=float(t.get("amount") or 0),
             currency=str(t.get("currency") or "USD"),
-            merchant=str(t.get("description") or t.get("merchant") or ""),
-            status=str(t.get("state") or t.get("status") or ""),
-            description=str(t.get("description") or ""),
+            merchant=str(t.get("merchantName") or t.get("description") or ""),
+            status=str(t.get("status") or ""),
+            description=str(t.get("merchantName") or t.get("description") or ""),
         )
         for t in raw_txns
     ]

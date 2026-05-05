@@ -34,6 +34,7 @@ class CardOfferItem(BaseModel):
     currency: Optional[str] = None
     payment_system: Optional[str] = None
     issue_fee: Optional[float] = None
+    minimum_card_balance: Optional[float] = None
     monthly_fee: Optional[float] = None
     ravana_server_id: Optional[str] = None
     type_uuid: Optional[str] = None
@@ -45,6 +46,8 @@ class IssueCardRequest(BaseModel):
     holder_first_name: str
     holder_last_name: str
     amount: Optional[float] = None
+    email: Optional[str] = None
+    document_number: Optional[str] = None
 
 
 class IssueCardResponse(BaseModel):

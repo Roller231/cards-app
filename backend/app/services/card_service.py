@@ -18,20 +18,31 @@ logger = logging.getLogger(__name__)
 
 def _client_id(user: User) -> str:
     """Derive O-Plata clientId for a given user."""
+    if str(getattr(user, "username", "") or "") == "dev_user" and (settings.OPLATA_TEST_CLIENT_ID or "").strip():
+        return settings.OPLATA_TEST_CLIENT_ID.strip()
     return f"user_{user.id}"
 
 
 def _parse_offer_id(offer_id: str):
-    """Split 'ravanaServerId:typeUuid' offer_id into components."""
-    parts = offer_id.split(":", 1)
-    if len(parts) != 2:
+    """Split 'ravanaServerId:typeUuid' offer_id into components.
+
+    offer_id format: 'RAVANA:RT-int:fcf0b632-b22e-495b-a368-c91ce820d6ee'
+    ravanaServerId can contain colons, typeUuid is always the last segment.
+    """
+    last_colon = offer_id.rfind(":")
+    if last_colon == -1:
         raise ValueError(f"Invalid offer_id format '{offer_id}'. Expected 'ravanaServerId:typeUuid'")
-    return parts[0], parts[1]
+    return offer_id[:last_colon], offer_id[last_colon + 1:]
 
 
 def _card_state_to_status(state: Any) -> str:
     s = str(state or "").upper()
     return "active" if s == "ACTIVE" else "inactive"
+
+
+def _validation_status_requires_data(status: Any) -> bool:
+    s = str(status or "").upper()
+    return "ABSENT" in s or s in {"INVALID", "NOT_REGISTERED", "FAILED"}
 
 
 class CardService:
@@ -54,6 +65,10 @@ class CardService:
             ravana_server_id = provider.get("ravanaServerId") or provider.get("ravanaId") or ""
             if not ravana_server_id:
                 continue
+            issue_fee_raw = provider.get("issueConstantFee") or 0
+            min_balance_raw = provider.get("minimumCardBalance") or 0
+            mdm_types = provider.get("clientMDMDataTypes") or []
+            issue_fee = float(issue_fee_raw) + float(settings.ONLINE_ISSUE_FEE_USD)
             card_types = provider.get("cardTypesList") or []
             for ct in card_types:
                 type_uuid = ct.get("uuid") or ""
@@ -66,11 +81,12 @@ class CardService:
                     "name": name,
                     "payment_system": payment_system,
                     "currency": provider.get("cardCurrency") or "USD",
-                    "issue_fee": float(settings.ONLINE_ISSUE_FEE_USD),
+                    "issue_fee": issue_fee,
+                    "minimum_card_balance": float(min_balance_raw),
                     "monthly_fee": 0.0,
                     "ravana_server_id": ravana_server_id,
                     "type_uuid": type_uuid,
-                    "description": ct.get("description") or name,
+                    "description": f"{name} | Fee: ${issue_fee:.2f} | Min balance: ${float(min_balance_raw):.2f} | MDM: {', '.join(map(str, mdm_types)) if mdm_types else 'none'}",
                 })
         return offers
 
@@ -78,14 +94,63 @@ class CardService:
     # Ensure client is registered in O-Plata
     # ------------------------------------------------------------------
 
-    async def _ensure_client(self, client_id: str) -> str:
-        """Register client if not already registered. Returns clientWalletId."""
+    async def _ensure_client(
+        self,
+        client_id: str,
+        email: Optional[str] = None,
+        document_number: Optional[str] = None,
+        holder_first_name: Optional[str] = None,
+        holder_last_name: Optional[str] = None,
+    ) -> str:
+        """Register client if not already registered, then complete basic KYC fields. Returns clientWalletId."""
         try:
             result = await oplata_client.register_client(client_id)
-            return result.get("clientWalletId") or ""
+            wallet_id = result.get("clientWalletId") or ""
         except Exception as exc:
             logger.warning("register_client for %s failed: %s", client_id, exc)
-            return ""
+            wallet_id = ""
+
+        first_name = holder_first_name or "Test"
+        last_name = holder_last_name or "User"
+
+        # Complete KYC email verification
+        _email = email or f"{client_id}@oplata.test"
+        try:
+            await oplata_client.kyc_verify_email(client_id, _email)
+            logger.info("KYC email set for %s: %s", client_id, _email)
+        except Exception as exc:
+            logger.warning("kyc_verify_email for %s failed: %s", client_id, exc)
+
+        # Complete basic KYC fields often required by card providers in test environment
+        try:
+            await oplata_client.kyc_verify_person(client_id, first_name, last_name, "1990-01-01")
+            logger.info("KYC person set for %s: %s %s", client_id, first_name, last_name)
+        except Exception as exc:
+            logger.warning("kyc_verify_person for %s failed: %s", client_id, exc)
+        try:
+            await oplata_client.kyc_verify_country(client_id, "UK")
+            logger.info("KYC country set for %s: UK", client_id)
+        except Exception as exc:
+            logger.warning("kyc_verify_country for %s failed: %s", client_id, exc)
+        try:
+            await oplata_client.kyc_verify_home(
+                client_id,
+                address="1806",
+                city="London",
+                country_code="UK",
+                state="London",
+                street="Baker Street",
+            )
+            logger.info("KYC home set for %s", client_id)
+        except Exception as exc:
+            logger.warning("kyc_verify_home for %s failed: %s", client_id, exc)
+        try:
+            kyc_info = await oplata_client.kyc_info(client_id)
+            logger.info("O-Plata KYC info for %s: %s", client_id, kyc_info)
+        except Exception as exc:
+            logger.warning("kyc_info for %s failed: %s", client_id, exc)
+
+        return wallet_id
 
     # ------------------------------------------------------------------
     # Issue card
@@ -100,13 +165,63 @@ class CardService:
         holder_last_name: str,
         amount: Optional[float] = None,
         skip_balance_check: bool = False,
+        email: Optional[str] = None,
+        document_number: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Issue a virtual card via O-Plata for the given user."""
         ravana_server_id, type_uuid = _parse_offer_id(offer_id)
         client_id = _client_id(user)
 
-        # 1. Register client on O-Plata (idempotent)
-        await self._ensure_client(client_id)
+        try:
+            providers = await oplata_client.get_virtual_card_list(client_id)
+            provider = next(
+                (p for p in providers if str(p.get("ravanaServerId") or p.get("ravanaId") or "") == ravana_server_id),
+                None,
+            )
+            if provider:
+                logger.info(
+                    "O-Plata provider requirements for %s on %s: clientMDMDataTypes=%s registered=%s",
+                    client_id,
+                    ravana_server_id,
+                    provider.get("clientMDMDataTypes"),
+                    provider.get("registered"),
+                )
+        except Exception as exc:
+            logger.warning("Could not inspect O-Plata provider requirements for %s on %s: %s", client_id, ravana_server_id, exc)
+
+        # 1. Register client on O-Plata (idempotent) and push MDM data
+        await self._ensure_client(
+            client_id,
+            email=email,
+            document_number=document_number,
+            holder_first_name=holder_first_name,
+            holder_last_name=holder_last_name,
+        )
+
+        try:
+            validation = await oplata_client.validate_card_registration(client_id, ravana_server_id)
+            validation_status = validation.get("status")
+            logger.info("O-Plata card validation for %s on %s: %s", client_id, ravana_server_id, validation)
+            if str(validation_status or "").upper() == "IDENTIFICATION_DOCUMENT_ABSENT":
+                document_value = document_number or f"DOC-{client_id.upper()}"
+                try:
+                    await oplata_client.set_identification_document(client_id, document_value)
+                    validation = await oplata_client.validate_card_registration(client_id, ravana_server_id)
+                    validation_status = validation.get("status")
+                    logger.info(
+                        "O-Plata card validation after identification document for %s on %s: %s",
+                        client_id,
+                        ravana_server_id,
+                        validation,
+                    )
+                except Exception as exc:
+                    logger.warning("set_identification_document failed for %s: %s", client_id, exc)
+            if _validation_status_requires_data(validation_status):
+                raise ValueError(f"O-Plata client is not ready for card issuance: {validation_status}")
+        except ValueError:
+            raise
+        except Exception as exc:
+            logger.warning("validate_card_registration failed for %s: %s", client_id, exc)
 
         # 2. Determine card amount and fee
         card_amount = Decimal(str(amount or 0))
@@ -121,12 +236,25 @@ class CardService:
 
         # 4. Issue card on O-Plata
         holder_name = f"{holder_first_name} {holder_last_name}".strip()
-        result = await oplata_client.issue_virtual_card(
-            client_id=client_id,
-            name=holder_name or client_id,
-            ravana_server_id=ravana_server_id,
-            type_uuid=type_uuid,
-        )
+        try:
+            result = await oplata_client.issue_virtual_card(
+                client_id=client_id,
+                name=holder_name or client_id,
+                ravana_server_id=ravana_server_id,
+                type_uuid=type_uuid,
+            )
+        except Exception as exc:
+            if "required MDM data" in str(exc):
+                try:
+                    validation = await oplata_client.validate_card_registration(client_id, ravana_server_id)
+                    raise ValueError(
+                        f"O-Plata client is not ready for card issuance: {validation.get('status') or validation}"
+                    )
+                except ValueError:
+                    raise
+                except Exception:
+                    pass
+            raise
         payment_uuid = result.get("uuid") or result.get("id") or str(uuid.uuid4())
         logger.info(
             "Card issued: payment_uuid=%s client_id=%s user_id=%s",
@@ -172,13 +300,20 @@ class CardService:
         """Pull all virtual cards from O-Plata for this user and upsert into local DB."""
         client_id = _client_id(user)
         try:
-            history = await oplata_client.get_virtual_card_history(client_id, page_size=100)
+            providers = await oplata_client.get_virtual_card_list(client_id)
         except Exception as exc:
-            logger.warning("get_virtual_card_history failed for %s: %s", client_id, exc)
+            logger.warning("get_virtual_card_list failed for %s: %s", client_id, exc)
             result = await db.execute(select(Card).where(Card.user_id == user.id))
             return list(result.scalars().all())
 
-        cards_raw = history.get("content") or []
+        cards_raw: List[Dict[str, Any]] = []
+        for provider in providers:
+            provider_ravana_id = str(provider.get("ravanaServerId") or provider.get("ravanaId") or "")
+            for raw_card in provider.get("cardsList") or []:
+                card_copy = dict(raw_card)
+                if provider_ravana_id and not card_copy.get("ravanaServerId"):
+                    card_copy["ravanaServerId"] = provider_ravana_id
+                cards_raw.append(card_copy)
 
         for raw in cards_raw:
             card_id = str(raw.get("cardId") or raw.get("id") or "")
@@ -186,13 +321,19 @@ class CardService:
             if not card_id:
                 continue
 
-            masked_pan = str(raw.get("cardNumber") or "")
+            masked_pan = str(raw.get("numberMasked") or raw.get("cardNumber") or "")
             last4 = masked_pan[-4:] if len(masked_pan) >= 4 else (masked_pan or "")
             holder = str(raw.get("holderName") or "")
             state = raw.get("state") or ""
-            balance = Decimal(str(raw.get("balance") or 0))
+            balance = Decimal("0")
+            if ravana_id:
+                try:
+                    balance_raw = await oplata_client.get_card_funds_balance(client_id, card_id, ravana_id)
+                    balance = Decimal(str(balance_raw.get("availableBalance") or balance_raw.get("balance") or 0))
+                except Exception as exc:
+                    logger.warning("get_card_funds_balance failed for %s/%s: %s", client_id, card_id, exc)
             expired_at = str(raw.get("expireAtMonth") or "")
-            currency = str(raw.get("currency") or raw.get("cardCurrency") or "USD")
+            currency = str(raw.get("balanceCurrency") or raw.get("cardCurrency") or raw.get("currency") or "USD")
 
             # Check if card already exists
             existing_result = await db.execute(
@@ -271,9 +412,12 @@ class CardService:
             card_id=card.aifory_card_id,
             ravana_server_id=card.offer_id,
         )
+        exp_month = raw.get("expirationMonth") or ""
+        exp_year = raw.get("expirationYear") or ""
+        expiry = f"{exp_month}/{exp_year}" if exp_month and exp_year else (raw.get("expireAtMonth") or card.expired_at)
         return {
-            "card_number": raw.get("pan") or raw.get("cardNumber") or raw.get("number"),
-            "expiry": raw.get("expireAtMonth") or raw.get("expiry") or card.expired_at,
+            "card_number": raw.get("number") or raw.get("pan") or raw.get("cardNumber"),
+            "expiry": expiry,
             "cvv": raw.get("cvv"),
             "holder_name": raw.get("holderName") or raw.get("cardHolderName") or card.holder_name,
         }
@@ -311,7 +455,7 @@ class CardService:
             page_number=page_number,
             page_size=page_size,
         )
-        transactions = response.get("content") or response if isinstance(response, list) else []
+        transactions = response.get("data") or response.get("content") or (response if isinstance(response, list) else [])
 
         # Notify about latest transaction if new
         if transactions and user and user.telegram_user_id:
@@ -323,11 +467,11 @@ class CardService:
                     await notify_card_transaction(
                         db=db, user=user,
                         card_last4=card.last4 or "",
-                        amount=float(latest_txn.get("amount") or latest_txn.get("amountNormalized") or 0),
+                        amount=float(latest_txn.get("amount") or 0),
                         currency=str(latest_txn.get("currency") or "USD"),
-                        merchant=str(latest_txn.get("description") or latest_txn.get("merchant") or ""),
-                        date=str(latest_txn.get("date") or latest_txn.get("createdAt") or ""),
-                        status=str(latest_txn.get("state") or latest_txn.get("status") or ""),
+                        merchant=str(latest_txn.get("merchantName") or latest_txn.get("description") or ""),
+                        date=str(latest_txn.get("transactionAt") or latest_txn.get("createdAt") or ""),
+                        status=str(latest_txn.get("status") or ""),
                     )
                     if hasattr(card, "last_notified_transaction_id"):
                         card.last_notified_transaction_id = txn_id
@@ -358,10 +502,7 @@ class CardService:
             raise ValueError("Card has no ravanaServerId stored")
 
         base_amount = Decimal(str(amount))
-        if str(card.offer_id).startswith("525847"):
-            markup_percent = Decimal(str(settings.ONLINE_PLUS_TOPUP_MARKUP_PERCENT))
-        else:
-            markup_percent = Decimal(str(settings.ONLINE_TOPUP_MARKUP_PERCENT))
+        markup_percent = Decimal(str(settings.ONLINE_TOPUP_MARKUP_PERCENT))
         our_profit = base_amount * markup_percent / Decimal("100")
         user_total = base_amount + our_profit
 

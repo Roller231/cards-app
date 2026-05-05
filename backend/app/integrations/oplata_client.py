@@ -65,6 +65,119 @@ class OPlataClient:
     async def get_client_info(self, client_id: str) -> Dict[str, Any]:
         return await self._post("/product/rest/client/info", {"clientId": client_id})
 
+    # ====== KYC (client verification — required before card issuance) ======
+
+    async def kyc_info(self, client_id: str) -> Dict[str, Any]:
+        """Get current KYC verification status for a client."""
+        return await self._post("/product/rest/kyc/info", {"clientId": client_id})
+
+    async def kyc_verify_email(self, client_id: str, email: str) -> Any:
+        """Complete email KYC verification (sets EMAIL MDM data)."""
+        return await self._post("/product/rest/kyc/verify/email/complete", {
+            "clientId": client_id, "email": email,
+        })
+
+    async def kyc_verify_person(self, client_id: str, first_name: str, last_name: str,
+                                 date_of_birth: str, middle_name: Optional[str] = None) -> Any:
+        """Complete person KYC verification."""
+        body: Dict[str, Any] = {
+            "clientId": client_id,
+            "firstName": first_name,
+            "lastName": last_name,
+            "dateOfBirth": date_of_birth,
+        }
+        if middle_name:
+            body["middleName"] = middle_name
+        return await self._post("/product/rest/kyc/verify/person/complete", body)
+
+    async def kyc_verify_country(self, client_id: str, country_code: str) -> Any:
+        """Complete country KYC verification."""
+        return await self._post("/product/rest/kyc/verify/country/complete", {
+            "clientId": client_id, "countryCode": country_code,
+        })
+
+    async def kyc_verify_home(
+        self,
+        client_id: str,
+        address: str,
+        city: str,
+        country_code: str,
+        state: str,
+        street: str,
+    ) -> Any:
+        """Complete home address verification."""
+        return await self._post("/product/rest/kyc/verify/home/complete", {
+            "clientId": client_id,
+            "address": address,
+            "city": city,
+            "countryCode": country_code,
+            "state": state,
+            "street": street,
+        })
+
+    async def set_identification_document(self, client_id: str, document_number: str) -> Any:
+        """Best-effort submission of identification document for card issuance.
+
+        O-Plata test environments appear to differ in which endpoint/body shape they accept,
+        so we try several known/likely variants until one succeeds.
+        """
+        candidates = [
+            (
+                "/product/rest/client/mdm/set",
+                {"clientId": client_id, "type": "IDENTIFICATION_DOCUMENT", "value": document_number},
+            ),
+            (
+                "/product/rest/client/mdm",
+                {"clientId": client_id, "type": "IDENTIFICATION_DOCUMENT", "value": document_number},
+            ),
+            (
+                "/product/rest/client/mdm/set",
+                {
+                    "clientId": client_id,
+                    "type": "IDENTIFICATION_DOCUMENT",
+                    "value": document_number,
+                    "documentType": "PASSPORT",
+                },
+            ),
+            (
+                "/product/rest/client/update",
+                {"clientId": client_id, "documentNumber": document_number},
+            ),
+            (
+                "/product/rest/client/update",
+                {"clientId": client_id, "identificationDocument": document_number},
+            ),
+            (
+                "/product/rest/client/register",
+                {"clientId": client_id, "identificationDocument": document_number},
+            ),
+        ]
+
+        last_exc: Optional[Exception] = None
+        for path, body in candidates:
+            try:
+                result = await self._post(path, body)
+                logger.info("O-Plata identification document accepted via %s", path)
+                return result
+            except Exception as exc:
+                last_exc = exc
+                logger.warning("O-Plata identification document attempt failed via %s: %s", path, exc)
+                continue
+
+        if last_exc:
+            raise last_exc
+        return {}
+
+    async def validate_card_registration(self, client_id: str, ravana_server_id: str) -> Dict[str, Any]:
+        """Check what is missing before card issuance. Returns status like EMAIL_ABSENT."""
+        return await self._post("/product/rest/card/virtual/validate", {
+            "clientId": client_id, "ravanaServerId": ravana_server_id,
+        })
+
+    async def raw_post(self, path: str, body: Dict[str, Any]) -> Any:
+        """Send a raw signed POST to any O-Plata path (for debugging)."""
+        return await self._post(path, body)
+
     # ====== BALANCE ======
 
     async def get_balance_all(self, client_id: str) -> Dict[str, Any]:

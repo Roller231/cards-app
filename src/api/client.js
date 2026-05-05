@@ -44,6 +44,7 @@ export const api = {
   auth: {
     telegramWebApp: (initData) =>
       req('POST', '/auth/telegram-webapp', { init_data: initData }),
+    devBrowser: () => req('POST', '/auth/dev-browser'),
     me: () => req('GET', '/auth/me'),
     config: () => req('GET', '/auth/config'),
   },
@@ -64,12 +65,14 @@ export const api = {
   },
   cards: {
     offers: () => req('GET', '/cards/offers'),
-    issue: (offerId, holderFirstName, holderLastName, amount) =>
+    issue: ({ offerId, holderFirstName, holderLastName, amount, email, documentNumber }) =>
       req('POST', '/cards/issue', {
         offer_id: offerId,
         holder_first_name: holderFirstName,
         holder_last_name: holderLastName,
         amount,
+        email,
+        document_number: documentNumber,
       }),
     list: () => req('GET', '/cards'),
     requisites: (cardId) => req('GET', `/cards/${cardId}/requisites`),
