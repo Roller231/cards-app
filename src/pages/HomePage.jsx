@@ -183,7 +183,7 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
                               marginLeft: -3,
                             }}
                           >
-                            ***{card.last4}
+                            {card.last4 ? `***${card.last4}` : (card.status === 'creating' ? 'Creating' : 'Processing')}
                           </div>
 
                           <div

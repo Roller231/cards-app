@@ -226,6 +226,7 @@ async def _execute_payment(payment: CryptoPayment, db: AsyncSession) -> None:
                 holder_last_name="Holder",
                 amount=float(payment.amount_usd),
                 skip_balance_check=True,
+                eager_placeholder_commit=True,
             )
         payment.order_id = result.get("local_order_id")
         payment.status = "completed"

@@ -6,7 +6,7 @@ import Portal from './Portal'
 const TOPUP_PAYMENT_METHODS = [
   { id: 'sbp', label: 'СБП', iconSrc: '/images/sbp.png' },
   { id: 'trc20', label: 'USDT TRC-20', iconSrc: '/images/TRC.png' },
-  { id: 'erc20', label: 'USDT ERC-20' },
+  { id: 'erc20', label: 'USDT ERC-20', iconSrc: '/images/erc.png' },
 ]
 
 function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0, onCryptoPaymentInitiated }) {

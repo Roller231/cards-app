@@ -7,7 +7,7 @@ import PageHeader from '../components/ui/PageHeader'
 const PAYMENT_METHODS = [
   { id: 'sbp', label: 'СБП', iconSrc: '/images/sbp.png' },
   { id: 'trc20', label: 'USDT TRC-20', iconSrc: '/images/TRC.png' },
-  { id: 'erc20', label: 'USDT ERC-20' },
+  { id: 'erc20', label: 'USDT ERC-20', iconSrc: '/images/erc.png' },
 ]
 
 function IssueCardPage({ onBack, initialCardType, onCardIssued, onCryptoPaymentInitiated }) {
@@ -91,7 +91,6 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, onCryptoPaymentI
     return Number(selectedCard?.issue_fee || 0)
   }, [selectedCard])
   const minimumCardBalance = Number(selectedCard?.minimum_card_balance || 0)
-  const availableBalance = Number(user?.balance || 0)
   const commission = round2(fixedFee)
   const total = amount > 0 ? round2(amount + commission) : 0
   const hasAmount = amount > 0
@@ -359,7 +358,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, onCryptoPaymentI
               fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
             }}
           >
-            Минимальный баланс карты: {minimumCardBalance.toLocaleString('en-US', { maximumFractionDigits: 2 })} $ · Баланс аккаунта: {availableBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $
+            Минимум для данной карты: {minimumCardBalance.toLocaleString('en-US', { maximumFractionDigits: 2 })} $
           </div>
         )}
 

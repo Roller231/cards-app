@@ -5,6 +5,7 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 import httpx
+from sqlalchemy import or_
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -115,7 +116,7 @@ class CardService:
                 Card.user_id == user_id,
                 Card.aifory_card_id.is_(None),
                 Card.offer_id == ravana_id,
-                Card.status == "processing",
+                or_(Card.status == "processing", Card.status == "creating"),
             ).order_by(Card.id.desc())
         )
         placeholders = list(placeholder_result.scalars().all())
@@ -126,6 +127,39 @@ class CardService:
                 if str(placeholder.holder_name or "").strip() == holder_name:
                     return placeholder
         return placeholders[0]
+
+    async def _ensure_issue_placeholder_card(
+        self,
+        db: AsyncSession,
+        user: User,
+        ravana_id: str,
+        holder_name: str,
+        currency: str,
+    ) -> Card:
+        placeholder = await self._find_processing_placeholder_card(db, user.id, ravana_id, holder_name)
+        if placeholder:
+            placeholder.holder_name = holder_name or placeholder.holder_name
+            placeholder.currency = currency or placeholder.currency
+            placeholder.offer_id = ravana_id or placeholder.offer_id
+            placeholder.status = "creating"
+            placeholder.card_status = 1
+            return placeholder
+
+        placeholder = Card(
+            user_id=user.id,
+            aifory_card_id=None,
+            offer_id=ravana_id,
+            last4=None,
+            holder_name=holder_name,
+            currency=currency,
+            balance=Decimal("0"),
+            status="creating",
+            card_status=1,
+            expired_at=None,
+        )
+        db.add(placeholder)
+        await db.flush()
+        return placeholder
 
     async def _link_issue_order_to_card(
         self,
@@ -481,6 +515,7 @@ class CardService:
         skip_balance_check: bool = False,
         email: Optional[str] = None,
         document_number: Optional[str] = None,
+        eager_placeholder_commit: bool = False,
     ) -> Dict[str, Any]:
         """Issue a virtual card via O-Plata for the given user."""
         ravana_server_id, type_uuid = _parse_offer_id(offer_id)
@@ -617,6 +652,24 @@ class CardService:
         )
         db.add(order)
         await db.flush()
+
+        placeholder_card = await self._ensure_issue_placeholder_card(
+            db=db,
+            user=user,
+            ravana_id=ravana_server_id,
+            holder_name=holder_name,
+            currency=str(provider.get("cardCurrency") or "USD"),
+        )
+        order.card_id = placeholder_card.id
+        order.status = "processing"
+        if eager_placeholder_commit:
+            await db.commit()
+            logger.info(
+                "Committed creating card placeholder for user_id=%s order_id=%s local_card_id=%s",
+                user.id,
+                order.id,
+                placeholder_card.id,
+            )
 
         # 7. Follow issue payment lifecycle and wait for card materialization in O-Plata
         issue_payment = await self._follow_payment(client_id, payment_uuid, "issue")
