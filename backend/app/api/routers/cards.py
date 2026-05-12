@@ -39,6 +39,7 @@ async def issue_card(
             amount=body.amount,
             email=body.email,
             document_number=body.document_number,
+            skip_balance_check=(body.payment_method == "sbp"),
         )
         return IssueCardResponse(**result)
     except ValueError as exc:
@@ -121,7 +122,10 @@ async def deposit_card(
     current_user: User = Depends(get_current_user),
 ):
     try:
-        result = await card_service.deposit_card(db, current_user, card_id, body.amount)
+        result = await card_service.deposit_card(
+            db, current_user, card_id, body.amount,
+            skip_balance_check=(body.payment_method == "sbp"),
+        )
         return IssueCardResponse(**result, message="Card top-up order created")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

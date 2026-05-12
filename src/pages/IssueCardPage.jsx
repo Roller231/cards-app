@@ -4,7 +4,13 @@ import { useAuth } from '../context/AuthContext'
 import Button from '../components/ui/Button'
 import PageHeader from '../components/ui/PageHeader'
 
-function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
+const PAYMENT_METHODS = [
+  { id: 'sbp', label: 'СБП', iconSrc: '/images/sbp.png' },
+  { id: 'trc20', label: 'USDT TRC-20', iconSrc: '/images/TRC.png' },
+  { id: 'erc20', label: 'USDT ERC-20' },
+]
+
+function IssueCardPage({ onBack, initialCardType, onCardIssued, onCryptoPaymentInitiated }) {
   const { user, commissions } = useAuth()
   const [offers, setOffers] = useState([])
   const [offersLoading, setOffersLoading] = useState(true)
@@ -17,6 +23,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
   const [isLoading, setIsLoading] = useState(false)
   const [resultScreen, setResultScreen] = useState(null) // 'success' | 'failure'
   const [errorMsg, setErrorMsg] = useState('')
+  const [paymentMethod, setPaymentMethod] = useState('sbp')
   const amountInputRef = useRef(null)
   const totalInputRef = useRef(null)
   const lastEditedRef = useRef('amount')
@@ -91,7 +98,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
   const amountText = amountInput || ''
   const selectedCardName = selectedCard?.name || ''
 
-  const canIssueCard = selectedCardType !== '' && amount >= minimumCardBalance && total > 0 && total <= availableBalance
+  const canIssueCard = selectedCardType !== '' && amount >= minimumCardBalance && total > 0
 
   useEffect(() => {
     if (lastEditedRef.current !== 'amount') return
@@ -129,15 +136,24 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
       const usernameParts = String(user?.username || '').trim().split(/\s+/).filter(Boolean)
       const holderFirstName = usernameParts[0] || 'Test'
       const holderLastName = usernameParts.slice(1).join(' ') || 'User'
-      await api.cards.issue({
-        offerId: String(selectedCardType),
-        holderFirstName,
-        holderLastName,
-        amount,
-        email: user?.email,
-      })
-      setIsLoading(false)
-      setResultScreen('success')
+      if (paymentMethod === 'trc20' || paymentMethod === 'erc20') {
+        const network = paymentMethod === 'erc20' ? 'ERC-20' : 'TRC-20'
+        const result = await api.cryptoPayments.initiate(String(selectedCardType), amount, network)
+        setIsLoading(false)
+        setShowConfirmation(false)
+        onCryptoPaymentInitiated?.({ ...result, type: 'issue' })
+      } else {
+        await api.cards.issue({
+          offerId: String(selectedCardType),
+          holderFirstName,
+          holderLastName,
+          amount,
+          email: user?.email,
+          paymentMethod: 'sbp',
+        })
+        setIsLoading(false)
+        setResultScreen('success')
+      }
     } catch (e) {
       setIsLoading(false)
       setErrorMsg(e.message || 'Ошибка при выпуске карты')
@@ -425,22 +441,38 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
               marginBottom: 12,
             }}
           >
-            Источник списания
+            Способ оплаты
           </label>
-
-          <div
-            style={{
-              backgroundColor: 'white',
-              borderRadius: 12,
-              padding: '16px',
-              fontSize: 15,
-              fontWeight: 600,
-              color: '#111827',
-              fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-            }}
-          >
-            С баланса аккаунта
-          </div>
+          {PAYMENT_METHODS.map((method) => (
+            <div
+              key={method.id}
+              onClick={() => setPaymentMethod(method.id)}
+              style={{
+                backgroundColor: 'white',
+                borderRadius: 12,
+                padding: '14px 16px',
+                marginBottom: 8,
+                display: 'flex',
+                alignItems: 'center',
+                gap: method.iconSrc ? 12 : 0,
+                cursor: 'pointer',
+                border: paymentMethod === method.id ? '2px solid #DC4D35' : '2px solid transparent',
+                boxSizing: 'border-box',
+              }}
+            >
+              {method.iconSrc ? (
+                <img src={method.iconSrc} alt="" style={{ width: 22, height: 22, objectFit: 'contain', flexShrink: 0 }} />
+              ) : null}
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 15, fontWeight: 600, color: '#111827', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif' }}>{method.label}</div>
+              </div>
+              {paymentMethod === method.id && (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#DC4D35" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              )}
+            </div>
+          ))}
         </div>
 
         {/* Issue Button */}
@@ -628,7 +660,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
                   </div>
                 </div>
 
-                {/* Способ пополнения */}
+                {/* Способ оплаты */}
                 <div>
                   <div
                     style={{
@@ -639,7 +671,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
                       marginBottom: 4,
                     }}
                   >
-                    Источник списания
+                    Способ оплаты
                   </div>
                   <div
                     style={{
@@ -649,7 +681,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
                       fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
                     }}
                   >
-                    Баланс аккаунта
+                    {PAYMENT_METHODS.find((m) => m.id === paymentMethod)?.label || 'СБП'}
                   </div>
                 </div>
               </div>
@@ -664,7 +696,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
                 fullWidth
                 style={{ marginTop: 24 }}
               >
-                Подтвердить и выпустить
+                {paymentMethod === 'sbp' ? 'Подтвердить и выпустить' : 'Перейти к оплате'}
               </Button>
             </div>
           </div>
@@ -719,7 +751,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
               fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
             }}
           >
-            Выпускаем карту...
+            {paymentMethod === 'sbp' ? 'Выпускаем карту...' : 'Создаём платёж...'}
           </div>
         </div>
       )}

@@ -269,6 +269,7 @@ async def poll_pending_payments() -> None:
     """Scan all pending crypto payments and try to confirm each one."""
     async with AsyncSessionLocal() as db:
         try:
+            now = datetime.utcnow()
             result = await db.execute(
                 select(CryptoPayment).where(
                     CryptoPayment.status.in_(["pending", "processing"])
@@ -282,6 +283,11 @@ async def poll_pending_payments() -> None:
             logger.info("Polling %d pending crypto payments", len(payments))
 
             for payment in payments:
+                if payment.expires_at and payment.expires_at < now:
+                    payment.status = "expired"
+                    logger.info("Crypto payment %s expired", payment.id)
+                    continue
+
                 if payment.status == "pending":
                     matched = await _try_confirm_payment(payment, db)
                     if not matched:

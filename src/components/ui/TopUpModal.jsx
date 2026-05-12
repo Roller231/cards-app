@@ -3,12 +3,19 @@ import api from '../../api/client'
 import Button from './Button'
 import Portal from './Portal'
 
-function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) {
+const TOPUP_PAYMENT_METHODS = [
+  { id: 'sbp', label: 'СБП', iconSrc: '/images/sbp.png' },
+  { id: 'trc20', label: 'USDT TRC-20', iconSrc: '/images/TRC.png' },
+  { id: 'erc20', label: 'USDT ERC-20' },
+]
+
+function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0, onCryptoPaymentInitiated }) {
   const [depositError, setDepositError] = useState('')
   const [amount, setAmount] = useState(0)
   const [amountInput, setAmountInput] = useState('')
   const [totalInput, setTotalInput] = useState('')
   const [screen, setScreen] = useState('form') // 'form' | 'confirmation' | 'loading' | 'success' | 'failure'
+  const [paymentMethod, setPaymentMethod] = useState('sbp')
   const amountInputRef = useRef(null)
   const totalInputRef = useRef(null)
   const lastEditedRef = useRef('amount')
@@ -29,13 +36,14 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) 
         setTotalInput('')
         setScreen('form')
         setDepositError('')
+        setPaymentMethod('sbp')
         lastEditedRef.current = 'amount'
       }, 350)
       return () => clearTimeout(t)
     }
   }, [isOpen])
 
-  // Deposit call — only for SBP (USDT goes through CryptoPaymentPage)
+  // Deposit call — SBP: direct, Crypto: initiate payment then navigate
   useEffect(() => {
     if (screen !== 'loading') return
     if (!card?.aifory_card_id) {
@@ -44,17 +52,33 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) 
       return
     }
     let canceled = false
-    api.cards.deposit(card.aifory_card_id, amount)
-      .then(() => {
-        if (canceled) return
-        setScreen('success')
-        if (typeof onTopUp === 'function') onTopUp()
-      })
-      .catch((e) => {
-        if (canceled) return
-        setDepositError(e.message || 'Ошибка пополнения')
-        setScreen('failure')
-      })
+    if (paymentMethod === 'trc20' || paymentMethod === 'erc20') {
+      const network = paymentMethod === 'erc20' ? 'ERC-20' : 'TRC-20'
+      const offerIdHint = card?.offer_id || ''
+      api.cryptoPayments.initiateTopup(card.aifory_card_id, offerIdHint, amount, network)
+        .then((result) => {
+          if (canceled) return
+          onCryptoPaymentInitiated?.({ ...result, type: 'topup' })
+          onClose()
+        })
+        .catch((e) => {
+          if (canceled) return
+          setDepositError(e.message || 'Ошибка создания платежа')
+          setScreen('failure')
+        })
+    } else {
+      api.cards.deposit(card.aifory_card_id, amount, 'sbp')
+        .then(() => {
+          if (canceled) return
+          setScreen('success')
+          if (typeof onTopUp === 'function') onTopUp()
+        })
+        .catch((e) => {
+          if (canceled) return
+          setDepositError(e.message || 'Ошибка пополнения')
+          setScreen('failure')
+        })
+    }
     return () => { canceled = true }
   }, [screen]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -289,11 +313,38 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) 
               {/* Payment Method */}
               <div style={{ marginTop: 8 }}>
                 <label style={{ fontSize: 17, fontWeight: 700, color: '#111827', fontFamily: font, display: 'block', marginBottom: 12 }}>
-                  Источник списания
+                  Способ оплаты
                 </label>
-                <div style={{ backgroundColor: 'white', borderRadius: 12, padding: '16px', fontSize: 15, fontWeight: 600, color: '#111827', fontFamily: font }}>
-                  С баланса аккаунта
-                </div>
+                {TOPUP_PAYMENT_METHODS.map((method) => (
+                  <div
+                    key={method.id}
+                    onClick={() => setPaymentMethod(method.id)}
+                    style={{
+                      backgroundColor: 'white',
+                      borderRadius: 12,
+                      padding: '14px 16px',
+                      marginBottom: 8,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: method.iconSrc ? 12 : 0,
+                      cursor: 'pointer',
+                      border: paymentMethod === method.id ? '2px solid #DC4D35' : '2px solid transparent',
+                      boxSizing: 'border-box',
+                    }}
+                  >
+                    {method.iconSrc ? (
+                      <img src={method.iconSrc} alt="" style={{ width: 22, height: 22, objectFit: 'contain', flexShrink: 0 }} />
+                    ) : null}
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 15, fontWeight: 600, color: '#111827', fontFamily: font }}>{method.label}</div>
+                    </div>
+                    {paymentMethod === method.id && (
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#DC4D35" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -309,8 +360,8 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) 
                 value={`${total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`}
               />
               <DetailRow
-                label="Источник списания"
-                value="Баланс аккаунта"
+                label="Способ оплаты"
+                value={TOPUP_PAYMENT_METHODS.find((m) => m.id === paymentMethod)?.label || 'СБП'}
               />
             </div>
           </div>
@@ -438,7 +489,7 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) 
                 onClick={() => setScreen('loading')}
                 fullWidth
               >
-                Продолжить
+                {paymentMethod === 'sbp' ? 'Подтвердить и пополнить' : 'Перейти к оплате'}
               </Button>
             )}
 

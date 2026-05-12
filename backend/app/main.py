@@ -73,6 +73,17 @@ def check_and_update_schema(conn):
     return
 
 
+async def _poll_loop() -> None:
+    """Background task: poll pending crypto payments every 30 s."""
+    from app.services.crypto_payment_service import poll_pending_payments
+    while True:
+        await asyncio.sleep(30)
+        try:
+            await poll_pending_payments()
+        except Exception as exc:
+            logger.error("poll_pending_payments error: %s", exc)
+
+
 @app.on_event("startup")
 async def startup_db_client():
     async with engine.begin() as conn:
@@ -80,6 +91,7 @@ async def startup_db_client():
         await conn.run_sync(Base.metadata.create_all)
         # Check and update schema for existing tables
         await conn.run_sync(check_and_update_schema)
+    asyncio.create_task(_poll_loop())
     logger.info("Database tables created (if not existed) and schema updated")
 
 

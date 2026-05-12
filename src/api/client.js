@@ -65,7 +65,7 @@ export const api = {
   },
   cards: {
     offers: () => req('GET', '/cards/offers'),
-    issue: ({ offerId, holderFirstName, holderLastName, amount, email, documentNumber }) =>
+    issue: ({ offerId, holderFirstName, holderLastName, amount, email, documentNumber, paymentMethod = 'balance' }) =>
       req('POST', '/cards/issue', {
         offer_id: offerId,
         holder_first_name: holderFirstName,
@@ -73,13 +73,14 @@ export const api = {
         amount,
         email,
         document_number: documentNumber,
+        payment_method: paymentMethod,
       }),
     list: () => req('GET', '/cards'),
     requisites: (cardId) => req('GET', `/cards/${cardId}/requisites`),
     transactions: (cardId, limit = 50, offset = 0) =>
       req('GET', `/cards/${cardId}/transactions?limit=${limit}&offset=${offset}`),
-    deposit: (cardId, amount) =>
-      req('POST', `/cards/${cardId}/deposit`, { amount }),
+    deposit: (cardId, amount, paymentMethod = 'balance') =>
+      req('POST', `/cards/${cardId}/deposit`, { amount, payment_method: paymentMethod }),
   },
 }
 
