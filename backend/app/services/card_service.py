@@ -202,6 +202,25 @@ class CardService:
             return
         await self._link_issue_order_to_card(db, user_id, card, order_status)
 
+    async def _detach_card_from_orders(
+        self,
+        db: AsyncSession,
+        user_id: int,
+        card_id: int,
+        issue_order_status: Optional[str] = None,
+    ) -> None:
+        linked_result = await db.execute(
+            select(Order).where(
+                Order.user_id == user_id,
+                Order.card_id == card_id,
+            ).order_by(Order.id.asc())
+        )
+        linked_orders = list(linked_result.scalars().all())
+        for linked_order in linked_orders:
+            linked_order.card_id = None
+            if issue_order_status and linked_order.type == "issue":
+                linked_order.status = issue_order_status
+
     async def _follow_payment(self, client_id: str, payment_uuid: str, payment_kind: str) -> Dict[str, Any]:
         payment_data: Dict[str, Any] = {}
         confirm_attempted = False
@@ -749,23 +768,14 @@ class CardService:
         )
         db.add(order)
         await db.flush()
-
-        placeholder_card = await self._ensure_issue_placeholder_card(
-            db=db,
-            user=user,
-            ravana_id=ravana_server_id,
-            holder_name=holder_name,
-            currency=str(provider.get("cardCurrency") or "USD"),
-        )
-        order.card_id = placeholder_card.id
         order.status = "processing"
         if eager_placeholder_commit or defer_follow_up:
             await db.commit()
             logger.info(
-                "Committed creating card placeholder for user_id=%s order_id=%s local_card_id=%s",
+                "Committed issue order for user_id=%s order_id=%s payment_uuid=%s",
                 user.id,
                 order.id,
-                placeholder_card.id,
+                payment_uuid,
             )
 
         if defer_follow_up:
@@ -830,7 +840,7 @@ class CardService:
     # ------------------------------------------------------------------
 
     async def sync_cards(self, db: AsyncSession, user: User) -> List[Card]:
-        """Pull all virtual cards from O-Plata for this user and upsert into local DB."""
+        """Pull all virtual cards from O-Plata into local DB."""
         client_id = _client_id(user)
         try:
             providers = await oplata_client.get_virtual_card_list(client_id)
@@ -847,6 +857,10 @@ class CardService:
                 if provider_ravana_id and not card_copy.get("ravanaServerId"):
                     card_copy["ravanaServerId"] = provider_ravana_id
                 cards_raw.append(card_copy)
+
+        existing_result = await db.execute(select(Card).where(Card.user_id == user.id))
+        existing_cards = list(existing_result.scalars().all())
+        synced_local_card_ids = set()
 
 
         for raw in cards_raw:
@@ -899,6 +913,7 @@ class CardService:
                     db.add(placeholder)
                     await db.flush()
                 await self._update_linked_issue_orders(db, user.id, placeholder, "processing")
+                synced_local_card_ids.add(placeholder.id)
                 logger.info(
                     "Synced processing placeholder card: local_card_id=%s user_id=%s ravana_id=%s state=%s",
                     placeholder.id,
@@ -928,6 +943,7 @@ class CardService:
                 card.currency = currency or card.currency
                 card.offer_id = ravana_id or card.offer_id
                 await self._update_linked_issue_orders(db, user.id, card, "completed")
+                synced_local_card_ids.add(card.id)
                 logger.info("Synced card: card_id=%s user_id=%s balance=%s", card.id, user.id, balance)
             else:
                 card = Card(
@@ -945,6 +961,24 @@ class CardService:
                 db.add(card)
                 await db.flush()
                 await self._update_linked_issue_orders(db, user.id, card, "completed")
+                synced_local_card_ids.add(card.id)
+
+        for existing_card in existing_cards:
+            if existing_card.id in synced_local_card_ids:
+                continue
+            await self._detach_card_from_orders(
+                db,
+                user.id,
+                existing_card.id,
+                issue_order_status="failed" if not existing_card.aifory_card_id else None,
+            )
+            await db.delete(existing_card)
+            logger.info(
+                "Deleted stale local card for user_id=%s local_card_id=%s external_card_id=%s",
+                user.id,
+                existing_card.id,
+                existing_card.aifory_card_id,
+            )
 
         final_result = await db.execute(select(Card).where(Card.user_id == user.id))
         return list(final_result.scalars().all())

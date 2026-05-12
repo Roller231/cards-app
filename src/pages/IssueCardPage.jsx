@@ -802,10 +802,12 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, onCryptoPaymentI
                 color: '#111827',
                 fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
                 textAlign: 'center',
+                maxWidth: 320,
+                lineHeight: 1.5,
                 animation: 'textAppear 0.5s ease-out 0.2s backwards',
               }}
             >
-              Карта будет создана в течение 5 минут
+              Запрос на выпуск карты отправлен успешно. Ожидайте до 5 минут.
             </div>
           </div>
 

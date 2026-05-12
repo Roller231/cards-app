@@ -164,10 +164,10 @@ function AppInner() {
 
   // After card issued: reload cards list
   const handleCardIssued = useCallback(async () => {
-    const cards = await refreshCards()
-    if (cards.length > 0) refreshTransactions(cards)
     setCardTypeToIssue(null)
     setCurrentPage('home')
+    const cards = await refreshCards()
+    if (cards.length > 0) refreshTransactions(cards)
   }, [refreshCards, refreshTransactions])
 
   // After deposit: reload cards to update balance
