@@ -84,8 +84,12 @@ async def get_requisites(
         data = await card_service.get_card_requisites(db, current_user.id, card_id)
         return CardRequisitesResponse(**data)
     except ValueError as exc:
+        if "not active yet" in str(exc).lower():
+            raise HTTPException(status_code=503, detail="Карта ещё обрабатывается. Попробуйте позже.")
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
+        if "illegal state" in str(exc).lower():
+            raise HTTPException(status_code=503, detail="Карта ещё обрабатывается. Попробуйте позже.")
         raise HTTPException(status_code=502, detail=str(exc))
 
 
@@ -103,6 +107,9 @@ async def get_card_transactions(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
+        s = str(exc).lower()
+        if "illegal state" in s or "technical error" in s:
+            return []
         raise HTTPException(status_code=502, detail=str(exc))
 
 

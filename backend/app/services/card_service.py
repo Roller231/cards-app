@@ -4,6 +4,7 @@ import uuid
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,10 +19,36 @@ logger = logging.getLogger(__name__)
 
 
 def _client_id(user: User) -> str:
-    """Derive O-Plata clientId for a given user."""
-    if str(getattr(user, "username", "") or "") == "dev_user" and (settings.OPLATA_TEST_CLIENT_ID or "").strip():
-        return settings.OPLATA_TEST_CLIENT_ID.strip()
-    return f"user_{user.id}"
+    """Derive O-Plata clientId for a given user.
+
+    All local users share a single funded O-Plata client (Developer).
+    Card ownership is tracked locally via Card.user_id and a user-tag embedded
+    in the card name during issuance (see _user_card_tag / _strip_user_tag).
+    """
+    return (settings.OPLATA_TEST_CLIENT_ID or "Developer").strip()
+
+
+def _user_card_tag(user_id: int) -> str:
+    """Prefix embedded in O-Plata card name to identify the owning local user."""
+    return f"u{user_id}:"
+
+
+def _strip_user_tag(name: str) -> str:
+    """Strip the user ownership tag from a card name, e.g. 'u42:John Doe' -> 'John Doe'."""
+    if name and ":" in name:
+        prefix, _, rest = name.partition(":")
+        if prefix.startswith("u") and prefix[1:].isdigit():
+            return rest.strip()
+    return name
+
+
+def _user_id_from_tag(name: str) -> Optional[int]:
+    """Extract user_id from card name tag, e.g. 'u42:John Doe' -> 42. Returns None if absent."""
+    if name and ":" in name:
+        prefix, _, _ = name.partition(":")
+        if prefix.startswith("u") and prefix[1:].isdigit():
+            return int(prefix[1:])
+    return None
 
 
 def _parse_offer_id(offer_id: str):
@@ -38,15 +65,228 @@ def _parse_offer_id(offer_id: str):
 
 def _card_state_to_status(state: Any) -> str:
     s = str(state or "").upper()
-    return "active" if s == "ACTIVE" else "inactive"
+    if s == "ACTIVE":
+        return "active"
+    if s in {"PROCESSING", "PENDING", "UPDATING", "CREATED", "CREATING", "ISSUING"}:
+        return "processing"
+    if not s:
+        return "inactive"
+    return s.lower()
+
+
+def _card_status_code(state: Any) -> int:
+    status = _card_state_to_status(state)
+    if status == "active":
+        return 2
+    if status == "processing":
+        return 1
+    return 0
+
+
+def _card_is_active(state: Any) -> bool:
+    return _card_state_to_status(state) == "active"
+
+
+def _is_card_type_issuable(card_type: Dict[str, Any]) -> bool:
+    if bool(card_type.get("readOnly")):
+        return False
+    status = str(card_type.get("status") or card_type.get("state") or "").upper()
+    if status and status not in {"ACTIVE", "ENABLED"}:
+        return False
+    return True
 
 
 def _validation_status_requires_data(status: Any) -> bool:
     s = str(status or "").upper()
-    return "ABSENT" in s or s in {"INVALID", "NOT_REGISTERED", "FAILED"}
+    return "ABSENT" in s or s in {"INVALID", "FAILED"}
 
 
 class CardService:
+
+    async def _find_processing_placeholder_card(
+        self,
+        db: AsyncSession,
+        user_id: int,
+        ravana_id: str,
+        holder_name: str,
+    ) -> Optional[Card]:
+        placeholder_result = await db.execute(
+            select(Card).where(
+                Card.user_id == user_id,
+                Card.aifory_card_id.is_(None),
+                Card.offer_id == ravana_id,
+                Card.status == "processing",
+            ).order_by(Card.id.desc())
+        )
+        placeholders = list(placeholder_result.scalars().all())
+        if not placeholders:
+            return None
+        if holder_name:
+            for placeholder in placeholders:
+                if str(placeholder.holder_name or "").strip() == holder_name:
+                    return placeholder
+        return placeholders[0]
+
+    async def _link_issue_order_to_card(
+        self,
+        db: AsyncSession,
+        user_id: int,
+        card: Card,
+        order_status: str,
+    ) -> None:
+        pending_result = await db.execute(
+            select(Order).where(
+                Order.user_id == user_id,
+                Order.type == "issue",
+                Order.card_id.is_(None),
+            ).order_by(Order.id.asc())
+        )
+        pending = pending_result.scalars().first()
+        if pending:
+            pending.card_id = card.id
+            pending.status = order_status
+
+    async def _update_linked_issue_orders(
+        self,
+        db: AsyncSession,
+        user_id: int,
+        card: Card,
+        order_status: str,
+    ) -> None:
+        linked_result = await db.execute(
+            select(Order).where(
+                Order.user_id == user_id,
+                Order.type == "issue",
+                Order.card_id == card.id,
+            ).order_by(Order.id.asc())
+        )
+        linked_orders = list(linked_result.scalars().all())
+        if linked_orders:
+            for linked_order in linked_orders:
+                linked_order.status = order_status
+            return
+        await self._link_issue_order_to_card(db, user_id, card, order_status)
+
+    async def _follow_payment(self, client_id: str, payment_uuid: str, payment_kind: str) -> Dict[str, Any]:
+        payment_data: Dict[str, Any] = {}
+        confirm_attempted = False
+        for _attempt in range(10):
+            try:
+                payment_data = await oplata_client.get_transaction_payment(client_id, payment_uuid)
+                payment_state = str(payment_data.get("state") or "").upper()
+                current_action = str(payment_data.get("currentAction") or "").upper()
+                logger.info(
+                    "O-Plata %s payment status for %s: uuid=%s state=%s currentAction=%s",
+                    payment_kind,
+                    client_id,
+                    payment_uuid,
+                    payment_state,
+                    current_action,
+                )
+                if not confirm_attempted:
+                    confirm_attempted = True
+                    try:
+                        confirm_result = await oplata_client.confirm_payment(client_id, payment_uuid)
+                        logger.info(
+                            "O-Plata %s payment confirm for %s: uuid=%s result=%s",
+                            payment_kind,
+                            client_id,
+                            payment_uuid,
+                            confirm_result,
+                        )
+                        if isinstance(confirm_result, dict) and confirm_result:
+                            payment_data = confirm_result
+                            payment_state = str(payment_data.get("state") or payment_state).upper()
+                    except httpx.HTTPStatusError as exc:
+                        response_text = exc.response.text if exc.response is not None else ""
+                        if exc.response is not None and exc.response.status_code == 404 and "No such reference or expired" in response_text:
+                            logger.info(
+                                "O-Plata %s payment does not require confirm for %s uuid=%s: %s",
+                                payment_kind,
+                                client_id,
+                                payment_uuid,
+                                response_text,
+                            )
+                        else:
+                            logger.warning(
+                                "O-Plata %s payment confirm failed for %s uuid=%s: %s: %s",
+                                payment_kind,
+                                client_id,
+                                payment_uuid,
+                                exc.__class__.__name__,
+                                exc,
+                            )
+                    except Exception as exc:
+                        logger.warning(
+                            "O-Plata %s payment confirm failed for %s uuid=%s: %s: %s",
+                            payment_kind,
+                            client_id,
+                            payment_uuid,
+                            exc.__class__.__name__,
+                            exc,
+                        )
+                if payment_state in {"COMPLETED", "CANCELED", "FAILED", "REFUNDED"}:
+                    return payment_data
+            except Exception as exc:
+                logger.warning(
+                    "O-Plata %s payment status fetch failed for %s uuid=%s: %s: %s",
+                    payment_kind,
+                    client_id,
+                    payment_uuid,
+                    exc.__class__.__name__,
+                    exc,
+                )
+            await asyncio.sleep(2)
+        if str(payment_data.get("state") or "").upper() == "WITHDRAWAL_SENT":
+            logger.warning(
+                "O-Plata %s payment is stuck in WITHDRAWAL_SENT for %s: uuid=%s payload=%s",
+                payment_kind,
+                client_id,
+                payment_uuid,
+                payment_data,
+            )
+        return payment_data
+
+    async def _wait_for_card_materialization(
+        self,
+        db: AsyncSession,
+        user: User,
+        order: Order,
+        client_id: str,
+        payment_uuid: str,
+    ) -> None:
+        for _attempt in range(15):
+            try:
+                await self.sync_cards(db, user)
+            except Exception as exc:
+                logger.debug("Post-issue sync failed for %s: %s", client_id, exc)
+            if order.card_id:
+                linked_card = await self._resolve_card(db, user.id, str(order.card_id))
+                if linked_card.aifory_card_id:
+                    logger.info(
+                        "O-Plata card materialized for %s: payment_uuid=%s local_card_id=%s external_card_id=%s",
+                        client_id,
+                        payment_uuid,
+                        order.card_id,
+                        linked_card.aifory_card_id,
+                    )
+                    return
+            await asyncio.sleep(2)
+        if order.card_id:
+            linked_card = await self._resolve_card(db, user.id, str(order.card_id))
+            logger.info(
+                "O-Plata card placeholder is still processing after issue follow-up: client_id=%s payment_uuid=%s local_card_id=%s status=%s",
+                client_id,
+                payment_uuid,
+                linked_card.id,
+                linked_card.status,
+            )
+        else:
+            logger.info(
+                "O-Plata card is still not materialized after issue follow-up: client_id=%s payment_uuid=%s",
+                client_id,
+                payment_uuid,
+            )
 
     # ------------------------------------------------------------------
     # Offers (card types from O-Plata)
@@ -58,7 +298,7 @@ class CardService:
         try:
             providers = await oplata_client.get_virtual_card_list(test_client)
         except Exception as exc:
-            logger.warning("Could not fetch O-Plata card types: %s", exc)
+            logger.warning("Could not fetch O-Plata card types: %s: %s", exc.__class__.__name__, exc)
             return []
 
         offers = []
@@ -66,14 +306,24 @@ class CardService:
             ravana_server_id = provider.get("ravanaServerId") or provider.get("ravanaId") or ""
             if not ravana_server_id:
                 continue
-            issue_fee_raw = provider.get("issueConstantFee") or 0
             min_balance_raw = provider.get("minimumCardBalance") or 0
             mdm_types = provider.get("clientMDMDataTypes") or []
-            issue_fee = float(issue_fee_raw) + float(settings.ONLINE_ISSUE_FEE_USD)
+            issue_fee = float(settings.ONLINE_ISSUE_FEE_USD)
             card_types = provider.get("cardTypesList") or []
             for ct in card_types:
                 type_uuid = ct.get("uuid") or ""
                 if not type_uuid:
+                    continue
+                if not _is_card_type_issuable(ct):
+                    logger.info(
+                        "Skipping non-issuable O-Plata card type for %s on %s: uuid=%s readOnly=%s status=%s state=%s",
+                        test_client,
+                        ravana_server_id,
+                        type_uuid,
+                        ct.get("readOnly"),
+                        ct.get("status"),
+                        ct.get("state"),
+                    )
                     continue
                 payment_system = ct.get("paymentSystem") or ""
                 name = ct.get("localizedName") or f"{payment_system} Virtual Card"
@@ -114,10 +364,10 @@ class CardService:
         # All KYC steps use a single consistent dataset matching partner/start defaults.
         # Inconsistency between PERSON/COUNTRY/HOME and PARTNER causes
         # InvalidObjectContentException on partner/start.
-        kyc_first_name = "Richard"
-        kyc_last_name = "Wright"
-        kyc_middle_name = "Ivanovich"
-        kyc_dob = "1990-11-30"
+        kyc_first_name = "Test"
+        kyc_last_name = "Testov"
+        kyc_middle_name = "Testovich"
+        kyc_dob = "1980-01-01"
         kyc_country = "RU"
         _email = email or f"{client_id}@oplata.test"
 
@@ -170,31 +420,49 @@ class CardService:
             except Exception:
                 break
 
+        _partner_already_verified = False
         try:
-            # Use client_id-derived unique document/phone to avoid cross-EON conflicts
-            _hash = abs(hash(client_id)) % 10000000000
-            _doc_number = str(_hash).zfill(10)
-            _phone = f"+7916{str(_hash % 1000000).zfill(7)}"
-            result = await oplata_client.kyc_verify_partner_start(
-                client_id,
-                first_name=kyc_first_name,
-                last_name=kyc_last_name,
-                middle_name=kyc_middle_name,
-                date_of_birth=kyc_dob,
-                country=kyc_country,
-                email=_email,
-                document_number=_doc_number,
-                phone_number=_phone,
-            )
-            logger.info("KYC partner/start for %s: %s", client_id, result)
-        except Exception as exc:
-            logger.warning("kyc_verify_partner_start for %s failed: %s", client_id, exc)
+            _pre_partner_info = await oplata_client.kyc_info(client_id)
+            _partner_already_verified = "PARTNER" in (_pre_partner_info.get("checksVerified") or [])
+        except Exception:
+            _partner_already_verified = False
 
-        try:
-            kyc_info = await oplata_client.kyc_info(client_id)
-            logger.info("O-Plata KYC info for %s: %s", client_id, kyc_info)
-        except Exception as exc:
-            logger.warning("kyc_info for %s failed: %s", client_id, exc)
+        if _partner_already_verified:
+            logger.info("Skipping KYC partner/start for %s: PARTNER already verified", client_id)
+        else:
+            try:
+                result = await oplata_client.kyc_verify_partner_start(
+                    client_id,
+                    first_name=kyc_first_name,
+                    last_name=kyc_last_name,
+                    middle_name=kyc_middle_name,
+                    date_of_birth=kyc_dob,
+                    country=kyc_country,
+                    email=_email,
+                )
+                logger.info("KYC partner/start for %s: %s", client_id, result)
+            except Exception as exc:
+                logger.warning("kyc_verify_partner_start for %s failed: %s", client_id, exc)
+
+        # Wait for PARTNER to reach COMPLETED before returning — validate will fail otherwise
+        for _attempt in range(12):
+            try:
+                kyc_info = await oplata_client.kyc_info(client_id)
+                logger.info("O-Plata KYC info for %s: %s", client_id, kyc_info)
+                _partner_states = [
+                    o.get("orderState") for o in kyc_info.get("orderResponses", [])
+                    if o.get("orderType") == "PARTNER"
+                ]
+                if _partner_states and all(s not in ("UPDATING", "PROCESSING") for s in _partner_states):
+                    break
+                if _partner_states:
+                    logger.info("Waiting for PARTNER to complete for %s (%s)...", client_id, _partner_states)
+                    await asyncio.sleep(2)
+                else:
+                    break
+            except Exception as exc:
+                logger.warning("kyc_info polling for %s failed: %s", client_id, exc)
+                break
 
         return wallet_id
 
@@ -224,15 +492,39 @@ class CardService:
                 (p for p in providers if str(p.get("ravanaServerId") or p.get("ravanaId") or "") == ravana_server_id),
                 None,
             )
-            if provider:
-                logger.info(
-                    "O-Plata provider requirements for %s on %s: clientMDMDataTypes=%s registered=%s",
-                    client_id,
-                    ravana_server_id,
-                    provider.get("clientMDMDataTypes"),
-                    provider.get("registered"),
+            if not provider:
+                raise ValueError(f"O-Plata provider {ravana_server_id} is unavailable for this client")
+            logger.info(
+                "O-Plata provider requirements for %s on %s: clientMDMDataTypes=%s registered=%s",
+                client_id,
+                ravana_server_id,
+                provider.get("clientMDMDataTypes"),
+                provider.get("registered"),
+            )
+            selected_card_type = next(
+                (ct for ct in (provider.get("cardTypesList") or []) if str(ct.get("uuid") or "") == type_uuid),
+                None,
+            )
+            if not selected_card_type:
+                raise ValueError(f"O-Plata card type {type_uuid} is unavailable for provider {ravana_server_id}")
+            logger.info(
+                "Selected O-Plata card type for %s: provider=%s type_uuid=%s readOnly=%s status=%s state=%s",
+                client_id,
+                ravana_server_id,
+                type_uuid,
+                selected_card_type.get("readOnly"),
+                selected_card_type.get("status"),
+                selected_card_type.get("state"),
+            )
+            if not _is_card_type_issuable(selected_card_type):
+                raise ValueError(
+                    f"O-Plata card type {type_uuid} is not active for issuance "
+                    f"(readOnly={selected_card_type.get('readOnly')}, "
+                    f"status={selected_card_type.get('status') or selected_card_type.get('state') or 'unknown'})"
                 )
         except Exception as exc:
+            if isinstance(exc, ValueError):
+                raise
             logger.warning("Could not inspect O-Plata provider requirements for %s on %s: %s", client_id, ravana_server_id, exc)
 
         # 1. Register client on O-Plata (idempotent) and push MDM data
@@ -282,10 +574,11 @@ class CardService:
 
         # 4. Issue card on O-Plata
         holder_name = f"{holder_first_name} {holder_last_name}".strip()
+        tagged_name = f"{_user_card_tag(user.id)}{holder_name or client_id}"
         try:
             result = await oplata_client.issue_virtual_card(
                 client_id=client_id,
-                name=holder_name or client_id,
+                name=tagged_name,
                 ravana_server_id=ravana_server_id,
                 type_uuid=type_uuid,
             )
@@ -301,9 +594,10 @@ class CardService:
                 except Exception:
                     pass
             raise
+        logger.info("issue_virtual_card raw result for %s: %s", client_id, result)
         payment_uuid = result.get("uuid") or result.get("id") or str(uuid.uuid4())
         logger.info(
-            "Card issued: payment_uuid=%s client_id=%s user_id=%s",
+            "Card issue request created: payment_uuid=%s client_id=%s user_id=%s",
             payment_uuid, client_id, user.id,
         )
 
@@ -311,12 +605,12 @@ class CardService:
         if not skip_balance_check:
             user.balance = Decimal(str(user.balance)) - user_total
 
-        # 6. Save order
+        # 6. Save issuance order; actual card data arrives asynchronously via card/list
         order = Order(
             user_id=user.id,
             partner_order_id=payment_uuid,
             type="issue",
-            amount=user_total,
+            amount=card_amount,
             fee=fixed_fee,
             status="pending",
             description=f"Card issuance: {ravana_server_id}:{type_uuid}",
@@ -324,17 +618,32 @@ class CardService:
         db.add(order)
         await db.flush()
 
-        # 7. Notify
-        try:
-            await notify_card_issued(
-                db=db, user=user,
-                card_amount=float(card_amount),
-                card_last4="",
-                fee=float(fixed_fee),
-                success=True,
+        # 7. Follow issue payment lifecycle and wait for card materialization in O-Plata
+        issue_payment = await self._follow_payment(client_id, payment_uuid, "issue")
+        if issue_payment:
+            logger.info(
+                "O-Plata final issue payment snapshot for %s: uuid=%s state=%s currentAction=%s",
+                client_id,
+                payment_uuid,
+                issue_payment.get("state"),
+                issue_payment.get("currentAction"),
             )
-        except Exception as _n:
-            logger.debug("Card issue notification error: %s", _n)
+        await self._wait_for_card_materialization(db, user, order, client_id, payment_uuid)
+
+        # 8. Notify only when a concrete card record is already available locally
+        if order.card_id:
+            linked_card = await self._resolve_card(db, user.id, str(order.card_id))
+            if _card_is_active(linked_card.status):
+                try:
+                    await notify_card_issued(
+                        db=db, user=user,
+                        card_amount=float(card_amount),
+                        card_last4=linked_card.last4 or "",
+                        fee=float(fixed_fee),
+                        success=True,
+                    )
+                except Exception as _n:
+                    logger.debug("Card issue notification error: %s", _n)
 
         return {"local_order_id": order.id, "partner_order_id": payment_uuid}
 
@@ -348,7 +657,7 @@ class CardService:
         try:
             providers = await oplata_client.get_virtual_card_list(client_id)
         except Exception as exc:
-            logger.warning("get_virtual_card_list failed for %s: %s", client_id, exc)
+            logger.warning("get_virtual_card_list failed for %s: %s: %s", client_id, exc.__class__.__name__, exc)
             result = await db.execute(select(Card).where(Card.user_id == user.id))
             return list(result.scalars().all())
 
@@ -361,18 +670,23 @@ class CardService:
                     card_copy["ravanaServerId"] = provider_ravana_id
                 cards_raw.append(card_copy)
 
+
         for raw in cards_raw:
             card_id = str(raw.get("cardId") or raw.get("id") or "")
             ravana_id = str(raw.get("ravanaServerId") or "")
-            if not card_id:
-                continue
-
             masked_pan = str(raw.get("numberMasked") or raw.get("cardNumber") or "")
             last4 = masked_pan[-4:] if len(masked_pan) >= 4 else (masked_pan or "")
-            holder = str(raw.get("holderName") or "")
+            raw_name = str(raw.get("holderName") or raw.get("name") or "")
+            holder = _strip_user_tag(raw_name)
+
+            # Ownership check: if card has a user tag, skip it if it belongs to a different user.
+            # Cards without any tag (legacy / external) are only accepted if already in local DB.
+            tagged_owner_id = _user_id_from_tag(raw_name)
+            if tagged_owner_id is not None and tagged_owner_id != user.id:
+                continue
             state = raw.get("state") or ""
             balance = Decimal("0")
-            if ravana_id:
+            if card_id and ravana_id and _card_is_active(state):
                 try:
                     balance_raw = await oplata_client.get_card_funds_balance(client_id, card_id, ravana_id)
                     balance = Decimal(str(balance_raw.get("availableBalance") or balance_raw.get("balance") or 0))
@@ -381,21 +695,61 @@ class CardService:
             expired_at = str(raw.get("expireAtMonth") or "")
             currency = str(raw.get("balanceCurrency") or raw.get("cardCurrency") or raw.get("currency") or "USD")
 
-            # Check if card already exists
+            if not card_id:
+                placeholder = await self._find_processing_placeholder_card(db, user.id, ravana_id, holder)
+                if placeholder:
+                    placeholder.last4 = last4 or placeholder.last4
+                    placeholder.holder_name = holder or placeholder.holder_name
+                    placeholder.expired_at = expired_at or placeholder.expired_at
+                    placeholder.currency = currency or placeholder.currency
+                    placeholder.offer_id = ravana_id or placeholder.offer_id
+                    placeholder.status = _card_state_to_status(state)
+                    placeholder.card_status = _card_status_code(state)
+                else:
+                    placeholder = Card(
+                        user_id=user.id,
+                        aifory_card_id=None,
+                        offer_id=ravana_id,
+                        last4=last4,
+                        holder_name=holder,
+                        currency=currency,
+                        balance=balance,
+                        status=_card_state_to_status(state),
+                        card_status=_card_status_code(state),
+                        expired_at=expired_at,
+                    )
+                    db.add(placeholder)
+                    await db.flush()
+                await self._update_linked_issue_orders(db, user.id, placeholder, "processing")
+                logger.info(
+                    "Synced processing placeholder card: local_card_id=%s user_id=%s ravana_id=%s state=%s",
+                    placeholder.id,
+                    user.id,
+                    ravana_id,
+                    state,
+                )
+                continue
+
             existing_result = await db.execute(
                 select(Card).where(Card.aifory_card_id == card_id)
             )
             card = existing_result.scalar_one_or_none()
 
+            if not card:
+                card = await self._find_processing_placeholder_card(db, user.id, ravana_id, holder)
+                if card:
+                    card.aifory_card_id = card_id
+
             if card:
                 card.balance = balance
                 card.status = _card_state_to_status(state)
-                card.card_status = 2 if card.status == "active" else 0
+                card.card_status = _card_status_code(state)
                 card.last4 = last4 or card.last4
                 card.holder_name = holder or card.holder_name
                 card.expired_at = expired_at or card.expired_at
                 card.currency = currency or card.currency
                 card.offer_id = ravana_id or card.offer_id
+                await self._update_linked_issue_orders(db, user.id, card, "completed")
                 logger.info("Synced card: card_id=%s user_id=%s balance=%s", card.id, user.id, balance)
             else:
                 card = Card(
@@ -407,24 +761,12 @@ class CardService:
                     currency=currency,
                     balance=balance,
                     status=_card_state_to_status(state),
-                    card_status=2 if _card_state_to_status(state) == "active" else 0,
+                    card_status=_card_status_code(state),
                     expired_at=expired_at,
                 )
                 db.add(card)
                 await db.flush()
-
-                # Link pending issue order if exists
-                pending_result = await db.execute(
-                    select(Order).where(
-                        Order.user_id == user.id,
-                        Order.type == "issue",
-                        Order.card_id.is_(None),
-                    )
-                )
-                pending = pending_result.scalars().first()
-                if pending:
-                    pending.card_id = card.id
-                    pending.status = "completed"
+                await self._update_linked_issue_orders(db, user.id, card, "completed")
 
         final_result = await db.execute(select(Card).where(Card.user_id == user.id))
         return list(final_result.scalars().all())
@@ -448,6 +790,8 @@ class CardService:
             raise ValueError("Card has no external ID (issuance may still be pending)")
         if not card.offer_id:
             raise ValueError("Card has no ravanaServerId stored")
+        if not _card_is_active(card.status):
+            raise ValueError("Card is not active yet")
 
         user_result = await db.execute(select(User).where(User.id == user_id))
         user = user_result.scalar_one_or_none()
@@ -486,6 +830,8 @@ class CardService:
             raise ValueError("Card has no external ID")
         if not card.offer_id:
             raise ValueError("Card has no ravanaServerId stored")
+        if not _card_is_active(card.status):
+            return []
 
         user_result = await db.execute(select(User).where(User.id == user_id))
         user = user_result.scalar_one_or_none()
@@ -562,7 +908,7 @@ class CardService:
             client_id=client_id,
             card_id=card.aifory_card_id,
             ravana_server_id=card.offer_id,
-            amount=amount,
+            amount=float(base_amount),
         )
         payment_uuid = result.get("uuid") or result.get("id") or str(uuid.uuid4())
 
@@ -574,7 +920,7 @@ class CardService:
             partner_order_id=payment_uuid,
             card_id=card.id,
             type="topup",
-            amount=user_total,
+            amount=base_amount,
             fee=our_profit,
             status="pending",
             description=f"Card top-up: ${amount:.2f} to card ...{card.aifory_card_id[-8:]}",
@@ -582,13 +928,29 @@ class CardService:
         db.add(order)
         await db.flush()
 
+        topup_payment = await self._follow_payment(client_id, payment_uuid, "topup")
+        topup_payment_state = str(topup_payment.get("state") or "").upper() if topup_payment else ""
+        if topup_payment:
+            logger.info(
+                "O-Plata final topup payment snapshot for %s: uuid=%s state=%s currentAction=%s",
+                client_id,
+                payment_uuid,
+                topup_payment.get("state"),
+                topup_payment.get("currentAction"),
+            )
+        if topup_payment_state == "COMPLETED":
+            order.status = "completed"
+        elif topup_payment_state in {"CANCELED", "FAILED", "REFUNDED"}:
+            order.status = "failed"
+
         try:
             await notify_topup_result(
                 db=db, user=user,
                 card_last4=card.last4 or "",
                 amount=float(amount),
                 fee=float(our_profit),
-                success=True,
+                success=topup_payment_state == "COMPLETED",
+                error_msg="" if topup_payment_state == "COMPLETED" else (topup_payment_state or "Top-up payment is still pending"),
             )
         except Exception as _n:
             logger.debug("Topup notification error: %s", _n)

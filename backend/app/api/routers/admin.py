@@ -649,6 +649,11 @@ async def oplata_card_types(client_id: str = "", _=Depends(get_admin)):
         ravana_id = provider.get("ravanaServerId") or ""
         for ct in provider.get("cardTypesList") or []:
             type_uuid = ct.get("uuid") or ""
+            if bool(ct.get("readOnly")):
+                continue
+            status = str(ct.get("status") or ct.get("state") or "").upper()
+            if status and status not in {"ACTIVE", "ENABLED"}:
+                continue
             offers.append({
                 "offer_id": f"{ravana_id}:{type_uuid}",
                 "ravana_server_id": ravana_id,
@@ -679,7 +684,26 @@ async def oplata_client_balance(client_id: str, _=Depends(get_admin)):
 @router.get("/oplata/client-cards", summary="Get virtual cards for an O-Plata client")
 async def oplata_client_cards(client_id: str, _=Depends(get_admin)):
     try:
-        return await oplata_client.get_virtual_card_history(client_id, page_size=100)
+        providers = await oplata_client.get_virtual_card_list(client_id)
+        cards: List[Dict[str, Any]] = []
+        for provider in providers:
+            provider_ravana_id = str(provider.get("ravanaServerId") or provider.get("ravanaId") or "")
+            provider_cards = []
+            for raw_card in provider.get("cardsList") or []:
+                card = dict(raw_card)
+                if provider_ravana_id and not card.get("ravanaServerId"):
+                    card["ravanaServerId"] = provider_ravana_id
+                provider_cards.append(card)
+                cards.append(card)
+
+            provider["cardsList"] = provider_cards
+
+        return {
+            "clientId": client_id,
+            "providers": providers,
+            "cards": cards,
+            "totalCount": len(cards),
+        }
     except Exception as exc:
         raise HTTPException(502, f"O-Plata error: {exc}")
 

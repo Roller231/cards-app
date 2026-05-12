@@ -16,10 +16,15 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
   const [cardTransactionsApi, setCardTransactionsApi] = useState(null)  // null = not loaded yet
   const [txLoading, setTxLoading] = useState(false)
   const { showToast } = useToast()
+  const isCardActive = card?.status === 'active'
 
   // Load transactions for this card on mount
   useEffect(() => {
-    if (!card?.aifory_card_id) return
+    if (!card?.aifory_card_id || !isCardActive) {
+      setTxLoading(false)
+      setCardTransactionsApi([])
+      return
+    }
     setTxLoading(true)
     api.cards.transactions(card.aifory_card_id, 50, 0)
       .then((res) => {
@@ -28,10 +33,14 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
       })
       .catch(() => setCardTransactionsApi([]))
       .finally(() => setTxLoading(false))
-  }, [card?.aifory_card_id])
+  }, [card?.aifory_card_id, isCardActive])
 
   const loadRequisites = useCallback(async () => {
     if (!card?.aifory_card_id) return
+    if (!isCardActive) {
+      showToast({ title: 'Карта ещё обрабатывается. Реквизиты появятся после активации.' })
+      return
+    }
     if (requisites) {
       // Toggle off if already shown
       setShowCardNumber((prev) => !prev)
@@ -53,7 +62,7 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
     } finally {
       setRequisitesLoading(false)
     }
-  }, [card?.aifory_card_id, requisites, showToast])
+  }, [card?.aifory_card_id, isCardActive, requisites, showToast])
 
   useEffect(() => {
     const tg = window?.Telegram?.WebApp
@@ -225,6 +234,22 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
       {/* Card Details */}
       <Section>
         <Card padding="20px">
+          {!isCardActive && (
+            <div
+              style={{
+                backgroundColor: '#FEF3C7',
+                color: '#92400E',
+                borderRadius: 12,
+                padding: '12px 14px',
+                marginBottom: 16,
+                fontSize: 14,
+                fontWeight: 500,
+                fontFamily: font,
+              }}
+            >
+              Карта ещё обрабатывается у провайдера. Реквизиты и операции станут доступны после перехода в ACTIVE.
+            </div>
+          )}
           <div
             style={{
               display: 'flex',
@@ -248,20 +273,20 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
             </h2>
             <button
               onClick={loadRequisites}
-            disabled={requisitesLoading}
+              disabled={requisitesLoading || !isCardActive}
               style={{
                 fontSize: 16,
                 fontWeight: 600,
-                color: '#DC4D35',
+                color: requisitesLoading || !isCardActive ? '#9CA3AF' : '#DC4D35',
                 fontFamily:
                   '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
                 background: 'none',
                 border: 'none',
-                cursor: 'pointer',
+                cursor: requisitesLoading || !isCardActive ? 'default' : 'pointer',
                 padding: 0,
               }}
             >
-              {requisitesLoading ? 'Загрузка...' : showCardNumber ? 'Скрыть' : 'Показать'}
+              {requisitesLoading ? 'Загрузка...' : !isCardActive ? 'Недоступно' : showCardNumber ? 'Скрыть' : 'Показать'}
             </button>
           </div>
 
@@ -457,7 +482,30 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
             </Button>
           </div>
 
-          {cardTransactions.length === 0 ? (
+          {txLoading ? (
+            <div
+              className="flex flex-col items-center justify-center"
+              style={{ paddingTop: 28, paddingBottom: 28 }}
+            >
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#6B7280', fontFamily: font }}>
+                Загружаем операции...
+              </div>
+            </div>
+          ) : !isCardActive ? (
+            <div
+              className="flex flex-col items-center justify-center"
+              style={{ paddingTop: 28, paddingBottom: 28 }}
+            >
+              <img
+                src="/images/Union.png"
+                alt=""
+                style={{ width: 34, height: 34, marginBottom: 12, opacity: 0.65 }}
+              />
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#6B7280', fontFamily: font }}>
+                История станет доступна после активации карты
+              </div>
+            </div>
+          ) : cardTransactions.length === 0 ? (
             <div
               className="flex flex-col items-center justify-center"
               style={{ paddingTop: 28, paddingBottom: 28 }}

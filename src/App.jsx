@@ -88,7 +88,7 @@ function AppInner() {
         title: 'Виртуальная карта',
       }))
       // For any card that has no last4, fetch requisites to get it
-      const needEnrich = mapped.filter((c) => !c.last4 && c.aifory_card_id)
+      const needEnrich = mapped.filter((c) => !c.last4 && c.aifory_card_id && c.status === 'active')
       if (needEnrich.length > 0) {
         await Promise.allSettled(
           needEnrich.map(async (c) => {
@@ -117,7 +117,7 @@ function AppInner() {
       const allTx = []
       await Promise.allSettled(
         cards.map(async (card) => {
-          if (!card.aifory_card_id) return
+          if (!card.aifory_card_id || card.status !== 'active') return
           try {
             const txList = await api.cards.transactions(card.aifory_card_id, 10, 0)
             const arr = Array.isArray(txList)

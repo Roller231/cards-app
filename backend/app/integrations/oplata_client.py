@@ -47,14 +47,23 @@ class OPlataClient:
         body_bytes = self._body_bytes(body)
         headers = self._make_signature_headers(body_bytes)
         url = f"{self._base_url}{path}"
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(url, headers=headers, content=body_bytes)
-            if response.status_code >= 400:
-                logger.error("O-Plata POST %s -> %s | %s", url, response.status_code, response.text[:1000])
-                response.raise_for_status()
-            if not response.content:
-                return {}
-            return response.json()
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                response = await client.post(url, headers=headers, content=body_bytes)
+                if response.status_code >= 400:
+                    body_preview = response.text[:500]
+                    logger.error("O-Plata POST %s -> %s | %s", url, response.status_code, body_preview)
+                    raise httpx.HTTPStatusError(
+                        f"HTTP {response.status_code} from {path}: {body_preview}",
+                        request=response.request,
+                        response=response,
+                    )
+                if not response.content:
+                    return {}
+                return response.json()
+        except httpx.HTTPError as exc:
+            logger.error("O-Plata request failed %s | %s: %s", url, exc.__class__.__name__, exc)
+            raise
 
     # ====== CLIENT ======
 
@@ -118,17 +127,17 @@ class OPlataClient:
     async def kyc_verify_partner_start(
         self,
         client_id: str,
-        first_name: str = "Richard",
-        last_name: str = "Wright",
-        middle_name: str = "Ivanovich",
-        date_of_birth: str = "1990-11-30",
-        email: str = "",
-        phone_number: str = "+79163334455",
-        gender: str = "FEMALE",
-        document_number: str = "1000123123",
+        first_name: str = "Test",
+        last_name: str = "Testov",
+        middle_name: str = "Testovich",
+        date_of_birth: str = "1980-01-01",
+        email: str = "test@test.com",
+        phone_number: str = "+71234567890",
+        gender: str = "MALE",
+        document_number: str = "1234567890",
         document_type: str = "CITIZEN_PASSPORT",
-        issue_date: str = "2015-12-30",
-        valid_until_date: str = "2030-12-30",
+        issue_date: str = "2025-01-01",
+        valid_until_date: str = "2035-01-01",
         country: str = "RU",
         pep: bool = False,
     ) -> Any:
@@ -292,6 +301,20 @@ class OPlataClient:
             body["periodEnd"] = period_end
         return await self._post("/product/rest/card/virtual/transaction/list", body)
 
+    async def get_card_transaction_details(
+        self,
+        client_id: str,
+        card_id: str,
+        ravana_server_id: str,
+        transaction_id: str,
+    ) -> Dict[str, Any]:
+        return await self._post("/product/rest/card/virtual/transaction/details", {
+            "clientId": client_id,
+            "cardId": card_id,
+            "ravanaServerId": ravana_server_id,
+            "transactionId": transaction_id,
+        })
+
     async def validate_card_registration(self, client_id: str, ravana_server_id: str) -> Dict[str, Any]:
         """Check what is missing before card issuance. Returns status like EMAIL_ABSENT."""
         return await self._post("/product/rest/card/virtual/validate", {
@@ -318,8 +341,29 @@ class OPlataClient:
             body["currencyCode"] = currency_code
         if is_crypto_currency is not None:
             body["isCryptoCurrency"] = is_crypto_currency
-        result = await self._post("/product/rest/common/transports", body)
-        return result if isinstance(result, list) else []
+        try:
+            result = await self._post("/product/rest/common/transports", body)
+            return result if isinstance(result, list) else []
+        except httpx.HTTPStatusError as exc:
+            response_text = exc.response.text if exc.response is not None else ""
+            if (
+                exc.response is None
+                or exc.response.status_code != 500
+                or "Property or field 'clientId' cannot be found on object of type 'com.exscudo.vishnu.product.request.TransportsRequest'" not in response_text
+            ):
+                raise
+            logger.warning("O-Plata common/transports is broken on this environment, falling back to common/currencies")
+            currencies = await self.get_currencies(is_crypto_currency=is_crypto_currency)
+            normalized_currency_code = (currency_code or "").upper()
+            transports: List[Dict[str, Any]] = []
+            for currency in currencies:
+                currency_value = str(currency.get("currency") or "").upper()
+                if normalized_currency_code and currency_value != normalized_currency_code:
+                    continue
+                for transport in currency.get("transports") or []:
+                    if isinstance(transport, dict):
+                        transports.append(transport)
+            return transports
 
     async def get_limits(self, client_id: str, currency_code: str) -> Dict[str, Any]:
         return await self._post("/product/rest/common/limits", {"clientId": client_id, "currencyCode": currency_code})
@@ -344,6 +388,12 @@ class OPlataClient:
 
     async def get_transaction_payment(self, client_id: str, uuid: str) -> Dict[str, Any]:
         return await self._post("/product/rest/transaction/payment", {"clientId": client_id, "uuid": uuid})
+
+    async def confirm_payment(self, client_id: str, uuid: str) -> Dict[str, Any]:
+        return await self._post("/product/rest/payment/confirm", {"clientId": client_id, "uuid": uuid})
+
+    async def cancel_payment(self, client_id: str, uuid: str) -> Dict[str, Any]:
+        return await self._post("/product/rest/payment/cancel", {"clientId": client_id, "uuid": uuid})
 
     # ====== DEPOSITS ======
 

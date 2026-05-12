@@ -8,6 +8,7 @@ from app.integrations.oplata_client import oplata_client
 from app.models.card import Card
 from app.models.user import User
 from app.schemas.transaction import TransactionItem, TransactionListResponse
+from app.services.card_service import _client_id
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
@@ -40,7 +41,7 @@ async def get_card_transactions(
     if not card.offer_id:
         raise HTTPException(status_code=400, detail="Card has no ravanaServerId stored")
 
-    client_id = f"user_{current_user.id}"
+    client_id = _client_id(current_user)
     page_number = offset // limit if limit > 0 else 0
     try:
         response = await oplata_client.get_card_transaction_list(
@@ -97,9 +98,16 @@ async def get_transaction_detail(
         raise HTTPException(status_code=404, detail="Card not found")
     if not card.aifory_card_id:
         raise HTTPException(status_code=400, detail="Card has no external ID")
+    if not card.offer_id:
+        raise HTTPException(status_code=400, detail="Card has no ravanaServerId stored")
 
-    client_id = f"user_{current_user.id}"
+    client_id = _client_id(current_user)
     try:
-        return await oplata_client.get_transaction_payment(client_id, transaction_uuid)
+        return await oplata_client.get_card_transaction_details(
+            client_id=client_id,
+            card_id=card.aifory_card_id,
+            ravana_server_id=card.offer_id,
+            transaction_id=transaction_uuid,
+        )
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc))
