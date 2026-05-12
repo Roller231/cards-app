@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.database import AsyncSessionLocal
 from app.integrations.oplata_client import oplata_client
 from app.models.card import Card
 from app.models.order import Order
@@ -322,6 +323,101 @@ class CardService:
                 payment_uuid,
             )
 
+    async def _finalize_issue_follow_up(
+        self,
+        user_id: int,
+        order_id: int,
+        payment_uuid: str,
+        card_amount: float,
+        fixed_fee: float,
+    ) -> None:
+        async with AsyncSessionLocal() as db:
+            try:
+                user_result = await db.execute(select(User).where(User.id == user_id))
+                user = user_result.scalar_one_or_none()
+                order_result = await db.execute(
+                    select(Order).where(Order.id == order_id, Order.user_id == user_id)
+                )
+                order = order_result.scalar_one_or_none()
+                if not user or not order:
+                    logger.warning(
+                        "Skipping async issue follow-up: user_id=%s order_id=%s payment_uuid=%s not found",
+                        user_id,
+                        order_id,
+                        payment_uuid,
+                    )
+                    return
+
+                client_id = _client_id(user)
+                issue_payment = await self._follow_payment(client_id, payment_uuid, "issue")
+                if issue_payment:
+                    logger.info(
+                        "O-Plata final issue payment snapshot for %s: uuid=%s state=%s currentAction=%s",
+                        client_id,
+                        payment_uuid,
+                        issue_payment.get("state"),
+                        issue_payment.get("currentAction"),
+                    )
+                issue_state = str(issue_payment.get("state") or "").upper()
+                if issue_state in {"CANCELED", "FAILED", "REFUNDED"}:
+                    order.status = "failed"
+                    if order.card_id:
+                        linked_card = await self._resolve_card(db, user.id, str(order.card_id))
+                        linked_card.status = "failed"
+                        linked_card.card_status = 0
+                    try:
+                        await notify_card_issued(
+                            db=db, user=user,
+                            card_amount=card_amount,
+                            card_last4="",
+                            fee=fixed_fee,
+                            success=False,
+                            error_msg=issue_state or "Card issuance failed",
+                        )
+                    except Exception as _n:
+                        logger.debug("Card issue failure notification error: %s", _n)
+                    await db.commit()
+                    return
+
+                await self._wait_for_card_materialization(db, user, order, client_id, payment_uuid)
+
+                if order.card_id:
+                    linked_card = await self._resolve_card(db, user.id, str(order.card_id))
+                    if _card_is_active(linked_card.status):
+                        try:
+                            await notify_card_issued(
+                                db=db, user=user,
+                                card_amount=card_amount,
+                                card_last4=linked_card.last4 or "",
+                                fee=fixed_fee,
+                                success=True,
+                            )
+                        except Exception as _n:
+                            logger.debug("Card issue notification error: %s", _n)
+
+                await db.commit()
+            except Exception as exc:
+                if 'user' in locals() and user:
+                    try:
+                        await notify_card_issued(
+                            db=db, user=user,
+                            card_amount=card_amount,
+                            card_last4="",
+                            fee=fixed_fee,
+                            success=False,
+                            error_msg=str(exc),
+                        )
+                    except Exception as _n:
+                        logger.debug("Card issue exception notification error: %s", _n)
+                logger.error(
+                    "Async issue follow-up failed for user_id=%s order_id=%s payment_uuid=%s: %s",
+                    user_id,
+                    order_id,
+                    payment_uuid,
+                    exc,
+                )
+                await db.rollback()
+
     # ------------------------------------------------------------------
     # Offers (card types from O-Plata)
     # ------------------------------------------------------------------
@@ -516,6 +612,7 @@ class CardService:
         email: Optional[str] = None,
         document_number: Optional[str] = None,
         eager_placeholder_commit: bool = False,
+        defer_follow_up: bool = False,
     ) -> Dict[str, Any]:
         """Issue a virtual card via O-Plata for the given user."""
         ravana_server_id, type_uuid = _parse_offer_id(offer_id)
@@ -662,7 +759,7 @@ class CardService:
         )
         order.card_id = placeholder_card.id
         order.status = "processing"
-        if eager_placeholder_commit:
+        if eager_placeholder_commit or defer_follow_up:
             await db.commit()
             logger.info(
                 "Committed creating card placeholder for user_id=%s order_id=%s local_card_id=%s",
@@ -670,6 +767,18 @@ class CardService:
                 order.id,
                 placeholder_card.id,
             )
+
+        if defer_follow_up:
+            asyncio.create_task(
+                self._finalize_issue_follow_up(
+                    user_id=user.id,
+                    order_id=order.id,
+                    payment_uuid=payment_uuid,
+                    card_amount=float(card_amount),
+                    fixed_fee=float(fixed_fee),
+                )
+            )
+            return {"local_order_id": order.id, "partner_order_id": payment_uuid}
 
         # 7. Follow issue payment lifecycle and wait for card materialization in O-Plata
         issue_payment = await self._follow_payment(client_id, payment_uuid, "issue")
@@ -681,6 +790,22 @@ class CardService:
                 issue_payment.get("state"),
                 issue_payment.get("currentAction"),
             )
+        issue_state = str(issue_payment.get("state") or "").upper() if issue_payment else ""
+        if issue_state in {"CANCELED", "FAILED", "REFUNDED"}:
+            order.status = "failed"
+            if order.card_id:
+                linked_card = await self._resolve_card(db, user.id, str(order.card_id))
+                linked_card.status = "failed"
+                linked_card.card_status = 0
+            await notify_card_issued(
+                db=db, user=user,
+                card_amount=float(card_amount),
+                card_last4="",
+                fee=float(fixed_fee),
+                success=False,
+                error_msg=issue_state or "Card issuance failed",
+            )
+            raise ValueError(issue_state or "Card issuance failed")
         await self._wait_for_card_materialization(db, user, order, client_id, payment_uuid)
 
         # 8. Notify only when a concrete card record is already available locally

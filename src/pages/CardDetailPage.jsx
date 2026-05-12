@@ -83,12 +83,15 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
   const pan = requisites?.pan || card.cardNumber || ''
   const expiryRaw = requisites?.expiry || card.expiry || ''
   const cvvVal = requisites?.cvv || card.cvv || ''
+  const cardLast4 = String(card.last4 || '').trim()
+  const maskedCardSuffix = cardLast4 ? `•••• •••• •••• ${cardLast4}` : '•••• •••• •••• ••••'
+  const cardPreviewLabel = cardLast4 ? `***${cardLast4}` : (card?.status === 'creating' ? 'Creating' : 'Processing')
 
   const displayNumber = showCardNumber
     ? (pan
         ? `${pan.slice(0, 4)} ${pan.slice(4, 8)} ${pan.slice(8, 12)} ${pan.slice(12, 16)}`
-        : `•••• •••• •••• ${card.last4}`)
-    : `•••• •••• •••• ${card.last4}`
+        : maskedCardSuffix)
+    : maskedCardSuffix
 
   const displayExpiry = showCardNumber ? (expiryRaw || '•• / ••') : '•• / ••'
   const displayCvv = showCardNumber ? (cvvVal || '•••') : '•••'
@@ -211,7 +214,7 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
                   marginLeft: -3,
                 }}
               >
-                ***{card.last4}
+                {cardPreviewLabel}
               </div>
 
               <div
@@ -429,7 +432,8 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
       {/* Top-up Button */}
       <Section>
         <Button
-          onClick={() => setIsTopUpModalOpen(true)}
+          onClick={() => isCardActive && setIsTopUpModalOpen(true)}
+          disabled={!isCardActive}
           fullWidth
           style={{ borderRadius: 12, padding: '16px' }}
         >
@@ -458,7 +462,8 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
             </h2>
             <Button
               variant="icon"
-              onClick={() => onNavigateToHistory && onNavigateToHistory(card.last4)}
+              onClick={() => isCardActive && onNavigateToHistory && onNavigateToHistory(cardLast4)}
+              disabled={!isCardActive}
             >
               <div
                 style={{
@@ -466,6 +471,7 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
                   height: 28,
                   borderRadius: 14,
                   backgroundColor: '#F3F5F8',
+                  opacity: isCardActive ? 1 : 0.45,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -474,7 +480,7 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                   <path
                     d="M5 2l5 5-5 5"
-                    stroke="#111827"
+                    stroke={isCardActive ? '#111827' : '#9CA3AF'}
                     strokeWidth="1.8"
                     strokeLinecap="round"
                     strokeLinejoin="round"

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.user import User
 from app.schemas.card import (
@@ -15,6 +16,7 @@ from app.schemas.card import (
     IssueCardResponse,
 )
 from app.services.card_service import card_service
+from app.services.telegram_bot_service import notify_card_issued, notify_topup_result
 
 router = APIRouter(prefix="/cards", tags=["cards"])
 
@@ -40,11 +42,36 @@ async def issue_card(
             email=body.email,
             document_number=body.document_number,
             skip_balance_check=(body.payment_method == "sbp"),
+            defer_follow_up=True,
         )
         return IssueCardResponse(**result)
     except ValueError as exc:
+        try:
+            await notify_card_issued(
+                db=db,
+                user=current_user,
+                card_amount=float(body.amount or 0),
+                card_last4="",
+                fee=float(settings.ONLINE_ISSUE_FEE_USD),
+                success=False,
+                error_msg=str(exc),
+            )
+        except Exception:
+            pass
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
+        try:
+            await notify_card_issued(
+                db=db,
+                user=current_user,
+                card_amount=float(body.amount or 0),
+                card_last4="",
+                fee=float(settings.ONLINE_ISSUE_FEE_USD),
+                success=False,
+                error_msg=str(exc),
+            )
+        except Exception:
+            pass
         raise HTTPException(status_code=502, detail=str(exc))
 
 
@@ -128,6 +155,30 @@ async def deposit_card(
         )
         return IssueCardResponse(**result, message="Card top-up order created")
     except ValueError as exc:
+        try:
+            await notify_topup_result(
+                db=db,
+                user=current_user,
+                card_last4="",
+                amount=float(body.amount),
+                fee=0.0,
+                success=False,
+                error_msg=str(exc),
+            )
+        except Exception:
+            pass
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
+        try:
+            await notify_topup_result(
+                db=db,
+                user=current_user,
+                card_last4="",
+                amount=float(body.amount),
+                fee=0.0,
+                success=False,
+                error_msg=str(exc),
+            )
+        except Exception:
+            pass
         raise HTTPException(status_code=502, detail=str(exc))
