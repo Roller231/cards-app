@@ -40,12 +40,14 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
     if (refreshing) return
     if (touchStartY.current == null) return
     const dy = e.touches[0].clientY - touchStartY.current
-    if (dy <= 0) {
+    if (dy <= PULL_DEAD_ZONE) {
+      // Inside dead zone — ignore so casual small downward gestures don't trigger PTR.
       setPull(0)
       return
     }
-    // Add some resistance
-    const resisted = Math.min(PULL_MAX, dy * 0.5)
+    // Add some resistance after the dead zone.
+    const effective = dy - PULL_DEAD_ZONE
+    const resisted = Math.min(PULL_MAX, effective * 0.45)
     setPull(resisted)
   }, [refreshing])
 
