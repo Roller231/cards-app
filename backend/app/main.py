@@ -92,6 +92,9 @@ async def startup_db_client():
         # Check and update schema for existing tables
         await conn.run_sync(check_and_update_schema)
     asyncio.create_task(_poll_loop())
+    # Start persistent auto-topup worker (drains pending_auto_topups across restarts)
+    from app.services.card_service import card_service as _cs
+    asyncio.create_task(_cs.run_pending_auto_topups_worker())
     logger.info("Database tables created (if not existed) and schema updated")
 
 

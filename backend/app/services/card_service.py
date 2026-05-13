@@ -14,6 +14,7 @@ from app.core.database import AsyncSessionLocal
 from app.integrations.oplata_client import oplata_client
 from app.models.card import Card
 from app.models.order import Order
+from app.models.pending_auto_topup import PendingAutoTopup
 from app.models.user import User
 from app.services.telegram_bot_service import notify_card_issued, notify_card_transaction, notify_topup_result
 
@@ -378,6 +379,55 @@ class CardService:
         )
         return False
 
+    async def _enqueue_pending_auto_topup(
+        self,
+        db: AsyncSession,
+        user_id: int,
+        card_id: int,
+        aifory_card_id: str,
+        ravana_server_id: str,
+        amount: Decimal,
+        notify_on_success: bool = True,
+    ) -> Optional[PendingAutoTopup]:
+        """Insert a pending auto-topup row. Idempotent: skip if an active row exists."""
+        try:
+            amount_dec = Decimal(str(amount or 0))
+        except Exception:
+            amount_dec = Decimal("0")
+        if amount_dec <= 0 or not aifory_card_id or not ravana_server_id:
+            return None
+        # Idempotency: don't enqueue if a pending/in_progress row for the same card+amount exists.
+        existing = await db.execute(
+            select(PendingAutoTopup).where(
+                PendingAutoTopup.card_id == card_id,
+                PendingAutoTopup.status.in_(["pending", "in_progress"]),
+            )
+        )
+        if existing.scalar_one_or_none() is not None:
+            logger.info(
+                "Auto-topup queue: skipping duplicate for card_id=%s (pending row already exists)",
+                card_id,
+            )
+            return None
+        row = PendingAutoTopup(
+            user_id=user_id,
+            card_id=card_id,
+            aifory_card_id=aifory_card_id,
+            ravana_server_id=ravana_server_id,
+            amount=amount_dec,
+            attempts=0,
+            max_attempts=10,
+            status="pending",
+            notify_on_success=1 if notify_on_success else 0,
+        )
+        db.add(row)
+        await db.flush()
+        logger.info(
+            "Auto-topup queued: id=%s user_id=%s card_id=%s aifory_card_id=%s amount=%s",
+            row.id, user_id, card_id, aifory_card_id, amount_dec,
+        )
+        return row
+
     async def _auto_topup_after_issue(self, client_id: str, card: Card, amount: Decimal) -> bool:
         """Top-up freshly issued card with `amount` from the user's O-Plata wallet.
 
@@ -580,29 +630,22 @@ class CardService:
 
                 if order.card_id:
                     linked_card = await self._resolve_card(db, user.id, str(order.card_id))
-                    # Auto-topup polls O-Plata directly and waits for ACTIVE itself,
-                    # so we only require the external id to be present here.
-                    if linked_card.aifory_card_id and Decimal(str(card_amount)) > 0:
-                        topup_ok = await self._auto_topup_after_issue(
-                            client_id=client_id,
-                            card=linked_card,
+                    # Enqueue auto-topup into a persistent table; a background
+                    # worker will pick it up, wait for ACTIVE state on O-Plata and
+                    # fire topup_card. Survives backend restarts.
+                    if (
+                        linked_card.aifory_card_id
+                        and linked_card.offer_id
+                        and Decimal(str(card_amount)) > 0
+                    ):
+                        await self._enqueue_pending_auto_topup(
+                            db=db,
+                            user_id=user.id,
+                            card_id=linked_card.id,
+                            aifory_card_id=linked_card.aifory_card_id,
+                            ravana_server_id=linked_card.offer_id,
                             amount=Decimal(str(card_amount)),
                         )
-                        if topup_ok:
-                            try:
-                                refreshed = await db.execute(select(Card).where(Card.id == linked_card.id))
-                                linked_card = refreshed.scalar_one_or_none() or linked_card
-                            except Exception:
-                                pass
-                            logger.info(
-                                "Auto-topup after issue completed for user_id=%s card_id=%s amount=%s",
-                                user.id, linked_card.aifory_card_id, card_amount,
-                            )
-                        else:
-                            logger.warning(
-                                "Auto-topup after issue did NOT complete for user_id=%s card_id=%s amount=%s",
-                                user.id, linked_card.aifory_card_id, card_amount,
-                            )
                     if _card_is_active(linked_card.status):
                         try:
                             await notify_card_issued(
@@ -1268,26 +1311,22 @@ class CardService:
             raise ValueError(issue_state or "Card issuance failed")
         await self._wait_for_card_materialization(db, user, order, client_id, payment_uuid)
 
-        # 7b. Auto top-up the freshly issued card with the user-requested amount.
+        # 7b. Enqueue auto-topup into the persistent queue; worker will fire it.
         if order.card_id:
             materialized_card = await self._resolve_card(db, user.id, str(order.card_id))
-            # Auto-topup itself waits for ACTIVE on O-Plata; just require aifory_card_id.
-            if materialized_card.aifory_card_id and card_amount > 0:
-                topup_ok = await self._auto_topup_after_issue(
-                    client_id=client_id,
-                    card=materialized_card,
+            if (
+                materialized_card.aifory_card_id
+                and materialized_card.offer_id
+                and card_amount > 0
+            ):
+                await self._enqueue_pending_auto_topup(
+                    db=db,
+                    user_id=user.id,
+                    card_id=materialized_card.id,
+                    aifory_card_id=materialized_card.aifory_card_id,
+                    ravana_server_id=materialized_card.offer_id,
                     amount=card_amount,
                 )
-                if topup_ok:
-                    logger.info(
-                        "Auto-topup after issue completed for user_id=%s card_id=%s amount=%s",
-                        user.id, materialized_card.aifory_card_id, card_amount,
-                    )
-                else:
-                    logger.warning(
-                        "Auto-topup after issue did NOT complete for user_id=%s card_id=%s amount=%s",
-                        user.id, materialized_card.aifory_card_id, card_amount,
-                    )
 
         # 8. Notify only when a concrete card record is already available locally
         if order.card_id:
@@ -1909,6 +1948,144 @@ class CardService:
                 skip_balance_check=skip_balance_check,
             )
         )
+
+    # ------------------------------------------------------------------
+    # Pending auto-topup worker (persistent queue, survives restarts)
+    # ------------------------------------------------------------------
+
+    async def _process_pending_auto_topup_row(self, row_id: int) -> None:
+        """Process a single PendingAutoTopup row with its own DB session."""
+        async with AsyncSessionLocal() as db:
+            try:
+                res = await db.execute(select(PendingAutoTopup).where(PendingAutoTopup.id == row_id))
+                row = res.scalar_one_or_none()
+                if not row or row.status not in ("pending", "in_progress"):
+                    return
+                if row.attempts >= row.max_attempts:
+                    row.status = "failed"
+                    row.last_error = (row.last_error or "")[:400] + " [max_attempts reached]"
+                    await db.commit()
+                    return
+                row.status = "in_progress"
+                row.attempts = (row.attempts or 0) + 1
+                await db.commit()
+
+                user_res = await db.execute(select(User).where(User.id == row.user_id))
+                user = user_res.scalar_one_or_none()
+                if not user:
+                    row.status = "failed"
+                    row.last_error = "user not found"
+                    await db.commit()
+                    return
+                client_id = _client_id(user)
+
+                card_res = await db.execute(select(Card).where(Card.id == row.card_id))
+                card = card_res.scalar_one_or_none()
+                if not card:
+                    # Card record may not exist locally yet; construct a stub.
+                    class _Stub:  # noqa
+                        pass
+                    card = _Stub()
+                    card.aifory_card_id = row.aifory_card_id
+                    card.offer_id = row.ravana_server_id
+
+                topup_ok = await self._auto_topup_after_issue(
+                    client_id=client_id,
+                    card=card,
+                    amount=Decimal(str(row.amount)),
+                )
+
+                # Re-fetch row (separate session may be needed if connection dropped).
+                res2 = await db.execute(select(PendingAutoTopup).where(PendingAutoTopup.id == row_id))
+                row2 = res2.scalar_one_or_none()
+                if not row2:
+                    return
+                if topup_ok:
+                    row2.status = "completed"
+                    row2.last_error = None
+                    await db.commit()
+                    logger.info(
+                        "Auto-topup worker: completed row_id=%s user_id=%s card_aif=%s amount=%s",
+                        row_id, row.user_id, row.aifory_card_id, row.amount,
+                    )
+                    if row2.notify_on_success:
+                        try:
+                            # Refresh card from DB to get last4 after sync.
+                            try:
+                                await self.sync_cards(db, user)
+                                await db.commit()
+                            except Exception as _e:
+                                logger.debug("Worker post-topup sync_cards failed: %s", _e)
+                            card_res2 = await db.execute(select(Card).where(Card.id == row.card_id))
+                            fresh_card = card_res2.scalar_one_or_none()
+                            await notify_card_issued(
+                                db=db, user=user,
+                                card_amount=float(row.amount),
+                                card_last4=(fresh_card.last4 if fresh_card else "") or "",
+                                fee=float(settings.ONLINE_ISSUE_FEE_USD),
+                                success=True,
+                            )
+                        except Exception as _n:
+                            logger.debug("Worker post-topup notification failed: %s", _n)
+                else:
+                    # Schedule retry: leave status='pending' so worker picks it up again.
+                    row2.status = "pending"
+                    row2.last_error = (row2.last_error or "")[:400]
+                    await db.commit()
+                    logger.warning(
+                        "Auto-topup worker: row_id=%s did NOT complete (attempt %s/%s)",
+                        row_id, row2.attempts, row2.max_attempts,
+                    )
+            except Exception as exc:
+                logger.warning("Auto-topup worker error for row_id=%s: %s", row_id, exc)
+                try:
+                    res_e = await db.execute(select(PendingAutoTopup).where(PendingAutoTopup.id == row_id))
+                    row_e = res_e.scalar_one_or_none()
+                    if row_e:
+                        row_e.status = "pending"
+                        row_e.last_error = str(exc)[:400]
+                        await db.commit()
+                except Exception:
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
+
+    async def run_pending_auto_topups_worker(self, poll_interval_seconds: float = 30.0) -> None:
+        """Long-running background loop that drains the pending_auto_topups queue.
+
+        Started from app lifespan in main.py. Picks up pending rows, processes
+        them one-at-a-time per row id (so several rows can run concurrently via
+        independent tasks), and never exits until the process dies.
+        """
+        logger.info("Pending auto-topup worker STARTED (poll_interval=%ss)", poll_interval_seconds)
+        running_ids: set[int] = set()
+        while True:
+            try:
+                async with AsyncSessionLocal() as db:
+                    res = await db.execute(
+                        select(PendingAutoTopup).where(
+                            PendingAutoTopup.status == "pending",
+                            PendingAutoTopup.attempts < PendingAutoTopup.max_attempts,
+                        ).order_by(PendingAutoTopup.created_at.asc()).limit(20)
+                    )
+                    rows = res.scalars().all()
+                for row in rows:
+                    if row.id in running_ids:
+                        continue
+                    running_ids.add(row.id)
+
+                    def _wrap(rid: int):
+                        async def _runner():
+                            try:
+                                await self._process_pending_auto_topup_row(rid)
+                            finally:
+                                running_ids.discard(rid)
+                        return _runner
+                    asyncio.create_task(_wrap(row.id)())
+            except Exception as exc:
+                logger.warning("Pending auto-topup worker loop error: %s", exc)
+            await asyncio.sleep(poll_interval_seconds)
 
 
 card_service = CardService()
