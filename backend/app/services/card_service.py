@@ -329,8 +329,62 @@ class CardService:
             )
         return payment_data
 
+    async def _wait_for_card_active_in_oplata(
+        self,
+        client_id: str,
+        card_external_id: str,
+        ravana_server_id: str,
+        max_attempts: int = 600,
+        sleep_seconds: float = 2.0,
+    ) -> bool:
+        """Poll O-Plata directly until the given card's state is ACTIVE.
+
+        Up to ``max_attempts × sleep_seconds`` seconds (default ~20 min).
+        Returns True once the card is ACTIVE, False if the window is exhausted.
+        """
+        for attempt in range(max_attempts):
+            try:
+                providers = await oplata_client.get_virtual_card_list(client_id)
+            except Exception as exc:
+                logger.debug(
+                    "wait_for_card_active: provider list fetch failed (attempt=%s) for %s: %s",
+                    attempt, client_id, exc,
+                )
+                await asyncio.sleep(sleep_seconds)
+                continue
+            for provider in providers or []:
+                pid = str(provider.get("ravanaServerId") or provider.get("ravanaId") or "")
+                if pid != ravana_server_id:
+                    continue
+                for raw in provider.get("cardsList") or []:
+                    if str(raw.get("cardId") or "") == card_external_id:
+                        state = str(raw.get("state") or "").upper()
+                        if state == "ACTIVE":
+                            logger.info(
+                                "wait_for_card_active: card %s is ACTIVE on %s after %s attempts",
+                                card_external_id, ravana_server_id, attempt + 1,
+                            )
+                            return True
+                        if attempt % 10 == 0:
+                            logger.info(
+                                "wait_for_card_active: card %s on %s state=%s (attempt %s/%s)",
+                                card_external_id, ravana_server_id, state, attempt + 1, max_attempts,
+                            )
+                        break
+            await asyncio.sleep(sleep_seconds)
+        logger.warning(
+            "wait_for_card_active: card %s on %s did not reach ACTIVE within %s attempts",
+            card_external_id, ravana_server_id, max_attempts,
+        )
+        return False
+
     async def _auto_topup_after_issue(self, client_id: str, card: Card, amount: Decimal) -> bool:
         """Top-up freshly issued card with `amount` from the user's O-Plata wallet.
+
+        Strategy:
+        1. Wait until the card actually reports state=ACTIVE in O-Plata (up to ~20 min).
+        2. Fire topup_card; retry up to 3 times on transient errors.
+        3. Follow the resulting payment to COMPLETED.
 
         Returns True if the topup payment reached COMPLETED, False otherwise.
         Never raises; logs warnings on failure so the issue flow stays alive.
@@ -347,35 +401,69 @@ class CardService:
                 client_id, amount_dec,
             )
             return False
-        try:
-            topup_result = await oplata_client.topup_card(
-                client_id=client_id,
-                card_id=card.aifory_card_id,
-                ravana_server_id=card.offer_id,
-                amount=float(amount_dec),
-            )
-        except Exception as exc:
-            logger.warning(
-                "Auto-topup after issue: topup_card failed for client=%s card=%s amount=%s: %s",
-                client_id, card.aifory_card_id, amount_dec, exc,
-            )
-            return False
-        topup_uuid = ""
-        if isinstance(topup_result, dict):
-            topup_uuid = str(topup_result.get("uuid") or topup_result.get("id") or "")
-        logger.info(
-            "Auto-topup after issue: created uuid=%s client=%s card=%s amount=%s",
-            topup_uuid, client_id, card.aifory_card_id, amount_dec,
+
+        # 1. Wait for ACTIVE state on O-Plata directly (does not depend on local sync).
+        is_active = await self._wait_for_card_active_in_oplata(
+            client_id=client_id,
+            card_external_id=card.aifory_card_id,
+            ravana_server_id=card.offer_id,
         )
-        if not topup_uuid:
+        if not is_active:
             return False
+
+        # 2. Fire topup_card with retries on transient errors.
+        topup_uuid = ""
+        last_error: Optional[Exception] = None
+        for attempt in range(3):
+            try:
+                topup_result = await oplata_client.topup_card(
+                    client_id=client_id,
+                    card_id=card.aifory_card_id,
+                    ravana_server_id=card.offer_id,
+                    amount=float(amount_dec),
+                )
+            except Exception as exc:
+                last_error = exc
+                logger.warning(
+                    "Auto-topup attempt %s/3 failed for client=%s card=%s amount=%s: %s",
+                    attempt + 1, client_id, card.aifory_card_id, amount_dec, exc,
+                )
+                await asyncio.sleep(3)
+                continue
+            if isinstance(topup_result, dict):
+                topup_uuid = str(topup_result.get("uuid") or topup_result.get("id") or "")
+            if topup_uuid:
+                logger.info(
+                    "Auto-topup created uuid=%s client=%s card=%s amount=%s (attempt %s)",
+                    topup_uuid, client_id, card.aifory_card_id, amount_dec, attempt + 1,
+                )
+                break
+            logger.warning(
+                "Auto-topup attempt %s/3 returned no uuid for client=%s card=%s",
+                attempt + 1, client_id, card.aifory_card_id,
+            )
+            await asyncio.sleep(3)
+        if not topup_uuid:
+            logger.warning(
+                "Auto-topup gave up after 3 attempts for client=%s card=%s last_error=%s",
+                client_id, card.aifory_card_id, last_error,
+            )
+            return False
+
+        # 3. Follow payment to COMPLETED.
         try:
             payment_data = await self._follow_payment(client_id, topup_uuid, "auto-topup")
         except Exception as exc:
             logger.warning("Auto-topup follow_payment failed for uuid=%s: %s", topup_uuid, exc)
             return False
         state = str((payment_data or {}).get("state") or "").upper()
-        return state == "COMPLETED"
+        if state != "COMPLETED":
+            logger.warning(
+                "Auto-topup did not COMPLETE for client=%s card=%s uuid=%s state=%s",
+                client_id, card.aifory_card_id, topup_uuid, state,
+            )
+            return False
+        return True
 
     async def _wait_for_card_materialization(
         self,
@@ -492,12 +580,9 @@ class CardService:
 
                 if order.card_id:
                     linked_card = await self._resolve_card(db, user.id, str(order.card_id))
-                    # Auto top-up only when the card is fully ACTIVE on O-Plata.
-                    if (
-                        linked_card.aifory_card_id
-                        and _card_is_active(linked_card.status)
-                        and Decimal(str(card_amount)) > 0
-                    ):
+                    # Auto-topup polls O-Plata directly and waits for ACTIVE itself,
+                    # so we only require the external id to be present here.
+                    if linked_card.aifory_card_id and Decimal(str(card_amount)) > 0:
                         topup_ok = await self._auto_topup_after_issue(
                             client_id=client_id,
                             card=linked_card,
@@ -1186,11 +1271,8 @@ class CardService:
         # 7b. Auto top-up the freshly issued card with the user-requested amount.
         if order.card_id:
             materialized_card = await self._resolve_card(db, user.id, str(order.card_id))
-            if (
-                materialized_card.aifory_card_id
-                and _card_is_active(materialized_card.status)
-                and card_amount > 0
-            ):
+            # Auto-topup itself waits for ACTIVE on O-Plata; just require aifory_card_id.
+            if materialized_card.aifory_card_id and card_amount > 0:
                 topup_ok = await self._auto_topup_after_issue(
                     client_id=client_id,
                     card=materialized_card,
