@@ -63,21 +63,29 @@ async def issue_card(
     return IssueCardResponse(local_order_id=0, partner_order_id="")
 
 
-@router.get("", response_model=List[CardResponse], summary="Get current user's cards (returns instantly; O-Plata sync runs in background)")
+@router.get("", response_model=List[CardResponse], summary="Get current user's cards (short sync with timeout, falls back to local)")
 async def get_cards(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # Trigger O-Plata sync in the background so the next poll has fresh data,
-    # but do not block the response: the main page must render immediately.
+    import asyncio as _asyncio
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
+    # Start the sync in the background (own DB session). Briefly wait for it
+    # so freshly created cards usually appear on this very call. If O-Plata is
+    # slow, fall through — the background task continues running and the next
+    # /cards poll will see the result.
     try:
-        card_service.schedule_sync_in_background(current_user.id)
+        sync_task = _asyncio.create_task(card_service._run_sync_in_background(current_user.id))
+        try:
+            await _asyncio.wait_for(_asyncio.shield(sync_task), timeout=5.0)
+        except _asyncio.TimeoutError:
+            _log.info(
+                "sync_cards inline exceeded 5s for user_id=%s; continuing in background",
+                current_user.id,
+            )
     except Exception as exc:
-        import logging
-        logging.getLogger(__name__).warning(
-            "schedule_sync_in_background failed for user_id=%s: %s",
-            current_user.id, exc,
-        )
+        _log.warning("sync schedule failed for user_id=%s: %s", current_user.id, exc)
     try:
         cards = await card_service.get_user_cards(db, current_user.id)
     except Exception as exc:
