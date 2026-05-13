@@ -317,6 +317,54 @@ class CardService:
             )
         return payment_data
 
+    async def _auto_topup_after_issue(self, client_id: str, card: Card, amount: Decimal) -> bool:
+        """Top-up freshly issued card with `amount` from the user's O-Plata wallet.
+
+        Returns True if the topup payment reached COMPLETED, False otherwise.
+        Never raises; logs warnings on failure so the issue flow stays alive.
+        """
+        try:
+            amount_dec = Decimal(str(amount or 0))
+        except Exception:
+            amount_dec = Decimal("0")
+        if amount_dec <= 0:
+            return True
+        if not card or not card.aifory_card_id or not card.offer_id:
+            logger.info(
+                "Skipping auto-topup: card not materialized yet client=%s amount=%s",
+                client_id, amount_dec,
+            )
+            return False
+        try:
+            topup_result = await oplata_client.topup_card(
+                client_id=client_id,
+                card_id=card.aifory_card_id,
+                ravana_server_id=card.offer_id,
+                amount=float(amount_dec),
+            )
+        except Exception as exc:
+            logger.warning(
+                "Auto-topup after issue: topup_card failed for client=%s card=%s amount=%s: %s",
+                client_id, card.aifory_card_id, amount_dec, exc,
+            )
+            return False
+        topup_uuid = ""
+        if isinstance(topup_result, dict):
+            topup_uuid = str(topup_result.get("uuid") or topup_result.get("id") or "")
+        logger.info(
+            "Auto-topup after issue: created uuid=%s client=%s card=%s amount=%s",
+            topup_uuid, client_id, card.aifory_card_id, amount_dec,
+        )
+        if not topup_uuid:
+            return False
+        try:
+            payment_data = await self._follow_payment(client_id, topup_uuid, "auto-topup")
+        except Exception as exc:
+            logger.warning("Auto-topup follow_payment failed for uuid=%s: %s", topup_uuid, exc)
+            return False
+        state = str((payment_data or {}).get("state") or "").upper()
+        return state == "COMPLETED"
+
     async def _wait_for_card_materialization(
         self,
         db: AsyncSession,
@@ -325,16 +373,30 @@ class CardService:
         client_id: str,
         payment_uuid: str,
     ) -> None:
-        for _attempt in range(15):
+        # Wait for the card to be both materialized (has aifory_card_id) AND active.
+        # Auto-topup needs an ACTIVE card; firing it during CREATING/PROCESSING state
+        # results in silent failures or stuck payments on the O-Plata side.
+        got_external_id = False
+        for _attempt in range(400):
             try:
                 await self.sync_cards(db, user)
             except Exception as exc:
                 logger.debug("Post-issue sync failed for %s: %s", client_id, exc)
             if order.card_id:
                 linked_card = await self._resolve_card(db, user.id, str(order.card_id))
-                if linked_card.aifory_card_id:
+                if linked_card.aifory_card_id and not got_external_id:
+                    got_external_id = True
                     logger.info(
-                        "O-Plata card materialized for %s: payment_uuid=%s local_card_id=%s external_card_id=%s",
+                        "O-Plata card got external id for %s: payment_uuid=%s local_card_id=%s external_card_id=%s status=%s",
+                        client_id,
+                        payment_uuid,
+                        order.card_id,
+                        linked_card.aifory_card_id,
+                        linked_card.status,
+                    )
+                if linked_card.aifory_card_id and _card_is_active(linked_card.status):
+                    logger.info(
+                        "O-Plata card materialized & active for %s: payment_uuid=%s local_card_id=%s external_card_id=%s",
                         client_id,
                         payment_uuid,
                         order.card_id,
@@ -418,6 +480,32 @@ class CardService:
 
                 if order.card_id:
                     linked_card = await self._resolve_card(db, user.id, str(order.card_id))
+                    # Auto top-up only when the card is fully ACTIVE on O-Plata.
+                    if (
+                        linked_card.aifory_card_id
+                        and _card_is_active(linked_card.status)
+                        and Decimal(str(card_amount)) > 0
+                    ):
+                        topup_ok = await self._auto_topup_after_issue(
+                            client_id=client_id,
+                            card=linked_card,
+                            amount=Decimal(str(card_amount)),
+                        )
+                        if topup_ok:
+                            try:
+                                refreshed = await db.execute(select(Card).where(Card.id == linked_card.id))
+                                linked_card = refreshed.scalar_one_or_none() or linked_card
+                            except Exception:
+                                pass
+                            logger.info(
+                                "Auto-topup after issue completed for user_id=%s card_id=%s amount=%s",
+                                user.id, linked_card.aifory_card_id, card_amount,
+                            )
+                        else:
+                            logger.warning(
+                                "Auto-topup after issue did NOT complete for user_id=%s card_id=%s amount=%s",
+                                user.id, linked_card.aifory_card_id, card_amount,
+                            )
                     if _card_is_active(linked_card.status):
                         try:
                             await notify_card_issued(
@@ -969,6 +1057,9 @@ class CardService:
         card_amount = Decimal(str(amount or 0))
         fixed_fee = Decimal(str(settings.ONLINE_ISSUE_FEE_USD))
         user_total = card_amount + fixed_fee
+        if bool(settings.ISSUE_APPLY_TOPUP_MARKUP):
+            markup_percent = Decimal(str(settings.ONLINE_TOPUP_MARKUP_PERCENT))
+            user_total += card_amount * markup_percent / Decimal("100")
 
         # 3. Check user balance
         if not skip_balance_check and Decimal(str(user.balance)) < user_total:
@@ -1079,6 +1170,30 @@ class CardService:
             )
             raise ValueError(issue_state or "Card issuance failed")
         await self._wait_for_card_materialization(db, user, order, client_id, payment_uuid)
+
+        # 7b. Auto top-up the freshly issued card with the user-requested amount.
+        if order.card_id:
+            materialized_card = await self._resolve_card(db, user.id, str(order.card_id))
+            if (
+                materialized_card.aifory_card_id
+                and _card_is_active(materialized_card.status)
+                and card_amount > 0
+            ):
+                topup_ok = await self._auto_topup_after_issue(
+                    client_id=client_id,
+                    card=materialized_card,
+                    amount=card_amount,
+                )
+                if topup_ok:
+                    logger.info(
+                        "Auto-topup after issue completed for user_id=%s card_id=%s amount=%s",
+                        user.id, materialized_card.aifory_card_id, card_amount,
+                    )
+                else:
+                    logger.warning(
+                        "Auto-topup after issue did NOT complete for user_id=%s card_id=%s amount=%s",
+                        user.id, materialized_card.aifory_card_id, card_amount,
+                    )
 
         # 8. Notify only when a concrete card record is already available locally
         if order.card_id:
@@ -1449,17 +1564,36 @@ class CardService:
         elif topup_payment_state in {"CANCELED", "FAILED", "REFUNDED"}:
             order.status = "failed"
 
-        try:
-            await notify_topup_result(
-                db=db, user=user,
-                card_last4=card.last4 or "",
-                amount=float(amount),
-                fee=float(our_profit),
-                success=topup_payment_state == "COMPLETED",
-                error_msg="" if topup_payment_state == "COMPLETED" else (topup_payment_state or "Top-up payment is still pending"),
+        # Only notify on terminal states. Intermediate states like WITHDRAWAL_SENT /
+        # DEPOSIT_SENT mean the payment is still in progress, not a failure.
+        if topup_payment_state == "COMPLETED":
+            try:
+                await notify_topup_result(
+                    db=db, user=user,
+                    card_last4=card.last4 or "",
+                    amount=float(amount),
+                    fee=float(our_profit),
+                    success=True,
+                )
+            except Exception as _n:
+                logger.debug("Topup notification error: %s", _n)
+        elif topup_payment_state in {"CANCELED", "FAILED", "REFUNDED"}:
+            try:
+                await notify_topup_result(
+                    db=db, user=user,
+                    card_last4=card.last4 or "",
+                    amount=float(amount),
+                    fee=float(our_profit),
+                    success=False,
+                    error_msg=topup_payment_state or "Top-up failed",
+                )
+            except Exception as _n:
+                logger.debug("Topup notification error: %s", _n)
+        else:
+            logger.info(
+                "Topup still in progress (state=%s) for user_id=%s card=%s uuid=%s: notification deferred",
+                topup_payment_state, user.id, card.aifory_card_id, payment_uuid,
             )
-        except Exception as _n:
-            logger.debug("Topup notification error: %s", _n)
 
         return {"local_order_id": order.id, "partner_order_id": payment_uuid}
 
@@ -1562,6 +1696,25 @@ class CardService:
                         )
                 except Exception as _n:
                     logger.debug("Background issue failure notification error: %s", _n)
+
+    async def _run_sync_in_background(self, user_id: int) -> None:
+        async with AsyncSessionLocal() as db:
+            try:
+                user_result = await db.execute(select(User).where(User.id == user_id))
+                user = user_result.scalar_one_or_none()
+                if not user:
+                    return
+                await self.sync_cards(db, user)
+                await db.commit()
+            except Exception as exc:
+                logger.warning("Background sync_cards failed for user_id=%s: %s", user_id, exc)
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+
+    def schedule_sync_in_background(self, user_id: int) -> None:
+        asyncio.create_task(self._run_sync_in_background(user_id=user_id))
 
     def schedule_issue_in_background(
         self,

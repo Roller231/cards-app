@@ -63,18 +63,19 @@ async def issue_card(
     return IssueCardResponse(local_order_id=0, partner_order_id="")
 
 
-@router.get("", response_model=List[CardResponse], summary="Get current user's cards (syncs with O-Plata first)")
+@router.get("", response_model=List[CardResponse], summary="Get current user's cards (returns instantly; O-Plata sync runs in background)")
 async def get_cards(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # Trigger O-Plata sync in the background so the next poll has fresh data,
+    # but do not block the response: the main page must render immediately.
     try:
-        await card_service.sync_cards(db, current_user)
+        card_service.schedule_sync_in_background(current_user.id)
     except Exception as exc:
-        # Never block the app entry on a sync failure: fall back to local cards.
         import logging
         logging.getLogger(__name__).warning(
-            "sync_cards failed for user_id=%s, returning local cards: %s",
+            "schedule_sync_in_background failed for user_id=%s: %s",
             current_user.id, exc,
         )
     try:

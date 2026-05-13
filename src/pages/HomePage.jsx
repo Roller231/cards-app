@@ -19,7 +19,7 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
   const isOnlinePlusExpanded = expandedCard === 'online-plus'
 
   return (
-    <div className="flex-1 flex flex-col pb-10">
+    <div className="flex-1 flex flex-col pb-24">
       <Section>
         <Card padding="24px 24px 0 24px">
           <div className="flex items-start justify-between">
@@ -115,7 +115,7 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
                 marginLeft: -24,
                 marginRight: -24,
                 paddingLeft: 24,
-                paddingRight: 24,
+                paddingRight: 120,
                 scrollbarWidth: 'none',
                 msOverflowStyle: 'none',
               }}
