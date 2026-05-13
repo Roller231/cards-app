@@ -1802,16 +1802,19 @@ class CardService:
                     logger.debug("Background issue failure notification error: %s", _n)
 
     async def _run_sync_in_background(self, user_id: int) -> None:
+        logger.info("Background sync_cards START for user_id=%s", user_id)
         async with AsyncSessionLocal() as db:
             try:
                 user_result = await db.execute(select(User).where(User.id == user_id))
                 user = user_result.scalar_one_or_none()
                 if not user:
+                    logger.warning("Background sync_cards: user_id=%s not found", user_id)
                     return
                 await self.sync_cards(db, user)
                 await db.commit()
+                logger.info("Background sync_cards DONE for user_id=%s", user_id)
             except Exception as exc:
-                logger.warning("Background sync_cards failed for user_id=%s: %s", user_id, exc)
+                logger.warning("Background sync_cards FAILED for user_id=%s: %s", user_id, exc)
                 try:
                     await db.rollback()
                 except Exception:
