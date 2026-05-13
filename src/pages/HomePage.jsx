@@ -8,8 +8,9 @@ import { H2, H3, H4, Description } from '../components/ui/Typography'
 import { useDragScroll } from '../hooks/useDragScroll'
 import { TxIcon } from './HistoryPage'
 
-const PULL_THRESHOLD = 70
-const PULL_MAX = 120
+const PULL_THRESHOLD = 120
+const PULL_MAX = 180
+const PULL_DEAD_ZONE = 30
 
 function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNavigateToIssueCard, onCardClick, onNavigateToHistory, commissions = {}, cardsLoading = false, transactionsLoading = false, onRefresh }) {
   const [expandedCard, setExpandedCard] = useState(null)
