@@ -120,6 +120,18 @@ def _validation_status_requires_data(status: Any) -> bool:
 
 
 class CardService:
+    # Per-user lock to serialize sync_cards calls and avoid race-condition
+    # IntegrityError on cards.aifory_card_id when /cards bg sync and the
+    # post-issue follow-up poll run concurrently.
+    _sync_locks: Dict[int, asyncio.Lock] = {}
+
+    @classmethod
+    def _get_sync_lock(cls, user_id: int) -> asyncio.Lock:
+        lock = cls._sync_locks.get(user_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            cls._sync_locks[user_id] = lock
+        return lock
 
     async def _find_processing_placeholder_card(
         self,
@@ -1217,7 +1229,17 @@ class CardService:
     # ------------------------------------------------------------------
 
     async def sync_cards(self, db: AsyncSession, user: User) -> List[Card]:
-        """Pull all virtual cards from O-Plata into local DB."""
+        """Pull all virtual cards from O-Plata into local DB.
+
+        Serialised per-user via asyncio.Lock to avoid concurrent INSERTs racing
+        on cards.aifory_card_id (which is UNIQUE) when multiple sync paths run
+        in parallel (background /cards sync, deferred issue follow-up poll, etc.).
+        """
+        lock = self._get_sync_lock(user.id)
+        async with lock:
+            return await self._sync_cards_impl(db, user)
+
+    async def _sync_cards_impl(self, db: AsyncSession, user: User) -> List[Card]:
         client_id = _client_id(user)
         # Lazily register the user's O-Plata client (idempotent) so listing
         # endpoints don't return 403 "Access denied for client" on first access.
