@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
 import Section from '../components/ui/Section'
@@ -8,7 +8,10 @@ import { H2, H3, H4, Description } from '../components/ui/Typography'
 import { useDragScroll } from '../hooks/useDragScroll'
 import { TxIcon } from './HistoryPage'
 
-function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNavigateToIssueCard, onCardClick, onNavigateToHistory, commissions = {}, cardsLoading = false, transactionsLoading = false }) {
+const PULL_THRESHOLD = 70
+const PULL_MAX = 120
+
+function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNavigateToIssueCard, onCardClick, onNavigateToHistory, commissions = {}, cardsLoading = false, transactionsLoading = false, onRefresh }) {
   const [expandedCard, setExpandedCard] = useState(null)
   const scrollRef = useDragScroll()
   const font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif'
@@ -18,8 +21,102 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
   const isOnlineExpanded = expandedCard === 'online'
   const isOnlinePlusExpanded = expandedCard === 'online-plus'
 
+  // Pull-to-refresh state
+  const [pull, setPull] = useState(0)
+  const [refreshing, setRefreshing] = useState(false)
+  const touchStartY = useRef(null)
+
+  const handleTouchStart = useCallback((e) => {
+    if (refreshing) return
+    if ((window.scrollY || document.documentElement.scrollTop || 0) > 0) {
+      touchStartY.current = null
+      return
+    }
+    touchStartY.current = e.touches[0].clientY
+  }, [refreshing])
+
+  const handleTouchMove = useCallback((e) => {
+    if (refreshing) return
+    if (touchStartY.current == null) return
+    const dy = e.touches[0].clientY - touchStartY.current
+    if (dy <= 0) {
+      setPull(0)
+      return
+    }
+    // Add some resistance
+    const resisted = Math.min(PULL_MAX, dy * 0.5)
+    setPull(resisted)
+  }, [refreshing])
+
+  const handleTouchEnd = useCallback(async () => {
+    if (refreshing) return
+    const dist = pull
+    touchStartY.current = null
+    if (dist >= PULL_THRESHOLD && typeof onRefresh === 'function') {
+      setRefreshing(true)
+      setPull(PULL_THRESHOLD)
+      try {
+        await onRefresh()
+      } catch {}
+      setRefreshing(false)
+      setPull(0)
+    } else {
+      setPull(0)
+    }
+  }, [pull, refreshing, onRefresh])
+
+  const indicatorOffset = refreshing ? PULL_THRESHOLD : pull
+  const indicatorOpacity = Math.min(1, pull / PULL_THRESHOLD)
+  const indicatorRotation = Math.min(360, (pull / PULL_THRESHOLD) * 360)
+
   return (
-    <div className="flex-1 flex flex-col pb-24">
+    <div
+      className="flex-1 flex flex-col pb-24"
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
+      style={{ touchAction: 'pan-y' }}
+    >
+      {(pull > 0 || refreshing) && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: '50%',
+            transform: `translate(-50%, ${indicatorOffset - 24}px)`,
+            transition: refreshing ? 'transform 200ms ease' : 'none',
+            zIndex: 50,
+            width: 36,
+            height: 36,
+            borderRadius: '50%',
+            background: '#FFFFFF',
+            boxShadow: '0 2px 10px rgba(0,0,0,0.12)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            opacity: indicatorOpacity,
+            pointerEvents: 'none',
+          }}
+        >
+          <div
+            style={{
+              width: 18,
+              height: 18,
+              border: '2.5px solid #E5E7EB',
+              borderTopColor: '#FF5C39',
+              borderRadius: '50%',
+              transform: refreshing ? 'none' : `rotate(${indicatorRotation}deg)`,
+              animation: refreshing ? 'spin 0.7s linear infinite' : 'none',
+            }}
+          />
+        </div>
+      )}
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <div style={{
+        transform: `translateY(${indicatorOffset}px)`,
+        transition: (pull === 0 && !refreshing) ? 'transform 200ms ease' : 'none',
+      }}>
       <Section>
         <Card padding="24px 24px 0 24px">
           <div className="flex items-start justify-between">
@@ -657,6 +754,7 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
           )}
         </Card>
       </Section>
+      </div>
     </div>
   )
 }

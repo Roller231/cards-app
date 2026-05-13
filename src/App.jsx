@@ -317,6 +317,10 @@ function AppInner() {
           commissions={commissions}
           cardsLoading={cardsLoading}
           transactionsLoading={transactionsLoading}
+          onRefresh={async () => {
+            const cards = await refreshCards()
+            if (cards.length > 0) await refreshTransactions(cards)
+          }}
           onNavigateToFAQ={() => setCurrentPage('faq')}
           onNavigateToIssueCard={(cardType = null) => {
             setCardTypeToIssue(cardType)
