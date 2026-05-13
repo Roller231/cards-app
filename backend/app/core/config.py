@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     OPLATA_PUBLIC_KEY: str = ""
     OPLATA_CALLBACK_PUBLIC_KEY: str = ""
     OPLATA_TEST_CLIENT_ID: str = "Developer"  # clientId used for fetching card types/offers
+    OPLATA_PARENT_CLIENT_ID: str = "Developer"  # Funded parent client used to transfer funds to per-user clients
+    OPLATA_USER_CLIENT_PREFIX: str = "tg_"  # Prefix for per-user O-Plata clientId derived from telegram_user_id
 
     class Config:
         env_file = ".env"

@@ -21,13 +21,29 @@ logger = logging.getLogger(__name__)
 
 
 def _client_id(user: User) -> str:
-    """Derive O-Plata clientId for a given user.
+    """Derive O-Plata clientId for a given local user.
 
-    All local users share a single funded O-Plata client (Developer).
-    Card ownership is tracked locally via Card.user_id and a user-tag embedded
-    in the card name during issuance (see _user_card_tag / _strip_user_tag).
+    Each Telegram user gets its own O-Plata client (e.g. `tg_<telegram_user_id>`).
+    Funds are transferred from the parent funded client (`OPLATA_PARENT_CLIENT_ID`)
+    to the user's wallet on demand before issuing/topping up cards.
     """
-    return (settings.OPLATA_TEST_CLIENT_ID or "Developer").strip()
+    prefix = (settings.OPLATA_USER_CLIENT_PREFIX or "tg_").strip()
+    tg_id = str(getattr(user, "telegram_user_id", "") or "").strip()
+    if tg_id:
+        return f"{prefix}{tg_id}"
+    # Non-Telegram users (dev/admin/web-only) get their own isolated O-Plata client
+    # under the same prefix so they go through register + KYC + funded wallet
+    # just like real Telegram users.
+    return f"{prefix}dev_{user.id}"
+
+
+def _parent_client_id() -> str:
+    """O-Plata client id of the funded parent used to top up per-user wallets."""
+    return (
+        settings.OPLATA_PARENT_CLIENT_ID
+        or settings.OPLATA_TEST_CLIENT_ID
+        or "Developer"
+    ).strip()
 
 
 def _user_card_tag(user_id: int) -> str:
@@ -616,6 +632,226 @@ class CardService:
         return wallet_id
 
     # ------------------------------------------------------------------
+    # Per-user wallet funding (parent -> user) via O-Plata transfer
+    # ------------------------------------------------------------------
+
+    async def _resolve_client_wallet_id(self, client_id: str) -> str:
+        """Return clientWalletId for given O-Plata clientId (registers if needed)."""
+        try:
+            info = await oplata_client.get_client_info(client_id)
+            wallet_id = str(info.get("clientWalletId") or "")
+            if wallet_id:
+                return wallet_id
+        except Exception as exc:
+            logger.info("get_client_info for %s failed (will try register): %s", client_id, exc)
+        result = await oplata_client.register_client(client_id)
+        wallet_id = str(result.get("clientWalletId") or "")
+        if not wallet_id:
+            raise ValueError(f"Could not resolve clientWalletId for {client_id}")
+        return wallet_id
+
+    async def _fund_user_wallet(
+        self,
+        user_client_id: str,
+        currency_code: str,
+        amount: Decimal,
+    ) -> None:
+        """Transfer `amount` of `currency_code` from parent funded client to user's wallet."""
+        if amount is None or Decimal(str(amount)) <= 0:
+            return
+        parent = _parent_client_id()
+        if user_client_id == parent:
+            return
+        wallet_id = await self._resolve_client_wallet_id(user_client_id)
+
+        # Snapshot the user's pre-transfer balance so we can detect arrival of the funded amount.
+        prev_balance = await self._get_user_currency_balance(user_client_id, currency_code)
+
+        result: Any = None
+        last_exc: Optional[Exception] = None
+        max_attempts = 5
+        for attempt in range(1, max_attempts + 1):
+            try:
+                result = await oplata_client.create_transfer(
+                    client_id=parent,
+                    currency_code=currency_code,
+                    amount=float(amount),
+                    wallet_id=wallet_id,
+                )
+                logger.info(
+                    "Parent->User transfer ok (attempt %s/%s): from=%s to=%s wallet=%s amount=%s %s result=%s",
+                    attempt, max_attempts, parent, user_client_id, wallet_id, amount, currency_code, result,
+                )
+                last_exc = None
+                break
+            except Exception as exc:
+                last_exc = exc
+                logger.warning(
+                    "Parent->User transfer attempt %s/%s failed: from=%s to=%s wallet=%s amount=%s %s: %s",
+                    attempt, max_attempts, parent, user_client_id, wallet_id, amount, currency_code, exc,
+                )
+                if attempt < max_attempts:
+                    backoff = min(2 ** (attempt - 1), 8)  # 1s, 2s, 4s, 8s, 8s
+                    await asyncio.sleep(backoff)
+        if last_exc is not None:
+            logger.error(
+                "Parent->User transfer FAILED after %s attempts: from=%s to=%s wallet=%s amount=%s %s: %s",
+                max_attempts, parent, user_client_id, wallet_id, amount, currency_code, last_exc,
+            )
+            raise ValueError(
+                f"Не удалось перевести средства с родительского клиента: {last_exc}"
+            )
+
+        # Confirm the transfer on parent side so it leaves WAIT_FOR_CONFIRMATION.
+        transfer_uuid = ""
+        if isinstance(result, dict):
+            transfer_uuid = str(result.get("uuid") or result.get("id") or "")
+        if transfer_uuid:
+            try:
+                confirm_result = await oplata_client.confirm_payment(parent, transfer_uuid)
+                logger.info(
+                    "Parent transfer confirmed: parent=%s uuid=%s state=%s",
+                    parent, transfer_uuid,
+                    (confirm_result or {}).get("state") if isinstance(confirm_result, dict) else confirm_result,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Parent transfer confirm failed for parent=%s uuid=%s: %s",
+                    parent, transfer_uuid, exc,
+                )
+
+        # Wait until the transferred amount actually lands on the user's wallet.
+        await self._wait_for_user_balance(
+            user_client_id=user_client_id,
+            currency_code=currency_code,
+            min_balance=Decimal(str(prev_balance)) + Decimal(str(amount)),
+            timeout_seconds=120,
+        )
+
+    async def _get_user_currency_balance(self, user_client_id: str, currency_code: str) -> Decimal:
+        """Best-effort fetch of a single-currency balance for a user's O-Plata wallet."""
+        try:
+            data = await oplata_client.get_balance_currency(user_client_id, currency_code)
+        except Exception as exc:
+            logger.debug("get_balance_currency(%s, %s) failed: %s", user_client_id, currency_code, exc)
+            return Decimal("0")
+        # Numeric/string scalar response: just parse it directly.
+        if isinstance(data, (int, float, str)):
+            try:
+                return Decimal(str(data))
+            except Exception:
+                return Decimal("0")
+        if not isinstance(data, dict):
+            return Decimal("0")
+
+        balance_keys = (
+            "amountNormalized",
+            "availableAmount",
+            "availableBalance",
+            "amount",
+            "balance",
+            "available",
+            "value",
+            "total",
+        )
+        for key in balance_keys:
+            if key in data and data[key] is not None:
+                try:
+                    return Decimal(str(data[key]))
+                except Exception:
+                    continue
+
+        amounts = data.get("amountsByCurrency")
+        if isinstance(amounts, dict):
+            for key in (currency_code, currency_code.upper(), currency_code.lower()):
+                if key in amounts and amounts[key] is not None:
+                    val = amounts[key]
+                    if isinstance(val, dict):
+                        for inner_key in balance_keys:
+                            if inner_key in val and val[inner_key] is not None:
+                                try:
+                                    return Decimal(str(val[inner_key]))
+                                except Exception:
+                                    continue
+                    try:
+                        return Decimal(str(val))
+                    except Exception:
+                        continue
+
+        # As a last resort, fallback to /balance/all and look up the currency there.
+        try:
+            all_data = await oplata_client.get_balance_all(user_client_id)
+        except Exception:
+            all_data = None
+        if isinstance(all_data, dict):
+            amounts = all_data.get("amountsByCurrency") or {}
+            if isinstance(amounts, dict):
+                for key in (currency_code, currency_code.upper(), currency_code.lower()):
+                    if key in amounts and amounts[key] is not None:
+                        val = amounts[key]
+                        if isinstance(val, dict):
+                            for inner_key in balance_keys:
+                                if inner_key in val and val[inner_key] is not None:
+                                    try:
+                                        return Decimal(str(val[inner_key]))
+                                    except Exception:
+                                        continue
+                        try:
+                            return Decimal(str(val))
+                        except Exception:
+                            continue
+
+        logger.info(
+            "Unrecognized balance response shape for client=%s currency=%s: %s",
+            user_client_id, currency_code, data,
+        )
+        return Decimal("0")
+
+    async def _wait_for_user_balance(
+        self,
+        user_client_id: str,
+        currency_code: str,
+        min_balance: Decimal,
+        timeout_seconds: int = 120,
+        poll_interval_seconds: float = 2.0,
+    ) -> None:
+        """Poll user wallet balance until it reaches `min_balance` or timeout expires."""
+        deadline_attempts = max(1, int(timeout_seconds / max(poll_interval_seconds, 0.5)))
+        last_balance = Decimal("0")
+        for _attempt in range(deadline_attempts):
+            last_balance = await self._get_user_currency_balance(user_client_id, currency_code)
+            if last_balance >= min_balance:
+                logger.info(
+                    "User wallet funding confirmed: client=%s currency=%s balance=%s required=%s",
+                    user_client_id, currency_code, last_balance, min_balance,
+                )
+                return
+            await asyncio.sleep(poll_interval_seconds)
+        logger.warning(
+            "User wallet funding not confirmed in time: client=%s currency=%s last_balance=%s required=%s",
+            user_client_id, currency_code, last_balance, min_balance,
+        )
+        raise ValueError(
+            f"Средства не поступили на дочерний кошелёк за {timeout_seconds}с (баланс {last_balance} < {min_balance} {currency_code})"
+        )
+
+    async def _provider_balance_currency(
+        self,
+        ravana_server_id: str,
+        type_uuid: str = "",
+    ) -> str:
+        """Fetch balanceCurrency (e.g. USDT) for a provider via parent client list."""
+        try:
+            providers = await oplata_client.get_virtual_card_list(_parent_client_id())
+        except Exception as exc:
+            logger.warning("Could not fetch parent virtual card list for currency lookup: %s", exc)
+            return "USDT"
+        for p in providers:
+            if str(p.get("ravanaServerId") or p.get("ravanaId") or "") == ravana_server_id:
+                return str(p.get("balanceCurrency") or p.get("cardCurrency") or "USDT")
+        return "USDT"
+
+    # ------------------------------------------------------------------
     # Issue card
     # ------------------------------------------------------------------
 
@@ -637,6 +873,18 @@ class CardService:
         ravana_server_id, type_uuid = _parse_offer_id(offer_id)
         client_id = _client_id(user)
 
+        # 1. Register client on O-Plata (idempotent) and push MDM data
+        await self._ensure_client(
+            client_id,
+            email=email,
+            document_number=document_number,
+            holder_first_name=holder_first_name,
+            holder_last_name=holder_last_name,
+        )
+
+        # 1b. Inspect provider availability and capture funding params (issue fee, balance currency).
+        provider_issue_fee_usdt = Decimal("0")
+        provider_balance_currency = "USDT"
         try:
             providers = await oplata_client.get_virtual_card_list(client_id)
             provider = next(
@@ -644,13 +892,27 @@ class CardService:
                 None,
             )
             if not provider:
+                # Fallback: check via parent client to distinguish "not registered yet" from "unavailable".
+                try:
+                    parent_providers = await oplata_client.get_virtual_card_list(_parent_client_id())
+                    provider = next(
+                        (p for p in parent_providers if str(p.get("ravanaServerId") or p.get("ravanaId") or "") == ravana_server_id),
+                        None,
+                    )
+                except Exception:
+                    provider = None
+            if not provider:
                 raise ValueError(f"O-Plata provider {ravana_server_id} is unavailable for this client")
+            provider_issue_fee_usdt = Decimal(str(provider.get("issueConstantFee") or 0))
+            provider_balance_currency = str(provider.get("balanceCurrency") or provider.get("cardCurrency") or "USDT")
             logger.info(
-                "O-Plata provider requirements for %s on %s: clientMDMDataTypes=%s registered=%s",
+                "O-Plata provider requirements for %s on %s: clientMDMDataTypes=%s registered=%s issueConstantFee=%s balanceCurrency=%s",
                 client_id,
                 ravana_server_id,
                 provider.get("clientMDMDataTypes"),
                 provider.get("registered"),
+                provider_issue_fee_usdt,
+                provider_balance_currency,
             )
             selected_card_type = next(
                 (ct for ct in (provider.get("cardTypesList") or []) if str(ct.get("uuid") or "") == type_uuid),
@@ -677,15 +939,6 @@ class CardService:
             if isinstance(exc, ValueError):
                 raise
             logger.warning("Could not inspect O-Plata provider requirements for %s on %s: %s", client_id, ravana_server_id, exc)
-
-        # 1. Register client on O-Plata (idempotent) and push MDM data
-        await self._ensure_client(
-            client_id,
-            email=email,
-            document_number=document_number,
-            holder_first_name=holder_first_name,
-            holder_last_name=holder_last_name,
-        )
 
         try:
             validation = await oplata_client.validate_card_registration(client_id, ravana_server_id)
@@ -721,6 +974,15 @@ class CardService:
         if not skip_balance_check and Decimal(str(user.balance)) < user_total:
             raise ValueError(
                 f"Insufficient balance. Required: {user_total:.2f} USD, available: {user.balance}"
+            )
+
+        # 3b. Fund the user's O-Plata wallet from the parent client (USDT) for amount + provider issue fee.
+        funding_amount = card_amount + provider_issue_fee_usdt
+        if funding_amount > 0:
+            await self._fund_user_wallet(
+                user_client_id=client_id,
+                currency_code=provider_balance_currency,
+                amount=funding_amount,
             )
 
         # 4. Issue card on O-Plata
@@ -842,6 +1104,12 @@ class CardService:
     async def sync_cards(self, db: AsyncSession, user: User) -> List[Card]:
         """Pull all virtual cards from O-Plata into local DB."""
         client_id = _client_id(user)
+        # Lazily register the user's O-Plata client (idempotent) so listing
+        # endpoints don't return 403 "Access denied for client" on first access.
+        try:
+            await oplata_client.register_client(client_id)
+        except Exception as exc:
+            logger.debug("register_client during sync for %s failed (will continue): %s", client_id, exc)
         try:
             providers = await oplata_client.get_virtual_card_list(client_id)
         except Exception as exc:
@@ -898,6 +1166,22 @@ class CardService:
                     placeholder.status = _card_state_to_status(state)
                     placeholder.card_status = _card_status_code(state)
                 else:
+                    # Only materialize a brand-new placeholder if this user actually has a
+                    # pending issue order without a card. Otherwise an O-Plata "creating"
+                    # entry would spam new local placeholders on every refresh.
+                    pending_order_result = await db.execute(
+                        select(Order).where(
+                            Order.user_id == user.id,
+                            Order.type == "issue",
+                            Order.card_id.is_(None),
+                        ).order_by(Order.id.asc())
+                    )
+                    if pending_order_result.scalars().first() is None:
+                        logger.debug(
+                            "Skipping placeholder creation for user_id=%s ravana_id=%s state=%s: no pending issue order",
+                            user.id, ravana_id, state,
+                        )
+                        continue
                     placeholder = Card(
                         user_id=user.id,
                         aifory_card_id=None,
@@ -1116,6 +1400,16 @@ class CardService:
             )
 
         client_id = _client_id(user)
+
+        # Ensure user is registered (idempotent) and fund the wallet from parent before top-up.
+        await self._ensure_client(client_id)
+        topup_currency = await self._provider_balance_currency(card.offer_id)
+        await self._fund_user_wallet(
+            user_client_id=client_id,
+            currency_code=topup_currency,
+            amount=base_amount,
+        )
+
         result = await oplata_client.topup_card(
             client_id=client_id,
             card_id=card.aifory_card_id,
@@ -1207,6 +1501,154 @@ class CardService:
         if not card:
             raise ValueError("Card not found")
         return card
+
+
+    # ------------------------------------------------------------------
+    # Background runners (used by API routes to return immediately)
+    # ------------------------------------------------------------------
+
+    async def _run_issue_in_background(
+        self,
+        user_id: int,
+        offer_id: str,
+        holder_first_name: str,
+        holder_last_name: str,
+        amount: Optional[float],
+        email: Optional[str],
+        document_number: Optional[str],
+        skip_balance_check: bool,
+    ) -> None:
+        async with AsyncSessionLocal() as db:
+            try:
+                user_result = await db.execute(select(User).where(User.id == user_id))
+                user = user_result.scalar_one_or_none()
+                if not user:
+                    logger.error("Background issue: user %s not found", user_id)
+                    return
+                await self.issue_card(
+                    db=db,
+                    user=user,
+                    offer_id=offer_id,
+                    holder_first_name=holder_first_name,
+                    holder_last_name=holder_last_name,
+                    amount=amount,
+                    email=email,
+                    document_number=document_number,
+                    skip_balance_check=skip_balance_check,
+                    defer_follow_up=True,
+                )
+                await db.commit()
+            except Exception as exc:
+                logger.error(
+                    "Background issue failed for user_id=%s offer_id=%s amount=%s: %s",
+                    user_id, offer_id, amount, exc,
+                )
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+                try:
+                    user_result = await db.execute(select(User).where(User.id == user_id))
+                    user = user_result.scalar_one_or_none()
+                    if user:
+                        await notify_card_issued(
+                            db=db,
+                            user=user,
+                            card_amount=float(amount or 0),
+                            card_last4="",
+                            fee=float(settings.ONLINE_ISSUE_FEE_USD),
+                            success=False,
+                            error_msg=str(exc),
+                        )
+                except Exception as _n:
+                    logger.debug("Background issue failure notification error: %s", _n)
+
+    def schedule_issue_in_background(
+        self,
+        user_id: int,
+        offer_id: str,
+        holder_first_name: str,
+        holder_last_name: str,
+        amount: Optional[float] = None,
+        email: Optional[str] = None,
+        document_number: Optional[str] = None,
+        skip_balance_check: bool = False,
+    ) -> None:
+        asyncio.create_task(
+            self._run_issue_in_background(
+                user_id=user_id,
+                offer_id=offer_id,
+                holder_first_name=holder_first_name,
+                holder_last_name=holder_last_name,
+                amount=amount,
+                email=email,
+                document_number=document_number,
+                skip_balance_check=skip_balance_check,
+            )
+        )
+
+    async def _run_deposit_in_background(
+        self,
+        user_id: int,
+        card_id: str,
+        amount: float,
+        skip_balance_check: bool,
+    ) -> None:
+        async with AsyncSessionLocal() as db:
+            try:
+                user_result = await db.execute(select(User).where(User.id == user_id))
+                user = user_result.scalar_one_or_none()
+                if not user:
+                    logger.error("Background deposit: user %s not found", user_id)
+                    return
+                await self.deposit_card(
+                    db=db,
+                    user=user,
+                    card_id=card_id,
+                    amount=amount,
+                    skip_balance_check=skip_balance_check,
+                )
+                await db.commit()
+            except Exception as exc:
+                logger.error(
+                    "Background deposit failed for user_id=%s card_id=%s amount=%s: %s",
+                    user_id, card_id, amount, exc,
+                )
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+                try:
+                    user_result = await db.execute(select(User).where(User.id == user_id))
+                    user = user_result.scalar_one_or_none()
+                    if user:
+                        await notify_topup_result(
+                            db=db,
+                            user=user,
+                            card_last4="",
+                            amount=float(amount),
+                            fee=0.0,
+                            success=False,
+                            error_msg=str(exc),
+                        )
+                except Exception as _n:
+                    logger.debug("Background deposit failure notification error: %s", _n)
+
+    def schedule_deposit_in_background(
+        self,
+        user_id: int,
+        card_id: str,
+        amount: float,
+        skip_balance_check: bool = False,
+    ) -> None:
+        asyncio.create_task(
+            self._run_deposit_in_background(
+                user_id=user_id,
+                card_id=card_id,
+                amount=amount,
+                skip_balance_check=skip_balance_check,
+            )
+        )
 
 
 card_service = CardService()

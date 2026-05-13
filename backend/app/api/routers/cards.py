@@ -1,3 +1,4 @@
+from decimal import Decimal
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -35,44 +36,31 @@ async def issue_card(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    try:
-        result = await card_service.issue_card(
-            db, current_user, body.offer_id, body.holder_first_name, body.holder_last_name,
-            amount=body.amount,
-            email=body.email,
-            document_number=body.document_number,
-            skip_balance_check=(body.payment_method == "sbp"),
-            defer_follow_up=True,
-        )
-        return IssueCardResponse(**result)
-    except ValueError as exc:
-        try:
-            await notify_card_issued(
-                db=db,
-                user=current_user,
-                card_amount=float(body.amount or 0),
-                card_last4="",
-                fee=float(settings.ONLINE_ISSUE_FEE_USD),
-                success=False,
-                error_msg=str(exc),
+    # Quick synchronous validation only; heavy O-Plata pipeline runs in background.
+    if not body.offer_id:
+        raise HTTPException(status_code=400, detail="offer_id is required")
+    if body.amount is None or float(body.amount) <= 0:
+        raise HTTPException(status_code=400, detail="amount must be greater than 0")
+    skip_balance_check = (body.payment_method == "sbp")
+    if not skip_balance_check:
+        required = Decimal(str(body.amount or 0)) + Decimal(str(settings.ONLINE_ISSUE_FEE_USD))
+        if Decimal(str(current_user.balance or 0)) < required:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Insufficient balance. Required: {required:.2f} USD, available: {current_user.balance}",
             )
-        except Exception:
-            pass
-        raise HTTPException(status_code=400, detail=str(exc))
-    except Exception as exc:
-        try:
-            await notify_card_issued(
-                db=db,
-                user=current_user,
-                card_amount=float(body.amount or 0),
-                card_last4="",
-                fee=float(settings.ONLINE_ISSUE_FEE_USD),
-                success=False,
-                error_msg=str(exc),
-            )
-        except Exception:
-            pass
-        raise HTTPException(status_code=502, detail=str(exc))
+
+    card_service.schedule_issue_in_background(
+        user_id=current_user.id,
+        offer_id=body.offer_id,
+        holder_first_name=body.holder_first_name,
+        holder_last_name=body.holder_last_name,
+        amount=body.amount,
+        email=body.email,
+        document_number=body.document_number,
+        skip_balance_check=skip_balance_check,
+    )
+    return IssueCardResponse(local_order_id=0, partner_order_id="")
 
 
 @router.get("", response_model=List[CardResponse], summary="Get current user's cards (syncs with O-Plata first)")
@@ -82,24 +70,32 @@ async def get_cards(
 ):
     try:
         await card_service.sync_cards(db, current_user)
+    except Exception as exc:
+        # Never block the app entry on a sync failure: fall back to local cards.
+        import logging
+        logging.getLogger(__name__).warning(
+            "sync_cards failed for user_id=%s, returning local cards: %s",
+            current_user.id, exc,
+        )
+    try:
         cards = await card_service.get_user_cards(db, current_user.id)
-        return [
-            CardResponse(
-                id=c.id,
-                aifory_card_id=c.aifory_card_id,
-                card_status=c.card_status,
-                expired_at=c.expired_at,
-                last4=c.last4,
-                holder_name=c.holder_name,
-                currency=c.currency,
-                status=c.status,
-                balance=float(c.balance),
-                offer_id=c.offer_id,
-            )
-            for c in cards
-        ]
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc))
+    return [
+        CardResponse(
+            id=c.id,
+            aifory_card_id=c.aifory_card_id,
+            card_status=c.card_status,
+            expired_at=c.expired_at,
+            last4=c.last4,
+            holder_name=c.holder_name,
+            currency=c.currency,
+            status=c.status,
+            balance=float(c.balance),
+            offer_id=c.offer_id,
+        )
+        for c in cards
+    ]
 
 
 @router.get("/{card_id}/requisites", response_model=CardRequisitesResponse, summary="Get card PAN / expiry / CVV")
@@ -148,37 +144,22 @@ async def deposit_card(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    try:
-        result = await card_service.deposit_card(
-            db, current_user, card_id, body.amount,
-            skip_balance_check=(body.payment_method == "sbp"),
-        )
-        return IssueCardResponse(**result, message="Card top-up order created")
-    except ValueError as exc:
-        try:
-            await notify_topup_result(
-                db=db,
-                user=current_user,
-                card_last4="",
-                amount=float(body.amount),
-                fee=0.0,
-                success=False,
-                error_msg=str(exc),
+    if body.amount is None or float(body.amount) <= 0:
+        raise HTTPException(status_code=400, detail="amount must be greater than 0")
+    skip_balance_check = (body.payment_method == "sbp")
+    if not skip_balance_check:
+        markup_pct = Decimal(str(settings.ONLINE_TOPUP_MARKUP_PERCENT))
+        required = Decimal(str(body.amount)) + Decimal(str(body.amount)) * markup_pct / Decimal("100")
+        if Decimal(str(current_user.balance or 0)) < required:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Insufficient balance. Required: {required:.2f} USD, available: {current_user.balance}",
             )
-        except Exception:
-            pass
-        raise HTTPException(status_code=400, detail=str(exc))
-    except Exception as exc:
-        try:
-            await notify_topup_result(
-                db=db,
-                user=current_user,
-                card_last4="",
-                amount=float(body.amount),
-                fee=0.0,
-                success=False,
-                error_msg=str(exc),
-            )
-        except Exception:
-            pass
-        raise HTTPException(status_code=502, detail=str(exc))
+
+    card_service.schedule_deposit_in_background(
+        user_id=current_user.id,
+        card_id=card_id,
+        amount=float(body.amount),
+        skip_balance_check=skip_balance_check,
+    )
+    return IssueCardResponse(local_order_id=0, partner_order_id="", message="Card top-up scheduled")
