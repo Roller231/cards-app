@@ -117,7 +117,6 @@ function DashboardPage() {
   const [data, setData] = useState(null)
   useEffect(() => { adminApi.dashboard().then(setData).catch(() => {}) }, [])
   if (!data) return <p>Загрузка...</p>
-  const cp = data.crypto_payments || {}
   return (
     <div>
       <h2 style={{ margin: '0 0 20px', fontSize: 22, fontWeight: 700 }}>Дашборд</h2>
@@ -126,9 +125,6 @@ function DashboardPage() {
         <Card title="Карты" value={data.cards_count} color="#0ea5e9" />
         <Card title="Ордера" value={data.orders_count} color="#f59e0b" />
         <Card title="Выручка (fee)" value={`$${fmt(data.total_revenue)}`} color="#22c55e" sub={`Объём: $${fmt(data.total_order_volume)}`} />
-      </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, marginBottom: 28 }}>
-        <Card title="Крипто-платежи" value={cp.total || 0} color="#8b5cf6" sub={`✅ ${cp.completed || 0}  ⏳ ${cp.pending || 0}  ❌ ${cp.failed || 0}`} />
       </div>
       <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 10 }}>Последние ордера</h3>
       <Table
@@ -206,7 +202,6 @@ function UserDetailPage({ userId, goBack }) {
   const [user, setUser] = useState(null)
   const [cards, setCards] = useState([])
   const [orders, setOrders] = useState([])
-  const [cpayments, setCpayments] = useState([])
   const [topups, setTopups] = useState([])
   const [tab, setTab] = useState('cards')
   const [editMode, setEditMode] = useState(false)
@@ -215,14 +210,13 @@ function UserDetailPage({ userId, goBack }) {
   useEffect(() => {
     (async () => {
       try {
-        const [u, c, o, cp, t] = await Promise.all([
+        const [u, c, o, t] = await Promise.all([
           adminApi.users.get(userId),
           adminApi.users.cards(userId),
           adminApi.users.orders(userId),
-          adminApi.users.cryptoPayments(userId),
           adminApi.users.topupRequests(userId),
         ])
-        setUser(u); setCards(c); setOrders(o); setCpayments(cp); setTopups(t)
+        setUser(u); setCards(c); setOrders(o); setTopups(t)
         setForm({ username: u.username, balance: u.balance, telegram_user_id: u.telegram_user_id || '' })
       } catch {}
     })()
@@ -237,7 +231,6 @@ function UserDetailPage({ userId, goBack }) {
   const tabs = [
     { id: 'cards', label: `Карты (${cards.length})` },
     { id: 'orders', label: `Ордера (${orders.length})` },
-    { id: 'crypto', label: `Крипто-платежи (${cpayments.length})` },
     { id: 'topups', label: `Пополнения (${topups.length})` },
   ]
 
@@ -295,16 +288,6 @@ function UserDetailPage({ userId, goBack }) {
         { key: 'status', label: 'Статус', render: r => badge(r.status, statusColor[r.status] || '#6b7280') },
         { key: 'created_at', label: 'Дата', render: r => r.created_at?.slice(0, 16).replace('T', ' ') },
       ]} rows={orders} />}
-
-      {tab === 'crypto' && <Table columns={[
-        { key: 'id', label: 'ID', render: r => r.id?.slice(0, 8) + '…' },
-        { key: 'type', label: 'Тип', render: r => badge(r.type, r.type === 'issue' ? '#6366f1' : '#0ea5e9') },
-        { key: 'total_usdt', label: 'USDT', render: r => `$${fmt(r.total_usdt)}` },
-        { key: 'network', label: 'Сеть' },
-        { key: 'status', label: 'Статус', render: r => badge(r.status, statusColor[r.status] || '#6b7280') },
-        { key: 'address', label: 'Адрес', render: r => (r.address || '').slice(0, 14) + '…' },
-        { key: 'created_at', label: 'Дата', render: r => r.created_at?.slice(0, 16).replace('T', ' ') },
-      ]} rows={cpayments} />}
 
       {tab === 'topups' && <Table columns={[
         { key: 'id', label: 'ID' }, { key: 'amount', label: 'Сумма', render: r => `$${fmt(r.amount)}` },
@@ -400,54 +383,32 @@ function CardsPage() {
   )
 }
 
-// ─────────── PAYMENTS (orders + crypto) ───────────
+// ─────────── PAYMENTS (orders only) ───────────
 function PaymentsPage() {
-  const [tab, setTab] = useState('crypto')
-  const [cryptoPayments, setCryptoPayments] = useState([])
   const [orders, setOrders] = useState([])
-  const [cpTotal, setCpTotal] = useState(0)
   const [ordTotal, setOrdTotal] = useState(0)
 
   useEffect(() => {
-    (async () => {
-      try { const d = await adminApi.cryptoPayments.list('', 100); setCryptoPayments(d.items); setCpTotal(d.total) } catch {}
-      try { const d = await adminApi.orders.list(100); setOrders(d.items); setOrdTotal(d.total) } catch {}
-    })()
+    adminApi.orders.list(100).then(d => { setOrders(d.items); setOrdTotal(d.total) }).catch(() => {})
   }, [])
 
   return (
     <div>
       <h2 style={{ margin: '0 0 16px', fontSize: 22, fontWeight: 700 }}>Платежи</h2>
-      <div style={{ display: 'flex', gap: 4, marginBottom: 16 }}>
-        {[{ id: 'crypto', label: `Крипто-платежи (${cpTotal})` }, { id: 'orders', label: `Ордера (${ordTotal})` }].map(t => (
-          <div key={t.id} onClick={() => setTab(t.id)}
-            style={{ padding: '8px 16px', borderRadius: '8px 8px 0 0', cursor: 'pointer', fontSize: 13, fontWeight: 600,
-              background: tab === t.id ? '#fff' : '#e5e7eb', color: tab === t.id ? '#111827' : '#6b7280' }}>{t.label}</div>
-        ))}
-      </div>
-
-      {tab === 'crypto' && <Table columns={[
-        { key: 'id', label: 'ID', render: r => r.id?.slice(0, 8) + '…' },
-        { key: 'username', label: 'Юзер' },
-        { key: 'type', label: 'Тип', render: r => badge(r.type, r.type === 'issue' ? '#6366f1' : '#0ea5e9') },
-        { key: 'total_usdt', label: 'USDT', render: r => `$${fmt(r.total_usdt)}` },
-        { key: 'amount_usd', label: 'Сумма', render: r => `$${fmt(r.amount_usd)}` },
-        { key: 'network', label: 'Сеть' },
-        { key: 'status', label: 'Статус', render: r => badge(r.status, statusColor[r.status] || '#6b7280') },
-        { key: 'address', label: 'Адрес', render: r => (r.address || '').slice(0, 14) + '…' },
-        { key: 'created_at', label: 'Дата', render: r => r.created_at?.slice(0, 16).replace('T', ' ') },
-      ]} rows={cryptoPayments} />}
-
-      {tab === 'orders' && <Table columns={[
-        { key: 'id', label: 'ID' },
-        { key: 'username', label: 'Юзер' },
-        { key: 'type', label: 'Тип', render: r => badge(r.type, r.type === 'issue' ? '#6366f1' : '#0ea5e9') },
-        { key: 'amount', label: 'Сумма', render: r => `$${fmt(r.amount)}` },
-        { key: 'fee', label: 'Комиссия', render: r => `$${fmt(r.fee)}` },
-        { key: 'status', label: 'Статус', render: r => badge(r.status, statusColor[r.status] || '#6b7280') },
-        { key: 'description', label: 'Описание', render: r => (r.description || '').slice(0, 40) },
-        { key: 'created_at', label: 'Дата', render: r => r.created_at?.slice(0, 16).replace('T', ' ') },
-      ]} rows={orders} />}
+      <p style={{ margin: '0 0 12px', color: '#6b7280', fontSize: 13 }}>Показаны последние {orders.length} ордеров (всего {ordTotal}).</p>
+      <Table
+        columns={[
+          { key: 'id', label: 'ID' },
+          { key: 'username', label: 'Юзер' },
+          { key: 'type', label: 'Тип', render: r => badge(r.type, r.type === 'issue' ? '#6366f1' : '#0ea5e9') },
+          { key: 'amount', label: 'Сумма', render: r => `$${fmt(r.amount)}` },
+          { key: 'fee', label: 'Комиссия', render: r => `$${fmt(r.fee)}` },
+          { key: 'status', label: 'Статус', render: r => badge(r.status, statusColor[r.status] || '#6b7280') },
+          { key: 'description', label: 'Описание', render: r => (r.description || '').slice(0, 40) },
+          { key: 'created_at', label: 'Дата', render: r => r.created_at?.slice(0, 16).replace('T', ' ') },
+        ]}
+        rows={orders}
+      />
     </div>
   )
 }

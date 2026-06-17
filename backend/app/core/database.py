@@ -4,7 +4,7 @@ from sqlalchemy.orm import DeclarativeBase
 from app.core.config import settings
 
 
-engine = create_async_engine(settings.DATABASE_URL, echo=False, pool_pre_ping=True)
+engine = create_async_engine(settings.DATABASE_URL, echo=False, pool_pre_ping=False)
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
 
@@ -24,5 +24,5 @@ async def get_db():
 
 async def create_tables():
     async with engine.begin() as conn:
-        from app.models import User, Card, Order, BalanceTopUpRequest, CryptoPayment, AdminSetting, FAQ  # noqa: F401
+        from app.models import User, Card, Order, BalanceTopUpRequest, AdminSetting, FAQ  # noqa: F401
         await conn.run_sync(Base.metadata.create_all)

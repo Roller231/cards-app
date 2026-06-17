@@ -7,9 +7,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from app.core.config import settings
 from app.core.database import create_tables
 from app.api.routers import auth, cards, orders, balance, faq
-from app.api.routers import crypto_payments
 from app.api.routers import admin as admin_router_mod
 
 logging.basicConfig(level=logging.INFO)
@@ -37,9 +37,18 @@ app = FastAPI(
     version="1.0.0",
 )
 
+_default_origins = {
+    "http://localhost",
+    "http://127.0.0.1",
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+}
+if settings.PUBLIC_BASE_URL:
+    _default_origins.add(settings.PUBLIC_BASE_URL.rstrip("/"))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=sorted(_default_origins),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -64,16 +73,6 @@ async def _gmail_poll_loop() -> None:
         except Exception as exc:
             logging.getLogger(__name__).error("Gmail poll loop error: %s", exc)
         await asyncio.sleep(10)
-
-
-async def _crypto_poll_loop() -> None:
-    from app.services.crypto_payment_service import poll_pending_payments
-    while True:
-        try:
-            await poll_pending_payments()
-        except Exception as exc:
-            logging.getLogger(__name__).error("Crypto poll loop error: %s", exc)
-        await asyncio.sleep(20)
 
 
 async def _load_admin_settings() -> None:
@@ -107,7 +106,6 @@ app.mount("/uploads", StaticFiles(directory=str(_UPLOADS_DIR)), name="uploads")
 async def startup():
     await create_tables()
     await _load_admin_settings()
-    asyncio.create_task(_crypto_poll_loop())
     asyncio.create_task(_bot_poll_loop())
     asyncio.create_task(_gmail_poll_loop())
 
@@ -116,7 +114,6 @@ app.include_router(auth.router)
 app.include_router(cards.router)
 app.include_router(orders.router)
 app.include_router(balance.router)
-app.include_router(crypto_payments.router)
 app.include_router(admin_router_mod.router)
 app.include_router(faq.router)
 

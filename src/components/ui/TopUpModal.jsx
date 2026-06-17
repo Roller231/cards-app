@@ -4,18 +4,15 @@ import Button from './Button'
 import Portal from './Portal'
 
 const TOPUP_PAYMENT_METHODS = [
-  { id: 'sbp', label: 'СБП', iconSrc: '/images/sbp.png' },
-  { id: 'trc20', label: 'USDT TRC-20', iconSrc: '/images/TRC.png' },
-  { id: 'erc20', label: 'USDT ERC-20', iconSrc: '/images/erc.png' },
+  { id: 'sbp', label: 'СБП', description: 'Мгновенное пополнение через Систему Быстрых Платежей', iconSrc: '/images/sbp.png' },
 ]
 
-function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0, onCryptoPaymentInitiated }) {
+function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) {
   const [depositError, setDepositError] = useState('')
   const [amount, setAmount] = useState(0)
   const [amountInput, setAmountInput] = useState('')
   const [totalInput, setTotalInput] = useState('')
   const [screen, setScreen] = useState('form') // 'form' | 'confirmation' | 'loading' | 'success' | 'failure'
-  const [paymentMethod, setPaymentMethod] = useState('sbp')
   const amountInputRef = useRef(null)
   const totalInputRef = useRef(null)
   const lastEditedRef = useRef('amount')
@@ -36,14 +33,13 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0, on
         setTotalInput('')
         setScreen('form')
         setDepositError('')
-        setPaymentMethod('sbp')
         lastEditedRef.current = 'amount'
       }, 350)
       return () => clearTimeout(t)
     }
   }, [isOpen])
 
-  // Deposit call — SBP: direct, Crypto: initiate payment then navigate
+  // Deposit call — SBP direct
   useEffect(() => {
     if (screen !== 'loading') return
     if (!card?.aifory_card_id) {
@@ -52,33 +48,17 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0, on
       return
     }
     let canceled = false
-    if (paymentMethod === 'trc20' || paymentMethod === 'erc20') {
-      const network = paymentMethod === 'erc20' ? 'ERC-20' : 'TRC-20'
-      const offerIdHint = card?.offer_id || ''
-      api.cryptoPayments.initiateTopup(card.aifory_card_id, offerIdHint, amount, network)
-        .then((result) => {
-          if (canceled) return
-          onCryptoPaymentInitiated?.({ ...result, type: 'topup' })
-          onClose()
-        })
-        .catch((e) => {
-          if (canceled) return
-          setDepositError(e.message || 'Ошибка создания платежа')
-          setScreen('failure')
-        })
-    } else {
-      api.cards.deposit(card.aifory_card_id, amount, 'sbp')
-        .then(() => {
-          if (canceled) return
-          setScreen('success')
-          if (typeof onTopUp === 'function') onTopUp()
-        })
-        .catch((e) => {
-          if (canceled) return
-          setDepositError(e.message || 'Ошибка пополнения')
-          setScreen('failure')
-        })
-    }
+    api.cards.deposit(card.aifory_card_id, amount, 'sbp')
+      .then(() => {
+        if (canceled) return
+        setScreen('success')
+        if (typeof onTopUp === 'function') onTopUp()
+      })
+      .catch((e) => {
+        if (canceled) return
+        setDepositError(e.message || 'Ошибка пополнения')
+        setScreen('failure')
+      })
     return () => { canceled = true }
   }, [screen]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -318,7 +298,6 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0, on
                 {TOPUP_PAYMENT_METHODS.map((method) => (
                   <div
                     key={method.id}
-                    onClick={() => setPaymentMethod(method.id)}
                     style={{
                       backgroundColor: 'white',
                       borderRadius: 12,
@@ -327,8 +306,7 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0, on
                       display: 'flex',
                       alignItems: 'center',
                       gap: method.iconSrc ? 12 : 0,
-                      cursor: 'pointer',
-                      border: paymentMethod === method.id ? '2px solid #DC4D35' : '2px solid transparent',
+                      border: '2px solid transparent',
                       boxSizing: 'border-box',
                     }}
                   >
@@ -337,12 +315,12 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0, on
                     ) : null}
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 15, fontWeight: 600, color: '#111827', fontFamily: font }}>{method.label}</div>
+                      {method.description && (
+                        <div style={{ fontSize: 13, color: '#6B7280', marginTop: 4, fontFamily: font }}>
+                          {method.description}
+                        </div>
+                      )}
                     </div>
-                    {paymentMethod === method.id && (
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#DC4D35" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="20 6 9 17 4 12" />
-                      </svg>
-                    )}
                   </div>
                 ))}
               </div>
@@ -361,7 +339,7 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0, on
               />
               <DetailRow
                 label="Способ оплаты"
-                value={TOPUP_PAYMENT_METHODS.find((m) => m.id === paymentMethod)?.label || 'СБП'}
+                value="СБП"
               />
             </div>
           </div>
@@ -489,7 +467,7 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0, on
                 onClick={() => setScreen('loading')}
                 fullWidth
               >
-                {paymentMethod === 'sbp' ? 'Подтвердить и пополнить' : 'Перейти к оплате'}
+                Подтвердить и пополнить
               </Button>
             )}
 

@@ -61,7 +61,6 @@ Important values:
 - `DATABASE_URL=mysql+aiomysql://cards_user:<MYSQL_PASSWORD>@db:3306/cards_app`
 - `SECRET_KEY=<strong random>`
 - `AIFORY_*`
-- `ABCEX_API_KEY`
 - `TELEGRAM_BOT_TOKEN`
 - `ADMIN_EMAIL`, `ADMIN_PASSWORD`
 

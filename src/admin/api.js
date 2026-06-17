@@ -44,7 +44,6 @@ const adminApi = {
     unban: (id) => req('POST', `/admin/users/${id}/unban`),
     cards: (id) => req('GET', `/admin/users/${id}/cards`),
     orders: (id) => req('GET', `/admin/users/${id}/orders`),
-    cryptoPayments: (id) => req('GET', `/admin/users/${id}/crypto-payments`),
     topupRequests: (id) => req('GET', `/admin/users/${id}/topup-requests`),
   },
   cards: {
@@ -59,10 +58,6 @@ const adminApi = {
   },
   orders: {
     list: (limit = 50, offset = 0) => req('GET', `/admin/orders?limit=${limit}&offset=${offset}`),
-  },
-  cryptoPayments: {
-    list: (statusFilter = '', limit = 50, offset = 0) =>
-      req('GET', `/admin/crypto-payments?status_filter=${statusFilter}&limit=${limit}&offset=${offset}`),
   },
   analytics: () => req('GET', '/admin/analytics'),
   faq: {

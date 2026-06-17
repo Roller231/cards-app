@@ -5,12 +5,10 @@ import Button from '../components/ui/Button'
 import PageHeader from '../components/ui/PageHeader'
 
 const PAYMENT_METHODS = [
-  { id: 'sbp', label: 'СБП', iconSrc: '/images/sbp.png' },
-  { id: 'trc20', label: 'USDT TRC-20', iconSrc: '/images/TRC.png' },
-  { id: 'erc20', label: 'USDT ERC-20', iconSrc: '/images/erc.png' },
+  { id: 'sbp', label: 'СБП', description: 'Моментальный перевод через Систему Быстрых Платежей', iconSrc: '/images/sbp.png' },
 ]
 
-function IssueCardPage({ onBack, initialCardType, onCardIssued, onCryptoPaymentInitiated }) {
+function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
   const { user, commissions } = useAuth()
   const [offers, setOffers] = useState([])
   const [offersLoading, setOffersLoading] = useState(true)
@@ -23,7 +21,6 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, onCryptoPaymentI
   const [isLoading, setIsLoading] = useState(false)
   const [resultScreen, setResultScreen] = useState(null) // 'success' | 'failure'
   const [errorMsg, setErrorMsg] = useState('')
-  const [paymentMethod, setPaymentMethod] = useState('sbp')
   const amountInputRef = useRef(null)
   const totalInputRef = useRef(null)
   const lastEditedRef = useRef('amount')
@@ -135,24 +132,16 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, onCryptoPaymentI
       const usernameParts = String(user?.username || '').trim().split(/\s+/).filter(Boolean)
       const holderFirstName = usernameParts[0] || 'Test'
       const holderLastName = usernameParts.slice(1).join(' ') || 'User'
-      if (paymentMethod === 'trc20' || paymentMethod === 'erc20') {
-        const network = paymentMethod === 'erc20' ? 'ERC-20' : 'TRC-20'
-        const result = await api.cryptoPayments.initiate(String(selectedCardType), amount, network)
-        setIsLoading(false)
-        setShowConfirmation(false)
-        onCryptoPaymentInitiated?.({ ...result, type: 'issue' })
-      } else {
-        await api.cards.issue({
-          offerId: String(selectedCardType),
-          holderFirstName,
-          holderLastName,
-          amount,
-          email: user?.email,
-          paymentMethod: 'sbp',
-        })
-        setIsLoading(false)
-        setResultScreen('success')
-      }
+      await api.cards.issue({
+        offerId: String(selectedCardType),
+        holderFirstName,
+        holderLastName,
+        amount,
+        email: user?.email,
+        paymentMethod: 'sbp',
+      })
+      setIsLoading(false)
+      setResultScreen('success')
     } catch (e) {
       setIsLoading(false)
       setErrorMsg(e.message || 'Ошибка при выпуске карты')
@@ -445,7 +434,6 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, onCryptoPaymentI
           {PAYMENT_METHODS.map((method) => (
             <div
               key={method.id}
-              onClick={() => setPaymentMethod(method.id)}
               style={{
                 backgroundColor: 'white',
                 borderRadius: 12,
@@ -454,8 +442,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, onCryptoPaymentI
                 display: 'flex',
                 alignItems: 'center',
                 gap: method.iconSrc ? 12 : 0,
-                cursor: 'pointer',
-                border: paymentMethod === method.id ? '2px solid #DC4D35' : '2px solid transparent',
+                border: '2px solid transparent',
                 boxSizing: 'border-box',
               }}
             >
@@ -464,12 +451,12 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, onCryptoPaymentI
               ) : null}
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 15, fontWeight: 600, color: '#111827', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif' }}>{method.label}</div>
+                {method.description && (
+                  <div style={{ fontSize: 13, color: '#6B7280', marginTop: 4, fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif' }}>
+                    {method.description}
+                  </div>
+                )}
               </div>
-              {paymentMethod === method.id && (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#DC4D35" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              )}
             </div>
           ))}
         </div>
@@ -680,7 +667,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, onCryptoPaymentI
                       fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
                     }}
                   >
-                    {PAYMENT_METHODS.find((m) => m.id === paymentMethod)?.label || 'СБП'}
+                    СБП
                   </div>
                 </div>
               </div>
@@ -695,7 +682,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, onCryptoPaymentI
                 fullWidth
                 style={{ marginTop: 24 }}
               >
-                {paymentMethod === 'sbp' ? 'Подтвердить и выпустить' : 'Перейти к оплате'}
+                Подтвердить и выпустить
               </Button>
             </div>
           </div>
@@ -750,7 +737,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued, onCryptoPaymentI
               fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
             }}
           >
-            {paymentMethod === 'sbp' ? 'Выпускаем карту...' : 'Создаём платёж...'}
+            Выпускаем карту...
           </div>
         </div>
       )}

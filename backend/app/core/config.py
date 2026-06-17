@@ -30,10 +30,6 @@ class Settings(BaseSettings):
     GMAIL_CLIENT_ID: str = ""
     GMAIL_CLIENT_SECRET: str = ""
 
-    # ABCEX crypto payment gateway
-    ABCEX_API_KEY: str = ""  # Bearer JWT token for ABCEX API
-    ABCEX_CRYPTO_PAYMENT_EXPIRY_MINUTES: int = 30  # Payment window before expiry
-
     # O-Plata API
     OPLATA_BASE_URL: str = "https://int.o-plata.com:443"
     OPLATA_PRODUCT_ID: str = ""

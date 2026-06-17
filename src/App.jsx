@@ -9,7 +9,6 @@ import HistoryPage from './pages/HistoryPage'
 import HomePage from './pages/HomePage'
 import IssueCardPage from './pages/IssueCardPage'
 import WelcomePage from './pages/WelcomePage'
-import CryptoPaymentPage from './pages/CryptoPaymentPage'
 
 // Map raw Aifory transaction to frontend shape
 function mapAiforyTx(tx, card) {
@@ -70,11 +69,7 @@ function AppInner() {
   const [transactionsLoading, setTransactionsLoading] = useState(false)
   const [historyFixedCardLast4, setHistoryFixedCardLast4] = useState(null)
   const [historyReturnCardId, setHistoryReturnCardId] = useState(null)
-  const [cryptoPaymentData, setCryptoPaymentData] = useState(null)
   const [dataReady, setDataReady] = useState(false)
-  const [pendingPaymentId, setPendingPaymentId] = useState(() => {
-    try { return localStorage.getItem('pp_pending_payment_id') || null } catch { return null }
-  })
   const { showToast } = useToast()
   const tgInitOnceRef = useRef(false)
 
@@ -228,43 +223,6 @@ function AppInner() {
     }
   }
 
-  // Background polling for pending crypto payment (runs from any page, not just CryptoPaymentPage)
-  useEffect(() => {
-    if (!user || !pendingPaymentId || currentPage === 'crypto-payment') return
-
-    const _clearPending = () => {
-      setPendingPaymentId(null)
-      try { localStorage.removeItem('pp_pending_payment_id'); localStorage.removeItem('pp_pending_check_count') } catch {}
-    }
-
-    const check = async () => {
-      try {
-        const data = await api.cryptoPayments.status(pendingPaymentId)
-        if (data.status === 'completed') {
-          _clearPending()
-          const isTopup = data.type === 'topup'
-          showToast({ title: isTopup ? '✅ Пополнение карты выполнено!' : '✅ Карта успешно выпущена!' })
-          const cards = await refreshCards()
-          if (cards.length > 0) refreshTransactions(cards)
-        } else if (data.status === 'failed') {
-          _clearPending()
-        } else {
-          try {
-            const count = parseInt(localStorage.getItem('pp_pending_check_count') || '0', 10) + 1
-            if (count >= 500) {
-              _clearPending()
-            } else {
-              localStorage.setItem('pp_pending_check_count', String(count))
-            }
-          } catch {}
-        }
-      } catch {}
-    }
-
-    check()
-    const interval = setInterval(check, 20000)
-    return () => clearInterval(interval)
-  }, [user, pendingPaymentId, currentPage, showToast, refreshCards, refreshTransactions])
 
   // Banned screen
   if (banned) {
@@ -359,33 +317,7 @@ function AppInner() {
           onBack={() => setCurrentPage('home')}
           initialCardType={cardTypeToIssue}
           onCardIssued={handleCardIssued}
-          onCryptoPaymentInitiated={(paymentData) => {
-            setCryptoPaymentData(paymentData)
-            setPendingPaymentId(paymentData.payment_id)
-            try { localStorage.setItem('pp_pending_payment_id', paymentData.payment_id); localStorage.setItem('pp_pending_check_count', '0') } catch {}
-            setCurrentPage('crypto-payment')
-          }}
           getCommissionForCardType={getCommissionForCardType}
-        />
-      )}
-      {currentPage === 'crypto-payment' && cryptoPaymentData && (
-        <CryptoPaymentPage
-          paymentData={cryptoPaymentData}
-          onBack={() => {
-            const isTopup = cryptoPaymentData?.type === 'topup'
-            setCryptoPaymentData(null)
-            setCurrentPage(isTopup ? 'card-detail' : 'issue-card')
-          }}
-          onSuccess={async () => {
-            const isTopup = cryptoPaymentData?.type === 'topup'
-            setCryptoPaymentData(null)
-            if (!isTopup) setCardTypeToIssue(null)
-            setPendingPaymentId(null)
-            try { localStorage.removeItem('pp_pending_payment_id') } catch {}
-            setCurrentPage(isTopup ? 'card-detail' : 'home')
-            const cards = await refreshCards()
-            if (cards.length > 0) refreshTransactions(cards)
-          }}
         />
       )}
       {currentPage === 'card-detail' && (
@@ -403,12 +335,6 @@ function AppInner() {
             setCurrentPage('history')
           }}
           getCommissionForCardType={getCommissionForCardType}
-          onCryptoPaymentInitiated={(paymentData) => {
-            setCryptoPaymentData(paymentData)
-            setPendingPaymentId(paymentData.payment_id)
-            try { localStorage.setItem('pp_pending_payment_id', paymentData.payment_id); localStorage.setItem('pp_pending_check_count', '0') } catch {}
-            setCurrentPage('crypto-payment')
-          }}
         />
       )}
     </Layout>

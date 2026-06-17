@@ -48,7 +48,7 @@ class IssueCardRequest(BaseModel):
     amount: Optional[float] = None
     email: Optional[str] = None
     document_number: Optional[str] = None
-    payment_method: str = "balance"  # "balance" | "sbp" | "crypto"
+    payment_method: str = "balance"  # "balance" | "sbp"
 
 
 class IssueCardResponse(BaseModel):
@@ -59,4 +59,4 @@ class IssueCardResponse(BaseModel):
 
 class CardDepositRequest(BaseModel):
     amount: float
-    payment_method: str = "balance"  # "balance" | "sbp" | "crypto"
+    payment_method: str = "balance"  # "balance" | "sbp"

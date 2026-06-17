@@ -22,7 +22,6 @@ from app.core.security import create_access_token
 from app.integrations.oplata_client import oplata_client
 from app.models.admin_setting import AdminSetting
 from app.models.card import Card
-from app.models.crypto_payment import CryptoPayment
 from app.models.faq import FAQ
 from app.models.order import Order
 from app.models.topup import BalanceTopUpRequest
@@ -45,7 +44,6 @@ SETTINGS_KEYS: Dict[str, Dict[str, Any]] = {
     "ONLINE_PLUS_CARD_VALIDITY_TEXT": {"desc": "Online+ card validity text", "type": str},
     "ONLINE_OPERATION_FEE_USD": {"desc": "Online card operation fee (USD)", "type": float},
     "ONLINE_PLUS_OPERATION_FEE_USD": {"desc": "Online+ card operation fee (USD)", "type": float},
-    "ABCEX_CRYPTO_PAYMENT_EXPIRY_MINUTES": {"desc": "Crypto payment expiry (minutes)", "type": int},
 }
 
 
@@ -113,25 +111,6 @@ def _order_dict(o: Order) -> dict:
     }
 
 
-def _cp_dict(p: CryptoPayment) -> dict:
-    return {
-        "id": p.id,
-        "user_id": p.user_id,
-        "address": p.address,
-        "network": p.network,
-        "amount_usd": float(p.amount_usd),
-        "total_usdt": float(p.total_usdt),
-        "offer_id": p.offer_id,
-        "type": p.type,
-        "card_aifory_id": p.card_aifory_id,
-        "status": p.status,
-        "tx_id": p.tx_id,
-        "order_id": p.order_id,
-        "created_at": p.created_at.isoformat() if p.created_at else None,
-        "expires_at": p.expires_at.isoformat() if p.expires_at else None,
-    }
-
-
 def _topup_dict(t: BalanceTopUpRequest) -> dict:
     return {
         "id": t.id,
@@ -169,11 +148,6 @@ async def dashboard(db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
     total_revenue = float((await db.execute(select(func.coalesce(func.sum(Order.fee), 0)))).scalar() or 0)
     total_order_volume = float((await db.execute(select(func.coalesce(func.sum(Order.amount), 0)))).scalar() or 0)
 
-    cp_total = (await db.execute(select(func.count(CryptoPayment.id)))).scalar() or 0
-    cp_pending = (await db.execute(select(func.count(CryptoPayment.id)).where(CryptoPayment.status == "pending"))).scalar() or 0
-    cp_completed = (await db.execute(select(func.count(CryptoPayment.id)).where(CryptoPayment.status == "completed"))).scalar() or 0
-    cp_failed = (await db.execute(select(func.count(CryptoPayment.id)).where(CryptoPayment.status == "failed"))).scalar() or 0
-
     # Recent 10 orders
     recent_orders_q = await db.execute(select(Order).order_by(Order.created_at.desc()).limit(10))
     recent_orders = [_order_dict(o) for o in recent_orders_q.scalars().all()]
@@ -186,7 +160,6 @@ async def dashboard(db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
         "orders_count": orders_count,
         "total_revenue": total_revenue,
         "total_order_volume": total_order_volume,
-        "crypto_payments": {"total": cp_total, "pending": cp_pending, "completed": cp_completed, "failed": cp_failed},
         "recent_orders": recent_orders,
     }
 
@@ -279,14 +252,6 @@ async def user_cards(user_id: int, db: AsyncSession = Depends(get_db), _=Depends
 async def user_orders(user_id: int, db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
     orders = (await db.execute(select(Order).where(Order.user_id == user_id).order_by(Order.created_at.desc()))).scalars().all()
     return [_order_dict(o) for o in orders]
-
-
-@router.get("/users/{user_id}/crypto-payments", summary="User crypto payments")
-async def user_crypto_payments(user_id: int, db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
-    payments = (await db.execute(
-        select(CryptoPayment).where(CryptoPayment.user_id == user_id).order_by(CryptoPayment.created_at.desc())
-    )).scalars().all()
-    return [_cp_dict(p) for p in payments]
 
 
 @router.get("/users/{user_id}/topup-requests", summary="User topup requests")
@@ -442,31 +407,6 @@ async def list_orders(
     for o in orders:
         d = _order_dict(o)
         u = (await db.execute(select(User.username).where(User.id == o.user_id))).scalar()
-        d["username"] = u
-        result.append(d)
-    return {"items": result, "total": total}
-
-
-# =====================  CRYPTO PAYMENTS  =====================
-
-@router.get("/crypto-payments", summary="All crypto payments")
-async def list_crypto_payments(
-    status_filter: str = "",
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
-    db: AsyncSession = Depends(get_db),
-    _=Depends(get_admin),
-):
-    q = select(CryptoPayment)
-    if status_filter:
-        q = q.where(CryptoPayment.status == status_filter)
-    q = q.order_by(CryptoPayment.created_at.desc()).offset(offset).limit(limit)
-    payments = (await db.execute(q)).scalars().all()
-    total = (await db.execute(select(func.count(CryptoPayment.id)))).scalar() or 0
-    result = []
-    for p in payments:
-        d = _cp_dict(p)
-        u = (await db.execute(select(User.username).where(User.id == p.user_id))).scalar()
         d["username"] = u
         result.append(d)
     return {"items": result, "total": total}

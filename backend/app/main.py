@@ -5,7 +5,7 @@ import sys
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routers import auth, admin, cards, crypto_payments, faq, orders, balance
+from app.api.routers import auth, admin, cards, faq, orders, balance
 from app.core.config import settings
 from app.core.database import engine
 from app.models import Base
@@ -33,7 +33,6 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(admin.router)
 app.include_router(cards.router)
-app.include_router(crypto_payments.router)
 app.include_router(faq.router)
 app.include_router(orders.router)
 app.include_router(balance.router)
@@ -73,17 +72,6 @@ def check_and_update_schema(conn):
     return
 
 
-async def _poll_loop() -> None:
-    """Background task: poll pending crypto payments every 30 s."""
-    from app.services.crypto_payment_service import poll_pending_payments
-    while True:
-        await asyncio.sleep(30)
-        try:
-            await poll_pending_payments()
-        except Exception as exc:
-            logger.error("poll_pending_payments error: %s", exc)
-
-
 @app.on_event("startup")
 async def startup_db_client():
     async with engine.begin() as conn:
@@ -91,7 +79,6 @@ async def startup_db_client():
         await conn.run_sync(Base.metadata.create_all)
         # Check and update schema for existing tables
         await conn.run_sync(check_and_update_schema)
-    asyncio.create_task(_poll_loop())
     # Start persistent auto-topup worker (drains pending_auto_topups across restarts)
     from app.services.card_service import card_service as _cs
     asyncio.create_task(_cs.run_pending_auto_topups_worker())

@@ -1,4 +1,12 @@
-const BASE = '/api'
+const defaultBase = (() => {
+  if (typeof window === 'undefined') return '/api'
+  if (window.location.port === '8080') {
+    return 'http://localhost:8000'
+  }
+  return '/api'
+})()
+
+const BASE = import.meta?.env?.VITE_API_BASE_URL || defaultBase
 
 const TOKEN_KEY = 'pp_access_token'
 
@@ -50,18 +58,6 @@ export const api = {
   },
   orders: {
     list: () => req('GET', '/orders'),
-  },
-  cryptoPayments: {
-    initiate: (offerId, amountUsd, network = 'TRC-20') =>
-      req('POST', '/crypto-payments/initiate', { offer_id: offerId, amount_usd: amountUsd, network }),
-    initiateTopup: (cardAiforyId, offerIdHint, amountUsd, network = 'TRC-20') =>
-      req('POST', '/crypto-payments/topup-initiate', {
-        card_aifory_id: cardAiforyId,
-        offer_id: offerIdHint,
-        amount_usd: amountUsd,
-        network,
-      }),
-    status: (paymentId) => req('GET', `/crypto-payments/${paymentId}/status`),
   },
   cards: {
     offers: () => req('GET', '/cards/offers'),
