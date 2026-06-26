@@ -101,15 +101,29 @@ async def create_invoice(
     # Ensure client is registered in Bitbanker (temporary, until NeuroVision KYC is implemented)
     # This creates a minimal client record without full KYC - for testing only
     try:
-        await bitbanker_client.register_partner_client(
+        reg_result = await bitbanker_client.register_partner_client(
             client_id=ext_ref,
             email=current_user.email or f"{ext_ref}@temp.local",
             phone="+79999999999",  # Placeholder - will be replaced with real data from NeuroVision
         )
+        if settings.DETAILED_DEV_LOGS:
+            logger.info("[SBP] Client registered: %s | is_verified_for_sbp=%s", 
+                       ext_ref, reg_result.get("is_verified_for_sbp"))
+        
+        # Check if client is verified for SBP
+        if not reg_result.get("is_verified_for_sbp"):
+            logger.warning("[SBP] Client %s not verified for SBP - invoice creation may fail", ext_ref)
     except Exception as e:
-        # Client might already exist - that's OK, continue
+        # Client might already exist - that's OK, try to get status
         if settings.DETAILED_DEV_LOGS:
             logger.warning("[SBP] Client registration warning (might already exist): %s", str(e)[:200])
+        try:
+            status = await bitbanker_client.get_partner_client(ext_ref)
+            if settings.DETAILED_DEV_LOGS:
+                logger.info("[SBP] Existing client status: %s | is_verified_for_sbp=%s",
+                           ext_ref, status.get("is_verified_for_sbp"))
+        except Exception:
+            pass  # Ignore status check errors
     
     idempotency_key = f"inv-{current_user.id}-{_uuid.uuid4().hex[:16]}"
 

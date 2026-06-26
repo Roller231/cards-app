@@ -107,12 +107,17 @@ class BitbankerClient:
                 )
             return resp.json() if resp.content else {}
 
-    async def _get(self, path: str, params: Optional[Dict[str, Any]] = None) -> Any:
+    async def _get(self, path: str, params: Optional[Dict[str, Any]] = None, signed: bool = False) -> Any:
+        """GET request. If signed=True, adds timestamp/nonce/full_sign to query params."""
         if not self._is_configured():
             raise RuntimeError("Bitbanker API key/secret not configured")
         url = f"{self._base}{path}"
+        query_params = params or {}
+        if signed:
+            query_params = {**_base_fields(), **query_params}
+            query_params["full_sign"] = _compute_full_sign(query_params, self._api_secret)
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.get(url, headers=self._headers(), params=params or {})
+            resp = await client.get(url, headers=self._headers(), params=query_params)
             if resp.status_code >= 400:
                 logger.error("Bitbanker GET %s -> %s | %s", path, resp.status_code, resp.text[:300])
                 raise httpx.HTTPStatusError(
@@ -144,9 +149,9 @@ class BitbankerClient:
         payload = {"client_id": client_id, **kyc_data}
         return await self._post("/api/v2/partner-clients", payload, idempotency_key=f"pc-{client_id}")
 
-    async def get_partner_client(self, external_id: str) -> Dict[str, Any]:
-        """GET /api/v2/partner-clients?external_id=... — check is_verified_for_sbp."""
-        return await self._get("/api/v2/partner-clients", {"external_id": external_id})
+    async def get_partner_client(self, client_id: str) -> Dict[str, Any]:
+        """GET /api/v2/partner-clients?client_id=... — check is_verified_for_sbp (requires signing)."""
+        return await self._get("/api/v2/partner-clients", {"client_id": client_id}, signed=True)
 
     # ------------------------------------------------------------------
     # Prediction / rates
