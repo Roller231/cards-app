@@ -162,7 +162,7 @@ class BitbankerClient:
     ) -> Dict[str, Any]:
         """POST /api/v2/invoices — create SBP payment invoice, returns qr image."""
         payload = {
-            "amount": amount_rub,
+            "amount": f"{amount_rub:.2f}",  # Bitbanker expects string format
             "currency": "RUBR",
             "sbp_payment": True,
             "is_convert_payments": True,
