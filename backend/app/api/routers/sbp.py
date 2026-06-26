@@ -58,6 +58,12 @@ class InvoiceCreateRequest(BaseModel):
 # Endpoints
 # ---------------------------------------------------------------------------
 
+@router.get("/usd-to-rub-rate", summary="Get current USD to RUB exchange rate")
+async def get_usd_to_rub_rate(_: User = Depends(get_current_user)):
+    """Returns the admin-configured USD to RUB rate for SBP payments."""
+    return {"usd_to_rub_rate": settings.USD_TO_RUB_RATE}
+
+
 @router.get("/prediction", summary="SBP limits and fee info")
 async def sbp_prediction(_: User = Depends(get_current_user)):
     try:

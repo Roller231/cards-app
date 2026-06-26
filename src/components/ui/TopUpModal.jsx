@@ -491,6 +491,7 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) 
       <SbpPaymentModal
         isOpen={showSbpModal}
         onClose={() => setShowSbpModal(false)}
+        amountUsd={parseFloat(amount) || 0}
         purpose="balance_topup"
         onPaid={() => {
           setShowSbpModal(false)

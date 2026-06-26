@@ -707,6 +707,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
       <SbpPaymentModal
         isOpen={showSbpModal}
         onClose={() => setShowSbpModal(false)}
+        amountUsd={price || 0}
         purpose="card_issue"
         onPaid={() => {
           setShowSbpModal(false)

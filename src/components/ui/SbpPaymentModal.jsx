@@ -11,9 +11,8 @@
  *   isOpen         — boolean
  *   onClose        — () => void
  *   onPaid         — (invoiceData) => void  called when status becomes captured/authorized
+ *   amountUsd      — number  amount in USD to convert to RUB
  *   purpose        — 'balance_topup' | 'card_issue'  (default: 'balance_topup')
- *   minRub         — number  (default: 1000)
- *   maxRub         — number  (default: 50000)
  */
 import { useEffect, useRef, useState } from 'react'
 import api from '../../api/client'
@@ -27,36 +26,43 @@ export default function SbpPaymentModal({
   isOpen,
   onClose,
   onPaid,
+  amountUsd,
   purpose = 'balance_topup',
-  minRub = 1000,
-  maxRub = 50000,
 }) {
-  // screen: 'checking' | 'kyc_required' | 'kyc_pending' | 'form' | 'loading' | 'qr' | 'success' | 'error'
+  // screen: 'checking' | 'loading' | 'qr' | 'success' | 'error'
   const [screen, setScreen] = useState('checking')
   const [error, setError] = useState('')
-  const [amountRub, setAmountRub] = useState('')
   const [invoice, setInvoice] = useState(null)   // { local_invoice_id, bb_invoice_id, qr_base64, payment_url, amount_rub }
-  const [exchangeInfo, setExchangeInfo] = useState(null)
+  const [usdToRubRate, setUsdToRubRate] = useState(95)
+  const [amountRub, setAmountRub] = useState(0)
   const pollRef = useRef(null)
 
-  // Load exchange rates on open
+  // Load USD→RUB rate and create invoice immediately
   useEffect(() => {
-    if (!isOpen) return
+    if (!isOpen || !amountUsd) return
     setScreen('checking')
     setError('')
     setInvoice(null)
-    setAmountRub('')
-    setExchangeInfo(null)
     ;(async () => {
       try {
-        const predRes = await api.sbp.prediction().catch(() => null)
-        if (predRes) setExchangeInfo(predRes)
-        setScreen('form')
-      } catch {
-        setScreen('form')
+        // Get USD→RUB rate
+        const rateRes = await api.sbp.getUsdToRubRate()
+        const rate = rateRes.usd_to_rub_rate || 95
+        setUsdToRubRate(rate)
+        const calculatedRub = Math.ceil(amountUsd * rate)
+        setAmountRub(calculatedRub)
+
+        // Create invoice immediately
+        setScreen('loading')
+        const res = await api.sbp.createInvoice(calculatedRub, purpose)
+        setInvoice(res)
+        setScreen('qr')
+      } catch (e) {
+        setError(e.message || 'Ошибка создания счёта')
+        setScreen('error')
       }
     })()
-  }, [isOpen])
+  }, [isOpen, amountUsd, purpose])
 
   // Polling when QR is shown
   useEffect(() => {
@@ -84,22 +90,6 @@ export default function SbpPaymentModal({
       clearInterval(pollRef.current)
     }
   }, [isOpen])
-
-  const handleCreateInvoice = async () => {
-    const num = parseFloat(amountRub)
-    if (!num || num < minRub) { setError(`Минимум ${minRub} ₽`); return }
-    if (num > maxRub) { setError(`Максимум ${maxRub} ₽`); return }
-    setError('')
-    setScreen('loading')
-    try {
-      const res = await api.sbp.createInvoice(num, purpose)
-      setInvoice(res)
-      setScreen('qr')
-    } catch (e) {
-      setError(e.message || 'Ошибка создания счёта')
-      setScreen('error')
-    }
-  }
 
   if (!isOpen) return null
 
@@ -135,37 +125,6 @@ export default function SbpPaymentModal({
           {screen === 'checking' && (
             <div style={{ textAlign: 'center', padding: '32px 0', color: '#6B7280', fontSize: 15 }}>
               Загружаем данные…
-            </div>
-          )}
-
-          {/* === FORM === */}
-          {screen === 'form' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              {exchangeInfo && (
-                <div style={{ background: '#F3F5F8', borderRadius: 12, padding: '10px 14px', fontSize: 13, color: '#6B7280' }}>
-                  Комиссия СБП: {exchangeInfo.sbp_fee_pct ?? '—'}% + {exchangeInfo.sbp_fee_abs ?? '—'} ₽ фикс.
-                  &nbsp;·&nbsp;Мин: {exchangeInfo.min_sbp_limit ?? minRub} ₽, макс: {exchangeInfo.max_sbp_limit ?? maxRub} ₽
-                </div>
-              )}
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Сумма в рублях</div>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  placeholder={`${minRub} – ${maxRub}`}
-                  value={amountRub}
-                  onChange={(e) => { setAmountRub(e.target.value); setError('') }}
-                  style={{
-                    width: '100%', padding: '12px 14px', borderRadius: 12,
-                    border: '1.5px solid #E5E7EB', fontSize: 16, outline: 'none',
-                    fontFamily: font, boxSizing: 'border-box',
-                  }}
-                />
-              </div>
-              {error && <div style={{ fontSize: 13, color: '#DC2626' }}>{error}</div>}
-              <Button onClick={handleCreateInvoice} fullWidth disabled={!amountRub}>
-                Получить QR-код
-              </Button>
             </div>
           )}
 

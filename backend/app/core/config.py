@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     BITBANKER_API_KEY: str = ""
     BITBANKER_API_SECRET: str = ""
     BITBANKER_BASE_URL: str = "https://api.aws.dev.bitbanker.org/latest"  # DEV; swap to prod
+    USD_TO_RUB_RATE: float = 95.0  # Admin-configurable USD to RUB exchange rate
 
     class Config:
         env_file = ".env"

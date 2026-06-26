@@ -79,6 +79,7 @@ export const api = {
       req('POST', `/cards/${cardId}/deposit`, { amount, payment_method: paymentMethod }),
   },
   sbp: {
+    getUsdToRubRate: () => req('GET', '/sbp/usd-to-rub-rate'),
     prediction: () => req('GET', '/sbp/prediction'),
     exchangePrediction: (amountRub) => req('GET', `/sbp/exchange-prediction?amount_rub=${amountRub}`),
     createInvoice: (amountRub, purpose = 'balance_topup') =>
