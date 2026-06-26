@@ -3,35 +3,36 @@ import api from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import Button from '../components/ui/Button'
 import PageHeader from '../components/ui/PageHeader'
+import SbpPaymentModal from '../components/ui/SbpPaymentModal'
 
 const PAYMENT_METHODS = [
   { id: 'sbp', label: 'СБП', description: 'Моментальный перевод через Систему Быстрых Платежей', iconSrc: '/images/sbp.png' },
 ]
 
 function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
-  const { user, commissions } = useAuth()
+  const { user } = useAuth()
   const [offers, setOffers] = useState([])
   const [offersLoading, setOffersLoading] = useState(true)
   const [selectedCardType, setSelectedCardType] = useState('')
-  const [amount, setAmount] = useState(0)
-  const [amountInput, setAmountInput] = useState('')
-  const [totalInput, setTotalInput] = useState('')
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const [showConfirmation, setShowConfirmation] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [resultScreen, setResultScreen] = useState(null) // 'success' | 'failure'
   const [errorMsg, setErrorMsg] = useState('')
-  const amountInputRef = useRef(null)
-  const totalInputRef = useRef(null)
-  const lastEditedRef = useRef('amount')
+  const [issuancePrice, setIssuancePrice] = useState(null)
+  const [showSbpModal, setShowSbpModal] = useState(false)
 
 
-  // Load card offers from API
+  // Load card offers and issuance price from API
   useEffect(() => {
     setOffersLoading(true)
-    api.cards.offers()
-      .then((data) => {
-        setOffers(Array.isArray(data) ? data : [])
+    Promise.all([
+      api.cards.offers(),
+      api.cards.issuancePrice()
+    ])
+      .then(([offersData, priceData]) => {
+        setOffers(Array.isArray(offersData) ? offersData : [])
+        setIssuancePrice(priceData)
         setOffersLoading(false)
       })
       .catch(() => {
@@ -58,72 +59,13 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
     }
   }, [onBack])
 
-  // Alias for display: card types = offers
   const cardTypes = offers
-
-  const round2 = (v) => Math.round((Number(v) + Number.EPSILON) * 100) / 100
-
-  const sanitizeDecimalInput = (value) => {
-    const cleaned = value.replace(/[^0-9.]/g, '')
-    const [integerPart = '', ...decimalParts] = cleaned.split('.')
-    return decimalParts.length > 0
-      ? `${integerPart}.${decimalParts.join('')}`
-      : integerPart
-  }
-
-  const getInputWidthCh = (value) => {
-    const text = String(value || '')
-    const digitsCount = text.replace(/\./g, '').length
-    const dotsCount = (text.match(/\./g) || []).length
-    const visualLength = digitsCount + dotsCount * 0.35
-    return `${Math.max(visualLength, 1) + 0.5}ch`
-  }
-
   const selectedCard = cardTypes.find((c) => String(c.id) === String(selectedCardType))
-  const isOnlinePlusSelected = String(selectedCardType) === '525847'
-  const cardValidityText = isOnlinePlusSelected
-    ? (commissions?.online_plus_validity_text || '1 год')
-    : (commissions?.online_validity_text || '1 год')
-  const fixedFee = useMemo(() => {
-    return Number(selectedCard?.issue_fee || 0)
-  }, [selectedCard])
-  const minimumCardBalance = Number(selectedCard?.minimum_card_balance || 0)
-  const commission = round2(fixedFee)
-  const total = amount > 0 ? round2(amount + commission) : 0
-  const hasAmount = amount > 0
-  const amountText = amountInput || ''
   const selectedCardName = selectedCard?.name || ''
+  const price = issuancePrice?.price || 0
+  const initialBalance = issuancePrice?.initial_balance || 0
+  const canIssueCard = selectedCardType !== '' && price > 0
 
-  const canIssueCard = selectedCardType !== '' && amount >= minimumCardBalance && total > 0
-
-  useEffect(() => {
-    if (lastEditedRef.current !== 'amount') return
-    if (!amount || amount <= 0) { setTotalInput(''); return }
-    setTotalInput(round2(amount + commission).toFixed(2))
-  }, [amount, commission])
-
-  useEffect(() => {
-    if (lastEditedRef.current !== 'total') return
-    if (!amount || amount <= 0) { setAmountInput(''); return }
-    setAmountInput(String(amount))
-  }, [amount])
-
-  useEffect(() => {
-    if (lastEditedRef.current !== 'amount') return
-    if (!amount || amount <= 0) { setTotalInput(''); return }
-    setTotalInput(round2(amount + commission).toFixed(2))
-  }, [commission]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (lastEditedRef.current !== 'total') return
-    if (!totalInput) { setAmount(0); setAmountInput(''); return }
-    const parsedTotal = parseFloat(totalInput) || 0
-    if (!parsedTotal || parsedTotal <= 0) { setAmount(0); setAmountInput(''); return }
-    const nextAmount = parsedTotal - fixedFee
-    const safeAmount = nextAmount > 0 ? round2(nextAmount) : 0
-    setAmount(safeAmount)
-    setAmountInput(String(safeAmount))
-  }, [fixedFee, totalInput]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleIssueCard = async () => {
     setIsLoading(true)
@@ -136,7 +78,6 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
         offerId: String(selectedCardType),
         holderFirstName,
         holderLastName,
-        amount,
         email: user?.email,
         paymentMethod: 'sbp',
       })
@@ -272,150 +213,46 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
         </div>
 
 
-        {/* Amount */}
-        <div
-          onClick={() => amountInputRef.current?.focus()}
-          style={{
-            backgroundColor: 'white',
-            borderRadius: 12,
-            padding: '14px 16px',
-            cursor: 'text',
-          }}
-        >
-          <label
-            style={{
-              fontSize: 13,
-              fontWeight: 600,
-              color: '#6B7280',
-              fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-              display: 'block',
-              marginBottom: 8,
-            }}
-          >
-            Сумма
-          </label>
-<div className="flex items-center" style={{ gap: 2 }}>
-  <input
-    ref={amountInputRef}
-    type="text"
-    inputMode="decimal"
-    value={amountInput}
-    onChange={(e) => {
-      const next = sanitizeDecimalInput(e.target.value)
-      lastEditedRef.current = 'amount'
-      setAmountInput(next)
-      setAmount(round2(parseFloat(next) || 0))
-    }}
-    placeholder="0"
-    style={{
-      border: 'none',
-      outline: 'none',
-      background: 'transparent',
-      fontSize: 15,
-      fontWeight: hasAmount ? 600 : 400,
-      color: hasAmount ? '#111827' : '#6B7280',
-      fontFamily:
-        '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-      width: getInputWidthCh(amountText),
-      minWidth: '1.5ch',
-    }}
-  />
-
-<span
-  style={{
-    fontSize: 15,
-    fontWeight: 600,
-    color: '#111827',
-    fontFamily:
-      '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-  }}
->
-  $
-</span>
-</div>
-        </div>
-
-        {selectedCard && (
+        {/* Price Info */}
+        {issuancePrice && (
           <div
             style={{
-              backgroundColor: '#FFFFFF',
+              backgroundColor: 'white',
               borderRadius: 12,
-              padding: '12px 16px',
-              color: '#111827',
-              fontSize: 13,
-              fontWeight: 600,
-              fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+              padding: '14px 16px',
             }}
           >
-            Минимум для данной карты: {minimumCardBalance.toLocaleString('en-US', { maximumFractionDigits: 2 })} $
-          </div>
-        )}
-
-        {/* Total */}
-        <div
-          onClick={() => totalInputRef.current?.focus()}
-          style={{
-            backgroundColor: 'white',
-            borderRadius: 12,
-            padding: '14px 16px',
-            cursor: 'text',
-          }}
-        >
-          <label
-            style={{
-              fontSize: 13,
-              fontWeight: 600,
-              color: '#6B7280',
-              fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-              display: 'block',
-              marginBottom: 8,
-            }}
-          >
-            Итоговая сумма с учетом комиссии
-          </label>
-          <div className="flex items-center" style={{ gap: 2 }}>
-            <input
-              ref={totalInputRef}
-              type="text"
-              inputMode="decimal"
-              value={totalInput}
-              onChange={(e) => {
-                const next = sanitizeDecimalInput(e.target.value)
-                lastEditedRef.current = 'total'
-                setTotalInput(next)
-                const parsedTotal = parseFloat(next) || 0
-                const nextAmount = parsedTotal - fixedFee
-                const safeAmount = nextAmount > 0 ? round2(nextAmount) : 0
-                setAmount(safeAmount)
-                setAmountInput(next ? String(safeAmount) : '')
-              }}
-              placeholder="0"
+            <div style={{ marginBottom: 12 }}>
+              <label
+                style={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: '#6B7280',
+                  fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+                  display: 'block',
+                  marginBottom: 8,
+                }}
+              >
+                Стоимость выпуска карты
+              </label>
+              <div style={{ fontSize: 24, fontWeight: 700, color: '#111827', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif' }}>
+                ${price.toFixed(2)}
+              </div>
+            </div>
+            <div
               style={{
-                border: 'none',
-                outline: 'none',
-                background: 'transparent',
-                fontSize: 15,
-                fontWeight: hasAmount ? 600 : 400,
-                color: hasAmount ? '#111827' : '#6B7280',
-                fontFamily:
-                  '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-                width: getInputWidthCh(totalInput),
-                minWidth: '1.5ch',
-              }}
-            />
-            <span
-              style={{
-                fontSize: 15,
-                fontWeight: 600,
-                color: '#111827',
-                fontFamily:
-                  '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
+                backgroundColor: '#F3F5F8',
+                borderRadius: 8,
+                padding: '12px',
+                fontSize: 13,
+                color: '#6B7280',
+                fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
               }}
             >
-              $
-            </span>
+              Карта будет выпущена с нулевым балансом. Вы сможете пополнить её после выпуска.
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Payment Method */}
         <div style={{ marginTop: 8 }}>
@@ -571,7 +408,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
                   </div>
                 </div>
 
-                {/* Срок действия */}
+                {/* Стоимость выпуска */}
                 <div>
                   <div
                     style={{
@@ -582,7 +419,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
                       marginBottom: 4,
                     }}
                   >
-                    Срок действия
+                    Стоимость выпуска
                   </div>
                   <div
                     style={{
@@ -592,11 +429,11 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
                       fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
                     }}
                   >
-                    {cardValidityText}
+                    ${price.toFixed(2)}
                   </div>
                 </div>
 
-                {/* Обслуживание */}
+                {/* Начальный баланс */}
                 <div>
                   <div
                     style={{
@@ -607,7 +444,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
                       marginBottom: 4,
                     }}
                   >
-                    Обслуживание
+                    Начальный баланс карты
                   </div>
                   <div
                     style={{
@@ -617,32 +454,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
                       fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
                     }}
                   >
-                    Бесплатно
-                  </div>
-                </div>
-
-                {/* Сумма к пополнению */}
-                <div>
-                  <div
-                    style={{
-                      fontSize: 13,
-                      fontWeight: 400,
-                      color: '#6B7280',
-                      fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-                      marginBottom: 4,
-                    }}
-                  >
-                    Сумма к пополнению
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 15,
-                      fontWeight: 600,
-                      color: '#111827',
-                      fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-                    }}
-                  >
-                    {total.toLocaleString('en-US')} $
+                    $0.00
                   </div>
                 </div>
 
@@ -677,7 +489,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
               <Button
                 onClick={() => {
                   setShowConfirmation(false)
-                  handleIssueCard()
+                  setShowSbpModal(true)
                 }}
                 fullWidth
                 style={{ marginTop: 24 }}
@@ -805,7 +617,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
                 if (onCardIssued) {
                   onCardIssued({
                     cardType: selectedCardType,
-                    amount: amount,
+                    price,
                   })
                 } else {
                   setResultScreen(null)
@@ -891,6 +703,16 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
           </div>
         </div>
       )}
+
+      <SbpPaymentModal
+        isOpen={showSbpModal}
+        onClose={() => setShowSbpModal(false)}
+        purpose="card_issue"
+        onPaid={() => {
+          setShowSbpModal(false)
+          handleIssueCard()
+        }}
+      />
     </div>
   )
 }

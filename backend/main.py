@@ -83,6 +83,18 @@ async def _load_admin_settings() -> None:
     from app.models.admin_setting import AdminSetting
     try:
         async with AsyncSessionLocal() as db:
+            # Initialize default pricing settings if they don't exist
+            default_settings = {
+                "CARD_ISSUANCE_PRICE_USD": ("10.0", "Card issuance price (USD) - user pays this fixed amount, card issued with zero balance"),
+            }
+            for key, (value, description) in default_settings.items():
+                result = await db.execute(sa_select(AdminSetting).where(AdminSetting.key == key))
+                if not result.scalar_one_or_none():
+                    db.add(AdminSetting(key=key, value=value, description=description))
+                    logging.getLogger(__name__).info("Created default admin setting: %s = %s", key, value)
+            await db.commit()
+            
+            # Load all settings
             result = await db.execute(sa_select(AdminSetting))
             for s in result.scalars().all():
                 key_upper = s.key.upper()

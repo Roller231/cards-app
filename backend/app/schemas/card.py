@@ -45,7 +45,6 @@ class IssueCardRequest(BaseModel):
     offer_id: str
     holder_first_name: str
     holder_last_name: str
-    amount: Optional[float] = None
     email: Optional[str] = None
     document_number: Optional[str] = None
     payment_method: str = "balance"  # "balance" | "sbp"

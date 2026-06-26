@@ -61,12 +61,12 @@ export const api = {
   },
   cards: {
     offers: () => req('GET', '/cards/offers'),
-    issue: ({ offerId, holderFirstName, holderLastName, amount, email, documentNumber, paymentMethod = 'balance' }) =>
+    issuancePrice: () => req('GET', '/cards/issuance-price'),
+    issue: ({ offerId, holderFirstName, holderLastName, email, documentNumber, paymentMethod = 'balance' }) =>
       req('POST', '/cards/issue', {
         offer_id: offerId,
         holder_first_name: holderFirstName,
         holder_last_name: holderLastName,
-        amount,
         email,
         document_number: documentNumber,
         payment_method: paymentMethod,
@@ -77,6 +77,13 @@ export const api = {
       req('GET', `/cards/${cardId}/transactions?limit=${limit}&offset=${offset}`),
     deposit: (cardId, amount, paymentMethod = 'balance') =>
       req('POST', `/cards/${cardId}/deposit`, { amount, payment_method: paymentMethod }),
+  },
+  sbp: {
+    prediction: () => req('GET', '/sbp/prediction'),
+    exchangePrediction: (amountRub) => req('GET', `/sbp/exchange-prediction?amount_rub=${amountRub}`),
+    createInvoice: (amountRub, purpose = 'balance_topup') =>
+      req('POST', '/sbp/invoice', { amount_rub: amountRub, purpose }),
+    pollInvoice: (localInvoiceId) => req('GET', `/sbp/invoice/${localInvoiceId}`),
   },
 }
 

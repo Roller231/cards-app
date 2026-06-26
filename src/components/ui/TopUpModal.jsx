@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import api from '../../api/client'
 import Button from './Button'
 import Portal from './Portal'
+import SbpPaymentModal from './SbpPaymentModal'
 
 const TOPUP_PAYMENT_METHODS = [
   { id: 'sbp', label: 'СБП', description: 'Мгновенное пополнение через Систему Быстрых Платежей', iconSrc: '/images/sbp.png' },
@@ -13,6 +14,7 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) 
   const [amountInput, setAmountInput] = useState('')
   const [totalInput, setTotalInput] = useState('')
   const [screen, setScreen] = useState('form') // 'form' | 'confirmation' | 'loading' | 'success' | 'failure'
+  const [showSbpModal, setShowSbpModal] = useState(false)
   const amountInputRef = useRef(null)
   const totalInputRef = useRef(null)
   const lastEditedRef = useRef('amount')
@@ -457,7 +459,7 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) 
 
           <div style={{ padding: '12px 16px 24px 16px' }}>
             {screen === 'form' && (
-              <Button disabled={!hasAmount} onClick={() => setScreen('confirmation')} fullWidth>
+              <Button disabled={!hasAmount} onClick={() => setShowSbpModal(true)} fullWidth>
                 Продолжить
               </Button>
             )}
@@ -485,6 +487,17 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) 
           </div>
         </div>
       </div>
+
+      <SbpPaymentModal
+        isOpen={showSbpModal}
+        onClose={() => setShowSbpModal(false)}
+        purpose="balance_topup"
+        onPaid={() => {
+          setShowSbpModal(false)
+          setScreen('success')
+          if (typeof onTopUp === 'function') onTopUp()
+        }}
+      />
     </Portal>
   )
 }

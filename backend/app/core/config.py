@@ -6,6 +6,8 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "change-me-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080  # 7 days
+    DETAILED_DEV_LOGS: bool = False  # Enable verbose development logging
+    LOCAL_DEV_CLIENT_SUFFIX: str = ""  # Override fallback tg_dev_<suffix> for dev/testing
 
     # Per-card-type commission settings
     ONLINE_ISSUE_FEE_USD: float = 0.0  # Fixed fee for Online card issuance
@@ -39,6 +41,11 @@ class Settings(BaseSettings):
     OPLATA_TEST_CLIENT_ID: str = "Developer"  # clientId used for fetching card types/offers
     OPLATA_PARENT_CLIENT_ID: str = "Developer"  # Funded parent client used to transfer funds to per-user clients
     OPLATA_USER_CLIENT_PREFIX: str = "tg_"  # Prefix for per-user O-Plata clientId derived from telegram_user_id
+
+    # Bitbanker SBP gateway
+    BITBANKER_API_KEY: str = ""
+    BITBANKER_API_SECRET: str = ""
+    BITBANKER_BASE_URL: str = "https://api.aws.dev.bitbanker.org/latest"  # DEV; swap to prod
 
     class Config:
         env_file = ".env"

@@ -35,7 +35,8 @@ def _client_id(user: User) -> str:
     # Non-Telegram users (dev/admin/web-only) get their own isolated O-Plata client
     # under the same prefix so they go through register + KYC + funded wallet
     # just like real Telegram users.
-    return f"{prefix}dev_{user.id}"
+    suffix = settings.LOCAL_DEV_CLIENT_SUFFIX.strip() or f"dev_{user.id}"
+    return f"{prefix}{suffix}"
 
 
 def _parent_client_id() -> str:
@@ -1090,7 +1091,6 @@ class CardService:
         offer_id: str,
         holder_first_name: str,
         holder_last_name: str,
-        amount: Optional[float] = None,
         skip_balance_check: bool = False,
         email: Optional[str] = None,
         document_number: Optional[str] = None,
@@ -1100,6 +1100,14 @@ class CardService:
         """Issue a virtual card via O-Plata for the given user."""
         ravana_server_id, type_uuid = _parse_offer_id(offer_id)
         client_id = _client_id(user)
+        if settings.DETAILED_DEV_LOGS:
+            logger.info(
+                "[ISSUE] Start | user_id=%s username=%s offer_id=%s client_id=%s",
+                user.id,
+                user.username,
+                offer_id,
+                client_id,
+            )
 
         # 1. Register client on O-Plata (idempotent) and push MDM data
         await self._ensure_client(
@@ -1193,23 +1201,41 @@ class CardService:
         except Exception as exc:
             logger.warning("validate_card_registration failed for %s: %s", client_id, exc)
 
-        # 2. Determine card amount and fee
-        card_amount = Decimal(str(amount or 0))
-        fixed_fee = Decimal(str(settings.ONLINE_ISSUE_FEE_USD))
-        user_total = card_amount + fixed_fee
-        if bool(settings.ISSUE_APPLY_TOPUP_MARKUP):
-            markup_percent = Decimal(str(settings.ONLINE_TOPUP_MARKUP_PERCENT))
-            user_total += card_amount * markup_percent / Decimal("100")
-
-        # 3. Check user balance
-        if not skip_balance_check and Decimal(str(user.balance)) < user_total:
-            raise ValueError(
-                f"Insufficient balance. Required: {user_total:.2f} USD, available: {user.balance}"
+        # 2. Get admin-configured pricing
+        from sqlalchemy import select as _select
+        from app.models.admin_setting import AdminSetting
+        
+        result = await db.execute(_select(AdminSetting).where(AdminSetting.key == "CARD_ISSUANCE_PRICE_USD"))
+        price_setting = result.scalar_one_or_none()
+        user_payment = Decimal(str(price_setting.value if price_setting else "10.0"))
+        
+        # Card will be issued with zero balance (no initial funding)
+        card_amount = Decimal("0")
+        if settings.DETAILED_DEV_LOGS:
+            logger.info(
+                "[ISSUE] Pricing | user_id=%s charge=%s skip_balance=%s",
+                user.id,
+                user_payment,
+                skip_balance_check,
             )
 
-        # 3b. Fund the user's O-Plata wallet from the parent client (USDT) for amount + provider issue fee.
-        funding_amount = card_amount + provider_issue_fee_usdt
+        # 3. Check user balance
+        if not skip_balance_check and Decimal(str(user.balance)) < user_payment:
+            raise ValueError(
+                f"Insufficient balance. Required: {user_payment:.2f} USD, available: {user.balance}"
+            )
+
+        # 3b. Fund the user's O-Plata wallet from the parent client (USDT) for provider issue fee only.
+        funding_amount = provider_issue_fee_usdt
         if funding_amount > 0:
+            if settings.DETAILED_DEV_LOGS:
+                logger.info(
+                    "[ISSUE] Funding user wallet | user_id=%s client_id=%s amount=%s currency=%s",
+                    user.id,
+                    client_id,
+                    funding_amount,
+                    provider_balance_currency,
+                )
             await self._fund_user_wallet(
                 user_client_id=client_id,
                 currency_code=provider_balance_currency,
@@ -1247,7 +1273,13 @@ class CardService:
 
         # 5. Deduct from user balance
         if not skip_balance_check:
-            user.balance = Decimal(str(user.balance)) - user_total
+            user.balance = Decimal(str(user.balance)) - user_payment
+            if settings.DETAILED_DEV_LOGS:
+                logger.info(
+                    "[ISSUE] Deducted local balance | user_id=%s new_balance=%s",
+                    user.id,
+                    float(user.balance),
+                )
 
         # 6. Save issuance order; actual card data arrives asynchronously via card/list
         order = Order(
@@ -1255,7 +1287,7 @@ class CardService:
             partner_order_id=payment_uuid,
             type="issue",
             amount=card_amount,
-            fee=fixed_fee,
+            fee=user_payment - card_amount,
             status="pending",
             description=f"Card issuance: {ravana_server_id}:{type_uuid}",
         )
@@ -1304,29 +1336,14 @@ class CardService:
                 db=db, user=user,
                 card_amount=float(card_amount),
                 card_last4="",
-                fee=float(fixed_fee),
+                fee=float(user_payment - card_amount),
                 success=False,
                 error_msg=issue_state or "Card issuance failed",
             )
             raise ValueError(issue_state or "Card issuance failed")
         await self._wait_for_card_materialization(db, user, order, client_id, payment_uuid)
 
-        # 7b. Enqueue auto-topup into the persistent queue; worker will fire it.
-        if order.card_id:
-            materialized_card = await self._resolve_card(db, user.id, str(order.card_id))
-            if (
-                materialized_card.aifory_card_id
-                and materialized_card.offer_id
-                and card_amount > 0
-            ):
-                await self._enqueue_pending_auto_topup(
-                    db=db,
-                    user_id=user.id,
-                    card_id=materialized_card.id,
-                    aifory_card_id=materialized_card.aifory_card_id,
-                    ravana_server_id=materialized_card.offer_id,
-                    amount=card_amount,
-                )
+        # 7b. No auto-topup needed - card is issued with zero balance
 
         # 8. Notify only when a concrete card record is already available locally
         if order.card_id:
@@ -1337,12 +1354,20 @@ class CardService:
                         db=db, user=user,
                         card_amount=float(card_amount),
                         card_last4=linked_card.last4 or "",
-                        fee=float(fixed_fee),
+                        fee=float(user_payment - card_amount),
                         success=True,
                     )
                 except Exception as _n:
                     logger.debug("Card issue notification error: %s", _n)
 
+        if settings.DETAILED_DEV_LOGS:
+            logger.info(
+                "[ISSUE] Completed | user_id=%s order_id=%s partner_payment=%s card_id=%s",
+                user.id,
+                order.id,
+                payment_uuid,
+                order.card_id,
+            )
         return {"local_order_id": order.id, "partner_order_id": payment_uuid}
 
     # ------------------------------------------------------------------
@@ -1790,7 +1815,6 @@ class CardService:
         offer_id: str,
         holder_first_name: str,
         holder_last_name: str,
-        amount: Optional[float],
         email: Optional[str],
         document_number: Optional[str],
         skip_balance_check: bool,
@@ -1808,7 +1832,6 @@ class CardService:
                     offer_id=offer_id,
                     holder_first_name=holder_first_name,
                     holder_last_name=holder_last_name,
-                    amount=amount,
                     email=email,
                     document_number=document_number,
                     skip_balance_check=skip_balance_check,
@@ -1817,8 +1840,8 @@ class CardService:
                 await db.commit()
             except Exception as exc:
                 logger.error(
-                    "Background issue failed for user_id=%s offer_id=%s amount=%s: %s",
-                    user_id, offer_id, amount, exc,
+                    "Background issue failed for user_id=%s offer_id=%s: %s",
+                    user_id, offer_id, exc,
                 )
                 try:
                     await db.rollback()
@@ -1828,12 +1851,16 @@ class CardService:
                     user_result = await db.execute(select(User).where(User.id == user_id))
                     user = user_result.scalar_one_or_none()
                     if user:
+                        from app.models.admin_setting import AdminSetting
+                        result = await db.execute(select(AdminSetting).where(AdminSetting.key == "CARD_ISSUANCE_PRICE_USD"))
+                        price_setting = result.scalar_one_or_none()
+                        user_payment = float(price_setting.value if price_setting else "10.0")
                         await notify_card_issued(
                             db=db,
                             user=user,
-                            card_amount=float(amount or 0),
+                            card_amount=0.0,
                             card_last4="",
-                            fee=float(settings.ONLINE_ISSUE_FEE_USD),
+                            fee=user_payment,
                             success=False,
                             error_msg=str(exc),
                         )
@@ -1868,7 +1895,6 @@ class CardService:
         offer_id: str,
         holder_first_name: str,
         holder_last_name: str,
-        amount: Optional[float] = None,
         email: Optional[str] = None,
         document_number: Optional[str] = None,
         skip_balance_check: bool = False,
@@ -1879,7 +1905,6 @@ class CardService:
                 offer_id=offer_id,
                 holder_first_name=holder_first_name,
                 holder_last_name=holder_last_name,
-                amount=amount,
                 email=email,
                 document_number=document_number,
                 skip_balance_check=skip_balance_check,

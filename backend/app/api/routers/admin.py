@@ -35,11 +35,8 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 # --------------- helpers ---------------
 
 SETTINGS_KEYS: Dict[str, Dict[str, Any]] = {
-    "ONLINE_ISSUE_FEE_USD": {"desc": "Online card issue fee (USD)", "type": float},
+    "CARD_ISSUANCE_PRICE_USD": {"desc": "Card issuance price (USD) - user pays this fixed amount, card issued with zero balance", "type": float},
     "ONLINE_TOPUP_MARKUP_PERCENT": {"desc": "Online card top-up markup (%)", "type": float},
-    "ONLINE_PLUS_ISSUE_FEE_USD": {"desc": "Online+ card issue fee (USD)", "type": float},
-    "ONLINE_PLUS_TOPUP_MARKUP_PERCENT": {"desc": "Online+ card top-up markup (%)", "type": float},
-    "ISSUE_APPLY_TOPUP_MARKUP": {"desc": "Apply top-up markup percent during card issue", "type": bool},
     "ONLINE_CARD_VALIDITY_TEXT": {"desc": "Online card validity text", "type": str},
     "ONLINE_PLUS_CARD_VALIDITY_TEXT": {"desc": "Online+ card validity text", "type": str},
     "ONLINE_OPERATION_FEE_USD": {"desc": "Online card operation fee (USD)", "type": float},

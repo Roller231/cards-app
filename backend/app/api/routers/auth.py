@@ -46,6 +46,12 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
     await db.flush()
 
     token = create_access_token(str(user.id))
+    if settings.DETAILED_DEV_LOGS:
+        _auth_log.info(
+            "User login via /auth/login | user_id=%s username=%s",
+            user.id,
+            user.username,
+        )
     return TokenResponse(access_token=token)
 
 
@@ -72,6 +78,13 @@ async def dev_browser_auth(db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=401, detail="User is inactive")
 
     token = create_access_token(str(user.id))
+    if settings.DETAILED_DEV_LOGS:
+        _auth_log.info(
+            "[DEV] /auth/dev-browser login | user_id=%s username=%s balance=%s",
+            user.id,
+            user.username,
+            float(user.balance or 0),
+        )
     return TokenResponse(access_token=token)
 
 
@@ -106,6 +119,13 @@ async def get_config():
 
 @router.get("/me", response_model=UserResponse, summary="Get current user info")
 async def me(current_user: User = Depends(get_current_user)):
+    if settings.DETAILED_DEV_LOGS:
+        _auth_log.info(
+            "GET /auth/me | user_id=%s username=%s balance=%s",
+            current_user.id,
+            current_user.username,
+            float(current_user.balance or 0),
+        )
     return UserResponse(
         id=current_user.id,
         username=current_user.username,

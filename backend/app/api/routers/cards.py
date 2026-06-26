@@ -1,4 +1,5 @@
 from decimal import Decimal
+import logging
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -19,7 +20,25 @@ from app.schemas.card import (
 from app.services.card_service import card_service
 from app.services.telegram_bot_service import notify_card_issued, notify_topup_result
 
+log = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/cards", tags=["cards"])
+
+
+@router.get("/issuance-price", summary="Get card issuance price from admin settings")
+async def get_issuance_price(db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)):
+    from sqlalchemy import select as _select
+    from app.models.admin_setting import AdminSetting
+    
+    result = await db.execute(_select(AdminSetting).where(AdminSetting.key == "CARD_ISSUANCE_PRICE_USD"))
+    price_setting = result.scalar_one_or_none()
+    price = float(price_setting.value if price_setting else "10.0")
+    
+    return {
+        "price": price,
+        "initial_balance": 0.0,
+        "description": f"Card issuance costs ${price:.2f} USD. Card will be issued with zero balance."
+    }
 
 
 @router.get("/offers", response_model=List[CardOfferItem], summary="List available virtual card types from O-Plata")
@@ -36,26 +55,42 @@ async def issue_card(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    from sqlalchemy import select as _select
+    from app.models.admin_setting import AdminSetting
+    
     # Quick synchronous validation only; heavy O-Plata pipeline runs in background.
     if not body.offer_id:
         raise HTTPException(status_code=400, detail="offer_id is required")
-    if body.amount is None or float(body.amount) <= 0:
-        raise HTTPException(status_code=400, detail="amount must be greater than 0")
+    
+    # Get admin-configured price
+    result = await db.execute(_select(AdminSetting).where(AdminSetting.key == "CARD_ISSUANCE_PRICE_USD"))
+    price_setting = result.scalar_one_or_none()
+    required = Decimal(str(price_setting.value if price_setting else "10.0"))
+    
     skip_balance_check = (body.payment_method == "sbp")
     if not skip_balance_check:
-        required = Decimal(str(body.amount or 0)) + Decimal(str(settings.ONLINE_ISSUE_FEE_USD))
         if Decimal(str(current_user.balance or 0)) < required:
             raise HTTPException(
                 status_code=400,
                 detail=f"Insufficient balance. Required: {required:.2f} USD, available: {current_user.balance}",
             )
 
+    if settings.DETAILED_DEV_LOGS:
+        log.info(
+            "Card issuance requested | user_id=%s username=%s offer_id=%s price=%s payment_method=%s skip_balance=%s",
+            current_user.id,
+            current_user.username,
+            body.offer_id,
+            float(required),
+            body.payment_method,
+            skip_balance_check,
+        )
+
     card_service.schedule_issue_in_background(
         user_id=current_user.id,
         offer_id=body.offer_id,
         holder_first_name=body.holder_first_name,
         holder_last_name=body.holder_last_name,
-        amount=body.amount,
         email=body.email,
         document_number=body.document_number,
         skip_balance_check=skip_balance_check,

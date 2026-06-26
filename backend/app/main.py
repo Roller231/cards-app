@@ -5,7 +5,7 @@ import sys
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routers import auth, admin, cards, faq, orders, balance
+from app.api.routers import auth, admin, cards, faq, orders, balance, sbp
 from app.core.config import settings
 from app.core.database import engine
 from app.models import Base
@@ -36,6 +36,7 @@ app.include_router(cards.router)
 app.include_router(faq.router)
 app.include_router(orders.router)
 app.include_router(balance.router)
+app.include_router(sbp.router)
 
 
 # Function to check and update database schema
