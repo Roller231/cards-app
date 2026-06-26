@@ -64,6 +64,39 @@ async def get_usd_to_rub_rate(_: User = Depends(get_current_user)):
     return {"usd_to_rub_rate": settings.USD_TO_RUB_RATE}
 
 
+@router.post("/kyc-session", summary="Create Bitbanker KYC session")
+async def create_kyc_session(current_user: User = Depends(get_current_user)):
+    """Generate KYC URL for user verification via Bitbanker widget."""
+    ext_ref = _external_ref(current_user)
+    try:
+        result = await bitbanker_client.create_kyc_session(ext_ref)
+        return {
+            "kyc_url": result.get("kyc_url"),
+            "partner_client_id": result.get("partner_client_id"),
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Bitbanker KYC error: {exc}")
+
+
+@router.get("/kyc-status", summary="Check KYC verification status")
+async def get_kyc_status(current_user: User = Depends(get_current_user)):
+    """Check if user is verified for SBP payments."""
+    ext_ref = _external_ref(current_user)
+    try:
+        result = await bitbanker_client.get_partner_client(ext_ref)
+        return {
+            "client_id": result.get("client_id"),
+            "is_verified_for_sbp": result.get("is_verified_for_sbp", False),
+        }
+    except Exception as exc:
+        # Client doesn't exist yet
+        return {
+            "client_id": ext_ref,
+            "is_verified_for_sbp": False,
+            "error": str(exc)[:200],
+        }
+
+
 @router.get("/prediction", summary="SBP limits and fee info")
 async def sbp_prediction(_: User = Depends(get_current_user)):
     try:
@@ -98,32 +131,35 @@ async def create_invoice(
 
     ext_ref = _external_ref(current_user)
     
-    # Ensure client is registered in Bitbanker (temporary, until NeuroVision KYC is implemented)
-    # This creates a minimal client record without full KYC - for testing only
+    # Register client with test KYC data (temporary, until NeuroVision integration)
+    # Using same test data format as O-Plata
     try:
         reg_result = await bitbanker_client.register_partner_client(
             client_id=ext_ref,
-            email=f"{ext_ref}@prontopay.local",  # Temporary email until we add email field to User model
-            phone="+79999999999",  # Placeholder - will be replaced with real data from NeuroVision
+            email=f"{ext_ref}@prontopay.local",
+            phone="+79991234567",
+            first_name="Иван",
+            last_name="Иванов",
+            patronymic="Иванович",
+            birth_date="01.01.1990",
+            passport="1234567890",
+            passport_issue_date="01.01.2018",
+            country_of_passport_issue="RUS",
         )
         if settings.DETAILED_DEV_LOGS:
             logger.info("[SBP] Client registered: %s | is_verified_for_sbp=%s", 
                        ext_ref, reg_result.get("is_verified_for_sbp"))
-        
-        # Check if client is verified for SBP
-        if not reg_result.get("is_verified_for_sbp"):
-            logger.warning("[SBP] Client %s not verified for SBP - invoice creation may fail", ext_ref)
     except Exception as e:
-        # Client might already exist - that's OK, try to get status
+        # Client might already exist - check status
         if settings.DETAILED_DEV_LOGS:
-            logger.warning("[SBP] Client registration warning (might already exist): %s", str(e)[:200])
+            logger.warning("[SBP] Client registration error (might already exist): %s", str(e)[:200])
         try:
             status = await bitbanker_client.get_partner_client(ext_ref)
             if settings.DETAILED_DEV_LOGS:
-                logger.info("[SBP] Existing client status: %s | is_verified_for_sbp=%s",
+                logger.info("[SBP] Existing client: %s | is_verified_for_sbp=%s",
                            ext_ref, status.get("is_verified_for_sbp"))
         except Exception:
-            pass  # Ignore status check errors
+            pass
     
     idempotency_key = f"inv-{current_user.id}-{_uuid.uuid4().hex[:16]}"
 
