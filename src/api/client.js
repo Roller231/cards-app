@@ -85,6 +85,8 @@ export const api = {
     createInvoice: (amountRub, purpose = 'balance_topup') =>
       req('POST', '/sbp/invoice', { amount_rub: amountRub, purpose }),
     pollInvoice: (localInvoiceId) => req('GET', `/sbp/invoice/${localInvoiceId}`),
+    getKycStatus: () => req('GET', '/sbp/kyc-status'),
+    createKycSession: () => req('POST', '/sbp/kyc-session'),
   },
 }
 

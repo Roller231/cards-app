@@ -131,19 +131,18 @@ async def create_invoice(
 
     ext_ref = _external_ref(current_user)
     
-    # Register client with test KYC data (temporary, until NeuroVision integration)
-    # Using same test data format as O-Plata
+    # Register client with KYC data from env (temporary, until NeuroVision integration)
     try:
         reg_result = await bitbanker_client.register_partner_client(
             client_id=ext_ref,
             email=f"{ext_ref}@prontopay.local",
-            phone="+79991234567",
-            first_name="Иван",
-            last_name="Иванов",
-            patronymic="Иванович",
-            birth_date="01.01.1990",
-            passport="1234567890",
-            passport_issue_date="01.01.2018",
+            phone=settings.BB_TEST_PHONE,
+            first_name=settings.BB_TEST_FIRST_NAME,
+            last_name=settings.BB_TEST_LAST_NAME,
+            patronymic=settings.BB_TEST_PATRONYMIC,
+            birth_date=settings.BB_TEST_BIRTH_DATE,
+            passport=settings.BB_TEST_PASSPORT,
+            passport_issue_date=settings.BB_TEST_PASSPORT_ISSUE_DATE,
             country_of_passport_issue="RUS",
         )
         if settings.DETAILED_DEV_LOGS:

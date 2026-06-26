@@ -82,12 +82,17 @@ class BitbankerClient:
         logger.debug("Bitbanker POST %s | nonce=%s", url, body.get("nonce"))
         # Log full request body for debugging (without sensitive data in production)
         logger.info("Bitbanker POST %s | payload keys: %s", path, list(body.keys()))
+        logger.info("Bitbanker POST %s | Idempotency-Key: %s | full_sign: %s...", 
+                   path, headers.get("Idempotency-Key", "N/A"), body.get("full_sign", "N/A")[:16])
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(url, headers=headers, content=json.dumps(body, ensure_ascii=False))
             if resp.status_code >= 400:
                 preview = resp.text[:500]
                 logger.error("Bitbanker %s -> %s | %s", path, resp.status_code, preview)
                 logger.error("Request payload (without full_sign): %s", {k: v for k, v in body.items() if k != "full_sign"})
+                # Log canonical JSON for debugging signature
+                canonical = _canonical_json({k: v for k, v in body.items() if k != "full_sign"})
+                logger.error("Canonical JSON: %s", canonical[:200])
                 raise httpx.HTTPStatusError(
                     f"HTTP {resp.status_code} from Bitbanker {path}: {preview}",
                     request=resp.request, response=resp,

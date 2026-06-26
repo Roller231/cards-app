@@ -48,6 +48,15 @@ class Settings(BaseSettings):
     BITBANKER_BASE_URL: str = "https://api.aws.dev.bitbanker.org/latest"  # DEV; swap to prod
     USD_TO_RUB_RATE: float = 95.0  # Admin-configurable USD to RUB exchange rate
 
+    # Test KYC data for Bitbanker (temporary until NeuroVision integration)
+    BB_TEST_FIRST_NAME: str = "Иван"
+    BB_TEST_LAST_NAME: str = "Иванов"
+    BB_TEST_PATRONYMIC: str = "Иванович"
+    BB_TEST_BIRTH_DATE: str = "01.01.1990"
+    BB_TEST_PASSPORT: str = "1234567890"
+    BB_TEST_PASSPORT_ISSUE_DATE: str = "01.01.2018"
+    BB_TEST_PHONE: str = "+79991234567"
+
     class Config:
         env_file = ".env"
 
