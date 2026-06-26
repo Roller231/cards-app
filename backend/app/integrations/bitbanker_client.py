@@ -80,11 +80,14 @@ class BitbankerClient:
             headers["Idempotency-Key"] = idempotency_key
         url = f"{self._base}{path}"
         logger.debug("Bitbanker POST %s | nonce=%s", url, body.get("nonce"))
+        # Log full request body for debugging (without sensitive data in production)
+        logger.info("Bitbanker POST %s | payload keys: %s", path, list(body.keys()))
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(url, headers=headers, content=json.dumps(body, ensure_ascii=False))
             if resp.status_code >= 400:
                 preview = resp.text[:500]
                 logger.error("Bitbanker %s -> %s | %s", path, resp.status_code, preview)
+                logger.error("Request payload (without full_sign): %s", {k: v for k, v in body.items() if k != "full_sign"})
                 raise httpx.HTTPStatusError(
                     f"HTTP {resp.status_code} from Bitbanker {path}: {preview}",
                     request=resp.request, response=resp,
