@@ -97,6 +97,20 @@ async def create_invoice(
         raise HTTPException(status_code=400, detail="purpose must be balance_topup or card_issue")
 
     ext_ref = _external_ref(current_user)
+    
+    # Ensure client is registered in Bitbanker (temporary, until NeuroVision KYC is implemented)
+    # This creates a minimal client record without full KYC - for testing only
+    try:
+        await bitbanker_client.register_partner_client(
+            client_id=ext_ref,
+            email=current_user.email or f"{ext_ref}@temp.local",
+            phone="+79999999999",  # Placeholder - will be replaced with real data from NeuroVision
+        )
+    except Exception as e:
+        # Client might already exist - that's OK, continue
+        if settings.DETAILED_DEV_LOGS:
+            logger.warning("[SBP] Client registration warning (might already exist): %s", str(e)[:200])
+    
     idempotency_key = f"inv-{current_user.id}-{_uuid.uuid4().hex[:16]}"
 
     try:

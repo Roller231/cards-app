@@ -91,6 +91,22 @@ class BitbankerClient:
                 )
             return resp.json() if resp.content else {}
 
+    async def _post_unsigned(self, path: str, payload: Dict[str, Any]) -> Any:
+        """POST without timestamp/nonce/full_sign (for endpoints that don't require signing)."""
+        if not self._is_configured():
+            raise RuntimeError("Bitbanker API key/secret not configured")
+        url = f"{self._base}{path}"
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(url, headers=self._headers(), content=json.dumps(payload, ensure_ascii=False))
+            if resp.status_code >= 400:
+                preview = resp.text[:500]
+                logger.error("Bitbanker POST %s -> %s | %s", path, resp.status_code, preview)
+                raise httpx.HTTPStatusError(
+                    f"HTTP {resp.status_code} from Bitbanker {path}: {preview}",
+                    request=resp.request, response=resp,
+                )
+            return resp.json() if resp.content else {}
+
     async def _get(self, path: str, params: Optional[Dict[str, Any]] = None) -> Any:
         if not self._is_configured():
             raise RuntimeError("Bitbanker API key/secret not configured")
@@ -141,13 +157,13 @@ class BitbankerClient:
         return await self._get("/api/v2/prediction-sbp")
 
     async def get_exchange_prediction(self, volume: float, give_currency: str = "RUBR", take_currency: str = "USDT") -> Dict[str, Any]:
-        """POST /api/v2/exchange_prediction — calculate rates before invoice."""
+        """POST /api/v2/exchange-prediction — calculate rates before invoice (no signing required)."""
         payload = {
-            "volume": f"{volume:.3f}",
+            "volume": volume,  # Numeric value, not string
             "give_currency": give_currency,
             "take_currency": take_currency,
         }
-        return await self._post("/api/v2/exchange_prediction", payload)
+        return await self._post_unsigned("/api/v2/exchange-prediction", payload)
 
     # ------------------------------------------------------------------
     # Invoice
@@ -162,19 +178,21 @@ class BitbankerClient:
     ) -> Dict[str, Any]:
         """POST /api/v2/invoices — create SBP payment invoice, returns qr image."""
         payload = {
-            "amount": f"{amount_rub:.2f}",  # Bitbanker expects string format
+            "payment_currencies": ["RUBR"],
+            "payment_chains": [],
             "currency": "RUBR",
+            "amount": int(amount_rub),  # Bitbanker expects integer for amount
+            "crypto_payment": False,
             "sbp_payment": True,
             "is_convert_payments": True,
             "take_currency": take_currency,
-            "payment_currencies": ["RUBR"],
             "partner_client_external_id": partner_client_external_id,
         }
         return await self._post("/api/v2/invoices", payload, idempotency_key=idempotency_key)
 
     async def get_invoice(self, invoice_id: str) -> Dict[str, Any]:
-        """GET /api/v2/invoices/{id} — poll payment status."""
-        return await self._get(f"/api/v2/invoices/{invoice_id}")
+        """GET /api/v2/invoices?id=... — poll payment status."""
+        return await self._get("/api/v2/invoices", params={"id": invoice_id})
 
 
 bitbanker_client = BitbankerClient()
