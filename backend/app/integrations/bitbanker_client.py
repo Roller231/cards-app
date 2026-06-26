@@ -131,13 +131,12 @@ class BitbankerClient:
     # ------------------------------------------------------------------
 
     async def create_kyc_session(self, external_client_ref: str) -> Dict[str, Any]:
-        """POST /api/v1/kyc-request — returns kyc_url and partner_client_id."""
-        body = {**_base_fields(), "external_client_ref": external_client_ref}
-        body["full_sign"] = _compute_full_sign(body, self._api_secret)
-        headers = self._headers()
+        """POST /api/v1/kyc-request — returns kyc_url and partner_client_id (no signing required)."""
+        payload = {"external_client_ref": external_client_ref}
         url = f"{self._base}/api/v1/kyc-request"
+        headers = self._headers()
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(url, headers=headers, content=json.dumps(body, ensure_ascii=False))
+            resp = await client.post(url, headers=headers, content=json.dumps(payload, ensure_ascii=False))
             if resp.status_code >= 400:
                 raise httpx.HTTPStatusError(
                     f"HTTP {resp.status_code}: {resp.text[:300]}", request=resp.request, response=resp,

@@ -103,7 +103,7 @@ async def create_invoice(
     try:
         reg_result = await bitbanker_client.register_partner_client(
             client_id=ext_ref,
-            email=current_user.email or f"{ext_ref}@temp.local",
+            email=f"{ext_ref}@prontopay.local",  # Temporary email until we add email field to User model
             phone="+79999999999",  # Placeholder - will be replaced with real data from NeuroVision
         )
         if settings.DETAILED_DEV_LOGS:
