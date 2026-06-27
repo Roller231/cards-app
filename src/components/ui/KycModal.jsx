@@ -33,7 +33,13 @@ export default function KycModal({ isOpen, onClose, onSuccess }) {
       setScreen('contact')
       setError('')
       widgetLoadedRef.current = false
+      return
     }
+    // Load existing email/phone from backend
+    api.kyc.status().then(status => {
+      if (status.email) setEmail(status.email)
+      if (status.phone) setPhone(status.phone)
+    }).catch(() => {})
   }, [isOpen])
 
   if (!isOpen) return null

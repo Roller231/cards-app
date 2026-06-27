@@ -40,10 +40,19 @@ export default function SbpPaymentModal({
   const pollRef = useRef(null)
 
   const createInvoiceFlow = async (rubAmount) => {
-    setScreen('loading')
-    const res = await api.sbp.createInvoice(rubAmount, purpose)
-    setInvoice(res)
-    setScreen('qr')
+    try {
+      setScreen('loading')
+      const res = await api.sbp.createInvoice(rubAmount, purpose)
+      setInvoice(res)
+      setScreen('qr')
+    } catch (e) {
+      // If 403 KYC error, show KYC screen instead of error
+      if (e.message && e.message.toLowerCase().includes('kyc')) {
+        setScreen('kyc')
+      } else {
+        throw e
+      }
+    }
   }
 
   // Load USD→RUB rate, check KYC, then create invoice

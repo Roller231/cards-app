@@ -128,16 +128,63 @@ def extract_passport_data(session: Dict[str, Any]) -> Optional[Dict[str, str]]:
         if not ocr:
             continue
 
-        # NeuroVision OCR field names for Russian passport
-        first_name = (ocr.get("name") or ocr.get("firstName") or "").strip()
-        last_name = (ocr.get("surname") or ocr.get("lastName") or "").strip()
-        patronymic = (ocr.get("patronymic") or ocr.get("middleName") or "").strip()
-        birth_date = (ocr.get("birthDate") or ocr.get("dateOfBirth") or "").strip()
-        passport = (ocr.get("passportNumber") or ocr.get("documentNumber") or "").replace(" ", "").strip()
-        issue_date = (ocr.get("issueDate") or ocr.get("dateOfIssue") or "").strip()
+        # Parse OCR fields array: [{"title": "Surname", "value": "DOE", "conf": "high"}, ...]
+        fields_map = {}
+        if "fields" in ocr and isinstance(ocr["fields"], list):
+            for field in ocr["fields"]:
+                title = field.get("title", "").lower()
+                value = field.get("value", "").strip()
+                if value:
+                    fields_map[title] = value
+        
+        # Extract data from fields_map
+        # Common titles: "Surname", "Given name(s)", "Patronymic", "Date of birth", "Document number", "Date of issue"
+        last_name = (
+            fields_map.get("surname") or 
+            fields_map.get("фамилия") or 
+            ocr.get("surname") or 
+            ""
+        ).strip()
+        
+        first_name = (
+            fields_map.get("given name(s)") or 
+            fields_map.get("name") or
+            fields_map.get("имя") or 
+            ocr.get("name") or 
+            ""
+        ).strip()
+        
+        patronymic = (
+            fields_map.get("patronymic") or 
+            fields_map.get("отчество") or 
+            ocr.get("patronymic") or 
+            ""
+        ).strip()
+        
+        birth_date = (
+            fields_map.get("date of birth") or 
+            fields_map.get("дата рождения") or 
+            ocr.get("birthDate") or 
+            ""
+        ).strip()
+        
+        passport = (
+            fields_map.get("document number") or 
+            fields_map.get("номер документа") or 
+            ocr.get("passportNumber") or 
+            ocr.get("documentNumber") or 
+            ""
+        ).replace(" ", "").strip()
+        
+        issue_date = (
+            fields_map.get("date of issue") or 
+            fields_map.get("дата выдачи") or 
+            ocr.get("issueDate") or 
+            ""
+        ).strip()
 
         if not (last_name and first_name and passport):
-            logger.warning("NeuroVision OCR incomplete: %s", ocr)
+            logger.warning("NeuroVision OCR incomplete. fields_map=%s, ocr=%s", fields_map, ocr)
             return None
 
         return {
