@@ -131,18 +131,24 @@ async def create_invoice(
 
     ext_ref = _external_ref(current_user)
     
-    # Register client with KYC data from env (temporary, until NeuroVision integration)
+    # Register client with KYC data — use real NeuroVision data if available, else env fallback
+    if current_user.kyc_status != "success" or not current_user.kyc_passport:
+        raise HTTPException(
+            status_code=403,
+            detail="KYC verification required. Please complete identity verification first."
+        )
+
     try:
         reg_result = await bitbanker_client.register_partner_client(
             client_id=ext_ref,
-            email=f"{ext_ref}@prontopay.local",
-            phone=settings.BB_TEST_PHONE,
-            first_name=settings.BB_TEST_FIRST_NAME,
-            last_name=settings.BB_TEST_LAST_NAME,
-            patronymic=settings.BB_TEST_PATRONYMIC,
-            birth_date=settings.BB_TEST_BIRTH_DATE,
-            passport=settings.BB_TEST_PASSPORT,
-            passport_issue_date=settings.BB_TEST_PASSPORT_ISSUE_DATE,
+            email=current_user.email or f"{ext_ref}@prontopay.local",
+            phone=current_user.phone or settings.BB_TEST_PHONE,
+            first_name=current_user.kyc_first_name,
+            last_name=current_user.kyc_last_name,
+            patronymic=current_user.kyc_patronymic or "",
+            birth_date=current_user.kyc_birth_date,
+            passport=current_user.kyc_passport,
+            passport_issue_date=current_user.kyc_passport_issue_date,
             country_of_passport_issue="RUS",
         )
         if settings.DETAILED_DEV_LOGS:

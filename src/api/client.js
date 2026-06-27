@@ -88,6 +88,12 @@ export const api = {
     getKycStatus: () => req('GET', '/sbp/kyc-status'),
     createKycSession: () => req('POST', '/sbp/kyc-session'),
   },
+  kyc: {
+    updateContact: (email, phone) => req('PUT', '/kyc/contact', { email, phone }),
+    start: () => req('POST', '/kyc/start'),
+    status: () => req('GET', '/kyc/status'),
+    complete: (session_id) => req('POST', '/kyc/complete', { session_id }),
+  },
 }
 
 export default api

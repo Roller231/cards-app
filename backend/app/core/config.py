@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     OPLATA_PARENT_CLIENT_ID: str = "Developer"  # Funded parent client used to transfer funds to per-user clients
     OPLATA_USER_CLIENT_PREFIX: str = "tg_"  # Prefix for per-user O-Plata clientId derived from telegram_user_id
 
+    # NeuroVision KYC
+    NV_API_TOKEN: str = ""           # JWT token from NeuroVision LK (раздел Доступ)
+    NV_SCHEMA_ID: str = ""           # KYC schema ID from NeuroVision LK
+    NV_SCENARIO_SECRET: str = ""     # Scenario secret key (for clientKey encryption + webhook verification)
+
     # Bitbanker SBP gateway
     BITBANKER_API_KEY: str = ""
     BITBANKER_API_SECRET: str = ""

@@ -18,6 +18,7 @@ import { useEffect, useRef, useState } from 'react'
 import api from '../../api/client'
 import Button from './Button'
 import Portal from './Portal'
+import KycModal from './KycModal'
 
 const POLL_INTERVAL_MS = 5000
 const font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif'
@@ -29,15 +30,23 @@ export default function SbpPaymentModal({
   amountUsd,
   purpose = 'balance_topup',
 }) {
-  // screen: 'checking' | 'loading' | 'qr' | 'success' | 'error'
+  // screen: 'checking' | 'kyc' | 'loading' | 'qr' | 'success' | 'error'
   const [screen, setScreen] = useState('checking')
   const [error, setError] = useState('')
   const [invoice, setInvoice] = useState(null)   // { local_invoice_id, bb_invoice_id, qr_base64, payment_url, amount_rub }
   const [usdToRubRate, setUsdToRubRate] = useState(95)
   const [amountRub, setAmountRub] = useState(0)
+  const [showKycModal, setShowKycModal] = useState(false)
   const pollRef = useRef(null)
 
-  // Load USD→RUB rate and create invoice immediately
+  const createInvoiceFlow = async (rubAmount) => {
+    setScreen('loading')
+    const res = await api.sbp.createInvoice(rubAmount, purpose)
+    setInvoice(res)
+    setScreen('qr')
+  }
+
+  // Load USD→RUB rate, check KYC, then create invoice
   useEffect(() => {
     if (!isOpen || !amountUsd) return
     setScreen('checking')
@@ -52,11 +61,14 @@ export default function SbpPaymentModal({
         const calculatedRub = Math.ceil(amountUsd * rate)
         setAmountRub(calculatedRub)
 
-        // Create invoice immediately
-        setScreen('loading')
-        const res = await api.sbp.createInvoice(calculatedRub, purpose)
-        setInvoice(res)
-        setScreen('qr')
+        // Check KYC status
+        const kycRes = await api.kyc.status()
+        if (kycRes.kyc_status !== 'success') {
+          setScreen('kyc')
+          return
+        }
+
+        await createInvoiceFlow(calculatedRub)
       } catch (e) {
         setError(e.message || 'Ошибка создания счёта')
         setScreen('error')
@@ -128,6 +140,23 @@ export default function SbpPaymentModal({
             </div>
           )}
 
+          {/* === KYC REQUIRED === */}
+          {screen === 'kyc' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16, alignItems: 'center', paddingTop: 8 }}>
+              <div style={{ fontSize: 40 }}>🪪</div>
+              <div style={{ fontSize: 17, fontWeight: 700, color: '#111827', textAlign: 'center' }}>Требуется верификация</div>
+              <div style={{ fontSize: 14, color: '#6B7280', textAlign: 'center', lineHeight: 1.6 }}>
+                Для оплаты через СБП необходимо пройти верификацию личности. Это займёт 1–2 минуты.
+              </div>
+              <Button
+                onClick={() => setShowKycModal(true)}
+                fullWidth
+              >
+                Пройти верификацию
+              </Button>
+            </div>
+          )}
+
           {/* === LOADING === */}
           {screen === 'loading' && (
             <div style={{ textAlign: 'center', padding: '32px 0', color: '#6B7280', fontSize: 15 }}>
@@ -192,13 +221,25 @@ export default function SbpPaymentModal({
           {screen === 'error' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div style={{ fontSize: 15, color: '#DC2626', lineHeight: 1.5 }}>{error || 'Произошла ошибка'}</div>
-              <Button onClick={() => { setError(''); setScreen('form') }} fullWidth>
+              <Button onClick={() => { setError(''); setScreen('checking') }} fullWidth>
                 Попробовать ещё раз
               </Button>
             </div>
           )}
         </div>
       </div>
+
+      <KycModal
+        isOpen={showKycModal}
+        onClose={() => setShowKycModal(false)}
+        onSuccess={() => {
+          setShowKycModal(false)
+          createInvoiceFlow(amountRub).catch(e => {
+            setError(e.message || 'Ошибка создания счёта')
+            setScreen('error')
+          })
+        }}
+      />
     </Portal>
   )
 }

@@ -5,7 +5,7 @@ import sys
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routers import auth, admin, cards, faq, orders, balance, sbp
+from app.api.routers import auth, admin, cards, faq, orders, balance, sbp, kyc
 from app.core.config import settings
 from app.core.database import engine
 from app.models import Base
@@ -37,6 +37,7 @@ app.include_router(faq.router)
 app.include_router(orders.router)
 app.include_router(balance.router)
 app.include_router(sbp.router)
+app.include_router(kyc.router)
 
 
 # Function to check and update database schema
@@ -69,6 +70,26 @@ def check_and_update_schema(conn):
         """))
         logger.info("Table 'faqs' created")
     
+    # Check for new KYC/contact columns in users table
+    if 'users' in inspector.get_table_names():
+        user_cols = [col['name'] for col in inspector.get_columns('users')]
+        new_user_cols = {
+            'email': 'VARCHAR(255) NULL',
+            'phone': 'VARCHAR(32) NULL',
+            'kyc_status': 'VARCHAR(16) NULL',
+            'kyc_first_name': 'VARCHAR(100) NULL',
+            'kyc_last_name': 'VARCHAR(100) NULL',
+            'kyc_patronymic': 'VARCHAR(100) NULL',
+            'kyc_birth_date': 'VARCHAR(20) NULL',
+            'kyc_passport': 'VARCHAR(20) NULL',
+            'kyc_passport_issue_date': 'VARCHAR(20) NULL',
+            'kyc_session_id': 'VARCHAR(100) NULL',
+        }
+        for col_name, col_def in new_user_cols.items():
+            if col_name not in user_cols:
+                logger.info("Adding column '%s' to 'users' table", col_name)
+                conn.execute(text(f"ALTER TABLE users ADD COLUMN {col_name} {col_def};"))
+
     # Add similar checks for other tables and columns if needed in the future
     return
 

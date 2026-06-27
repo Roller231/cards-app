@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import Button from '../components/ui/Button'
 import PageHeader from '../components/ui/PageHeader'
 import SbpPaymentModal from '../components/ui/SbpPaymentModal'
+import KycModal from '../components/ui/KycModal'
 
 const PAYMENT_METHODS = [
   { id: 'sbp', label: 'СБП', description: 'Моментальный перевод через Систему Быстрых Платежей', iconSrc: '/images/sbp.png' },
@@ -21,6 +22,8 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
   const [errorMsg, setErrorMsg] = useState('')
   const [issuancePrice, setIssuancePrice] = useState(null)
   const [showSbpModal, setShowSbpModal] = useState(false)
+  const [showKycModal, setShowKycModal] = useState(false)
+  const [kycStatus, setKycStatus] = useState(null)
 
 
   // Load card offers and issuance price from API
@@ -487,9 +490,19 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
 
               {/* Continue Button */}
               <Button
-                onClick={() => {
+                onClick={async () => {
                   setShowConfirmation(false)
-                  setShowSbpModal(true)
+                  // Check KYC status before opening SBP
+                  try {
+                    const s = await api.kyc.status()
+                    if (s.kyc_status === 'success') {
+                      setShowSbpModal(true)
+                    } else {
+                      setShowKycModal(true)
+                    }
+                  } catch {
+                    setShowKycModal(true)
+                  }
                 }}
                 fullWidth
                 style={{ marginTop: 24 }}
@@ -703,6 +716,15 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
           </div>
         </div>
       )}
+
+      <KycModal
+        isOpen={showKycModal}
+        onClose={() => setShowKycModal(false)}
+        onSuccess={() => {
+          setShowKycModal(false)
+          setShowSbpModal(true)
+        }}
+      />
 
       <SbpPaymentModal
         isOpen={showSbpModal}
