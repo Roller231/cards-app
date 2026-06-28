@@ -721,9 +721,17 @@ class CardService:
                     continue
                 payment_system = ct.get("paymentSystem") or ""
                 raw_name = ct.get("localizedName") or f"{payment_system} Virtual Card"
-                # Strip markdown — take only the first non-empty line
-                first_line = next((l.strip().lstrip('#').strip() for l in raw_name.splitlines() if l.strip()), raw_name)
-                name = first_line or f"{payment_system} Virtual Card"
+                
+                # Hardcoded mapping for known card types
+                raw_lower = raw_name.lower()
+                if "apple pay" in raw_lower or "google pay" in raw_lower:
+                    name = "Online+Pay"
+                elif "подписок" in raw_lower or "сервисов" in raw_lower or "gaming" in raw_lower or "гейминг" in raw_lower:
+                    name = "Online"
+                else:
+                    # Strip markdown — take only the first non-empty line
+                    first_line = next((l.strip().lstrip('#').strip() for l in raw_name.splitlines() if l.strip()), raw_name)
+                    name = first_line or f"{payment_system} Virtual Card"
                 offers.append({
                     "id": f"{ravana_server_id}:{type_uuid}",
                     "name": name,
