@@ -29,32 +29,21 @@ NV_BASE_URL = "https://api.neuro-vision.ru/v1"
 def _encrypt_client_key(raw_key: str, scenario_secret: str) -> str:
     """Encrypt clientKeyRaw with AES-256-CBC using scenarioSecretKey.
 
-    The scenarioSecretKey is taken from NeuroVision LK scenario settings.
-    Key is derived as SHA-256 hex of the scenario secret, first 32 chars.
-    IV is random 16 bytes, prepended to the encrypted result.
-    Result is Base64-encoded.
-    
-    Algorithm (from NeuroVision docs):
-    1. key = sha256(password).hex().substr(0, 32)
-    2. iv = random 16 bytes
-    3. encrypted = iv + aes256cbc(clientKey, key, iv)
-    4. result = base64(encrypted)
+    Exact algorithm from NeuroVision Node.js docs:
+    1. key = sha256(password).hexdigest()[:32]   — 32 ASCII hex chars used as-is as key bytes
+    2. iv  = os.urandom(16)                       — random 16 bytes
+    3. result = base64(iv + aes_cbc(raw_key, key, iv))
     """
-    # Key derivation: SHA-256 hex, first 32 chars (= 16 bytes when decoded from hex)
-    key_hex = hashlib.sha256(scenario_secret.encode()).hexdigest()[:32]
-    key = bytes.fromhex(key_hex)  # 16 bytes
-    
-    # Generate random IV (16 bytes)
+    # Key: first 32 chars of SHA-256 hex digest, used as raw bytes (= 32 bytes key = AES-256)
+    key = hashlib.sha256(scenario_secret.encode()).hexdigest()[:32].encode("ascii")
+
+    # Random IV (16 bytes)
     iv = os.urandom(16)
-    
-    # Encrypt with AES-256-CBC (but key is only 16 bytes, so it's AES-128-CBC)
+
     cipher = AES.new(key, AES.MODE_CBC, iv)
     encrypted = cipher.encrypt(pad(raw_key.encode("utf-8"), AES.block_size))
-    
-    # Prepend IV to encrypted data
-    result = iv + encrypted
-    
-    return base64.b64encode(result).decode("utf-8")
+
+    return base64.b64encode(iv + encrypted).decode("utf-8")
 
 
 class NeuroVisionClient:
