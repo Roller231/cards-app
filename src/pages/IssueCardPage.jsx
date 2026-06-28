@@ -65,7 +65,12 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
   const cardTypes = offers
   const selectedCard = cardTypes.find((c) => String(c.id) === String(selectedCardType))
   const selectedCardName = selectedCard?.name || ''
-  const price = Number(issuancePrice?.price_rub) || Number(issuancePrice?.price) || 999
+  
+  // Select price based on card type
+  const price = selectedCardName === 'Online+Pay'
+    ? (Number(issuancePrice?.price_pay_rub) || 1999)
+    : (Number(issuancePrice?.price_rub) || 999)
+  
   const initialBalance = issuancePrice?.initial_balance || 0
   const canIssueCard = selectedCardType !== '' && price > 0
 
