@@ -65,7 +65,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
   const cardTypes = offers
   const selectedCard = cardTypes.find((c) => String(c.id) === String(selectedCardType))
   const selectedCardName = selectedCard?.name || ''
-  const price = issuancePrice?.price || 0
+  const price = issuancePrice?.price_rub || issuancePrice?.price || 999
   const initialBalance = issuancePrice?.initial_balance || 0
   const canIssueCard = selectedCardType !== '' && price > 0
 
@@ -239,7 +239,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
                 Стоимость выпуска карты
               </label>
               <div style={{ fontSize: 24, fontWeight: 700, color: '#111827', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif' }}>
-                ${price.toFixed(2)}
+                {price.toLocaleString('ru-RU')} ₽
               </div>
             </div>
             <div
@@ -432,7 +432,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
                       fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
                     }}
                   >
-                    ${price.toFixed(2)}
+                    {price.toLocaleString('ru-RU')} ₽
                   </div>
                 </div>
 
@@ -729,7 +729,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
       <SbpPaymentModal
         isOpen={showSbpModal}
         onClose={() => setShowSbpModal(false)}
-        amountUsd={price || 0}
+        amountRub={price || 999}
         purpose="card_issue"
         onPaid={() => {
           setShowSbpModal(false)

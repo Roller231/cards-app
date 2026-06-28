@@ -194,8 +194,8 @@ async def kyc_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     client_key_raw = request.query_params.get("clientKey") or payload.get("clientKey")
     nv_status = payload.get("status")
 
-    logger.info("[KYC webhook] clientKey=%s status=%s body_keys=%s",
-                client_key_raw, nv_status, list(payload.keys()))
+    logger.info("[KYC webhook] clientKey=%s status=%s full_body=%s",
+                client_key_raw, nv_status, payload)
 
     if not client_key_raw:
         logger.warning("[KYC webhook] No clientKey in query params or body — ignoring")

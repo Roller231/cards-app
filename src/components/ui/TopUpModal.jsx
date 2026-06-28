@@ -15,9 +15,33 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) 
   const [totalInput, setTotalInput] = useState('')
   const [screen, setScreen] = useState('form') // 'form' | 'confirmation' | 'loading' | 'success' | 'failure'
   const [showSbpModal, setShowSbpModal] = useState(false)
+  const [rubRate, setRubRate] = useState(null)  // approximate_rate from Bitbanker
+  const [prediction, setPrediction] = useState(null)  // full exchange_prediction for current amount
   const amountInputRef = useRef(null)
   const totalInputRef = useRef(null)
   const lastEditedRef = useRef('amount')
+  const predTimerRef = useRef(null)
+
+  // Load Bitbanker exchange rate once on open
+  useEffect(() => {
+    if (!isOpen || rubRate !== null) return
+    api.sbp.exchangePrediction(1000).then(pred => {
+      if (pred?.approximate_rate) setRubRate(pred.approximate_rate)
+    }).catch(() => {})
+  }, [isOpen])
+
+  // Debounced exchange_prediction for the entered USD amount
+  useEffect(() => {
+    clearTimeout(predTimerRef.current)
+    if (!amount || amount <= 0 || !rubRate) { setPrediction(null); return }
+    const rubAmount = Math.ceil(amount * rubRate)
+    predTimerRef.current = setTimeout(() => {
+      api.sbp.exchangePrediction(rubAmount).then(pred => {
+        setPrediction(pred)
+      }).catch(() => {})
+    }, 600)
+    return () => clearTimeout(predTimerRef.current)
+  }, [amount, rubRate])
 
   // Auto-focus amount input when modal opens
   useEffect(() => {
@@ -249,6 +273,14 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) 
                   />
                   <span style={{ fontSize: 15, fontWeight: 600, color: '#111827', fontFamily: font }}>$</span>
                 </div>
+                {rubRate && amount > 0 && (
+                  <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 6 }}>
+                    {prediction
+                      ? `К оплате ${Math.ceil(prediction.volume_give_prediction).toLocaleString('ru-RU')} ₽ · курс ${prediction.approximate_rate?.toFixed(2)} ₽/$`
+                      : `≈ ${Math.ceil(amount * rubRate).toLocaleString('ru-RU')} ₽ · курс ${rubRate.toFixed(2)} ₽/$`
+                    }
+                  </div>
+                )}
               </div>
 
               {/* Total with commission */}
@@ -491,7 +523,7 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) 
       <SbpPaymentModal
         isOpen={showSbpModal}
         onClose={() => setShowSbpModal(false)}
-        amountUsd={parseFloat(amount) || 0}
+        amountRub={prediction?.volume_give_prediction ? Math.ceil(prediction.volume_give_prediction) : rubRate ? Math.ceil((parseFloat(amount) || 0) * rubRate) : Math.ceil((parseFloat(amount) || 0) * 95)}
         purpose="balance_topup"
         onPaid={() => {
           setShowSbpModal(false)

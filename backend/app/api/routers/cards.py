@@ -29,15 +29,18 @@ router = APIRouter(prefix="/cards", tags=["cards"])
 async def get_issuance_price(db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)):
     from sqlalchemy import select as _select
     from app.models.admin_setting import AdminSetting
-    
-    result = await db.execute(_select(AdminSetting).where(AdminSetting.key == "CARD_ISSUANCE_PRICE_USD"))
-    price_setting = result.scalar_one_or_none()
-    price = float(price_setting.value if price_setting else "10.0")
-    
+
+    keys = ["CARD_ISSUANCE_PRICE_RUB", "CARD_ISSUANCE_PRICE_PAY_RUB"]
+    result = await db.execute(_select(AdminSetting).where(AdminSetting.key.in_(keys)))
+    rows = {r.key: r.value for r in result.scalars().all()}
+
+    price_rub = float(rows.get("CARD_ISSUANCE_PRICE_RUB") or 999)
+    price_pay_rub = float(rows.get("CARD_ISSUANCE_PRICE_PAY_RUB") or 1999)
+
     return {
-        "price": price,
+        "price_rub": price_rub,
+        "price_pay_rub": price_pay_rub,
         "initial_balance": 0.0,
-        "description": f"Card issuance costs ${price:.2f} USD. Card will be issued with zero balance."
     }
 
 
