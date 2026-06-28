@@ -720,7 +720,10 @@ class CardService:
                     )
                     continue
                 payment_system = ct.get("paymentSystem") or ""
-                name = ct.get("localizedName") or f"{payment_system} Virtual Card"
+                raw_name = ct.get("localizedName") or f"{payment_system} Virtual Card"
+                # Strip markdown — take only the first non-empty line
+                first_line = next((l.strip().lstrip('#').strip() for l in raw_name.splitlines() if l.strip()), raw_name)
+                name = first_line or f"{payment_system} Virtual Card"
                 offers.append({
                     "id": f"{ravana_server_id}:{type_uuid}",
                     "name": name,

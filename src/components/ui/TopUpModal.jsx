@@ -273,54 +273,30 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) 
                   />
                   <span style={{ fontSize: 15, fontWeight: 600, color: '#111827', fontFamily: font }}>$</span>
                 </div>
-                {rubRate && amount > 0 && (
-                  <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 6 }}>
-                    {prediction
-                      ? `К оплате ${Math.ceil(prediction.volume_give_prediction).toLocaleString('ru-RU')} ₽ · курс ${prediction.approximate_rate?.toFixed(2)} ₽/$`
-                      : `≈ ${Math.ceil(amount * rubRate).toLocaleString('ru-RU')} ₽ · курс ${rubRate.toFixed(2)} ₽/$`
-                    }
-                  </div>
-                )}
               </div>
 
-              {/* Total with commission */}
-              <div
-                onClick={() => totalInputRef.current?.focus()}
-                style={{ backgroundColor: 'white', borderRadius: 12, padding: '14px 16px', cursor: 'text' }}
-              >
+              {/* RUB total block */}
+              <div style={{ backgroundColor: 'white', borderRadius: 12, padding: '14px 16px' }}>
                 <label style={{ fontSize: 13, fontWeight: 600, color: '#6B7280', fontFamily: font, display: 'block', marginBottom: 8 }}>
-                  Итоговая сумма с учетом комиссии
+                  Сумма к оплате
                 </label>
-                <div className="flex items-center" style={{ gap: 2 }}>
-                  <input
-                    ref={totalInputRef}
-                    type="text"
-                    inputMode="decimal"
-                    value={totalInput}
-                    onChange={(e) => {
-                      const next = sanitizeDecimalInput(e.target.value)
-                      lastEditedRef.current = 'total'
-                      setTotalInput(next)
-                      const parsedTotal = parseFloat(next) || 0
-                      const nextAmount = commissionRate > 0 ? parsedTotal / (1 + commissionRate) : parsedTotal
-                      const safeAmount = nextAmount > 0 ? round2(nextAmount) : 0
-                      setAmount(safeAmount)
-                      setAmountInput(next ? String(safeAmount) : '')
-                    }}
-                    placeholder="0"
-                    style={{
-                      border: 'none',
-                      outline: 'none',
-                      background: 'transparent',
-                      fontSize: 15,
-                      fontWeight: hasAmount ? 600 : 400,
-                      color: hasAmount ? '#111827' : '#6B7280',
-                      fontFamily: font,
-                      width: getInputWidthCh(totalInput),
-                      minWidth: '1.5ch',
-                    }}
-                  />
-                  <span style={{ fontSize: 15, fontWeight: 600, color: '#111827', fontFamily: font }}>$</span>
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 15, fontWeight: 600, color: '#111827', fontFamily: font }}>
+                    {!rubRate || !amount
+                      ? '—'
+                      : prediction
+                        ? `${Math.ceil(prediction.volume_give_prediction).toLocaleString('ru-RU')} ₽`
+                        : `≈ ${Math.ceil(amount * rubRate).toLocaleString('ru-RU')} ₽`
+                    }
+                  </span>
+                  {rubRate && amount > 0 && (
+                    <span style={{ fontSize: 12, color: '#9CA3AF', fontFamily: font }}>
+                      {prediction
+                        ? `курс ${prediction.approximate_rate?.toFixed(2)} ₽/$`
+                        : `курс ${rubRate.toFixed(2)} ₽/$`
+                      }
+                    </span>
+                  )}
                 </div>
               </div>
 

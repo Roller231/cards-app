@@ -65,7 +65,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
   const cardTypes = offers
   const selectedCard = cardTypes.find((c) => String(c.id) === String(selectedCardType))
   const selectedCardName = selectedCard?.name || ''
-  const price = issuancePrice?.price_rub || issuancePrice?.price || 999
+  const price = Number(issuancePrice?.price_rub) || Number(issuancePrice?.price) || 999
   const initialBalance = issuancePrice?.initial_balance || 0
   const canIssueCard = selectedCardType !== '' && price > 0
 
