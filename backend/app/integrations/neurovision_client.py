@@ -13,6 +13,7 @@ import hmac
 import json
 import logging
 import os
+import uuid
 from typing import Any, Dict, Optional
 
 import httpx
@@ -62,21 +63,26 @@ class NeuroVisionClient:
         }
 
     def generate_client_key(self, user_id: int) -> Dict[str, str]:
-        """Generate raw and encrypted clientKey for a user.
+        """Generate a unique raw and encrypted clientKey for a new KYC session.
+
+        Each call produces a new UUID — required because each KYC attempt must
+        have a unique clientKey even for the same user.
 
         Returns dict with:
-          - client_key_raw: str (save this to DB for later lookup)
-          - client_key_encrypted: str (pass this to frontend/widget)
+          - client_key_raw: str  (save this to DB — used to map webhook back to user)
+          - client_key_encrypted: str  (pass to frontend/widget)
           - schema_id: str
         """
         if not self._is_configured():
             raise RuntimeError("NeuroVision not configured (NV_API_TOKEN, NV_SCHEMA_ID, NV_SCENARIO_SECRET)")
-        raw = f"u{user_id}"
+        # Unique UUID per session (max 36 chars per NeuroVision docs)
+        raw = str(uuid.uuid4())  # e.g. "550e8400-e29b-41d4-a716-446655440000"
         encrypted = _encrypt_client_key(raw, self._scenario_secret)
         return {
             "client_key_raw": raw,
             "client_key_encrypted": encrypted,
             "schema_id": self._schema_id,
+            "user_id": user_id,
         }
 
     async def get_session_status(self, session_id: str) -> Dict[str, Any]:

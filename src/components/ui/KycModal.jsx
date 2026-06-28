@@ -88,12 +88,12 @@ export default function KycModal({ isOpen, onClose, onSuccess }) {
         },
         successCb: async (payload) => {
           setScreen('processing')
-          // payload.sessionId may be present; fallback to polling
-          const sessionId = payload?.sessionId
+          // Try sessionId from payload first, then poll our backend (webhook may arrive later)
+          const sessionId = payload?.sessionId || payload?.session_id || payload?.id
           if (sessionId) {
             await handleKycComplete(sessionId)
           } else {
-            // Poll backend status
+            // No sessionId in payload — poll our backend waiting for webhook to deliver data
             await pollKycStatus()
           }
         },
@@ -140,8 +140,9 @@ export default function KycModal({ isOpen, onClose, onSuccess }) {
   }
 
   const pollKycStatus = async () => {
-    for (let i = 0; i < 10; i++) {
-      await new Promise(r => setTimeout(r, 3000))
+    // Poll for up to 3 minutes (36 * 5s) waiting for webhook to update our DB
+    for (let i = 0; i < 36; i++) {
+      await new Promise(r => setTimeout(r, 5000))
       try {
         const status = await api.kyc.status()
         if (status.kyc_status === 'success') {
@@ -154,9 +155,12 @@ export default function KycModal({ isOpen, onClose, onSuccess }) {
           setScreen('error')
           return
         }
+        // kyc_status === 'pending' or null — keep polling
       } catch {}
     }
-    setError('Проверка заняла слишком много времени. Попробуйте позже.')
+    // Timed out — but user may still be verified via webhook later
+    // Show success-ish message and let them retry
+    setError('Данные верификации ещё обрабатываются. Подождите минуту и попробуйте снова.')
     setScreen('error')
   }
 
@@ -251,10 +255,30 @@ export default function KycModal({ isOpen, onClose, onSuccess }) {
 
           {/* PROCESSING */}
           {screen === 'processing' && (
-            <div style={{ textAlign: 'center', padding: '32px 0', color: '#6B7280', fontSize: 15 }}>
-              <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
-              <div style={{ fontWeight: 600, color: '#111827', marginBottom: 8 }}>Проверяем данные</div>
-              <div style={{ fontSize: 14 }}>Это займёт несколько секунд…</div>
+            <div style={{ textAlign: 'center', padding: '24px 0', color: '#6B7280', fontSize: 15, display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ fontSize: 32 }}>⏳</div>
+              <div style={{ fontWeight: 600, color: '#111827' }}>Проверяем данные</div>
+              <div style={{ fontSize: 14 }}>Обрабатываем результаты верификации…</div>
+              <Button
+                onClick={async () => {
+                  try {
+                    const status = await api.kyc.status()
+                    if (status.kyc_status === 'success') {
+                      setScreen('success')
+                      if (typeof onSuccess === 'function') onSuccess()
+                    } else {
+                      setError('Данные ещё обрабатываются. Подождите немного.')
+                      setScreen('error')
+                    }
+                  } catch (e) {
+                    setError(e.message || 'Ошибка проверки статуса')
+                    setScreen('error')
+                  }
+                }}
+                fullWidth
+              >
+                Проверить статус вручную
+              </Button>
             </div>
           )}
 

@@ -56,10 +56,24 @@ async def update_contact(
 # ---------------------------------------------------------------------------
 
 @router.post("/start", summary="Generate NeuroVision widget credentials")
-async def kyc_start(current_user: User = Depends(get_current_user)):
-    """Returns schemaId and encrypted clientKey for the NeuroVision widget."""
+async def kyc_start(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Returns schemaId and encrypted clientKey for the NeuroVision widget.
+
+    Each call generates a fresh UUID-based clientKey so that repeated attempts
+    (e.g. after an expired session) always produce a new unique identifier.
+    """
     try:
         result = neurovision_client.generate_client_key(current_user.id)
+        # Persist the raw UUID so the webhook can map it back to this user
+        await db.execute(
+            update(User)
+            .where(User.id == current_user.id)
+            .values(kyc_status="pending", kyc_session_id=result["client_key_raw"])
+        )
+        await db.commit()
         return result
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
@@ -165,22 +179,15 @@ async def kyc_webhook(request: Request, db: AsyncSession = Depends(get_db)):
 
     logger.info("[KYC webhook] sessionId=%s status=%s clientKey=%s", session_id, nv_status, client_key_raw)
 
-    if not client_key_raw or not session_id:
-        return {"ok": True}
-
-    # client_key_raw is "u{user_id}"
-    if not client_key_raw.startswith("u"):
-        return {"ok": True}
-
-    try:
-        user_id = int(client_key_raw[1:])
-    except ValueError:
+    if not client_key_raw:
         return {"ok": True}
 
     from sqlalchemy import select
-    result = await db.execute(select(User).where(User.id == user_id))
+    # clientKey is now a UUID stored in kyc_session_id at /kyc/start time
+    result = await db.execute(select(User).where(User.kyc_session_id == client_key_raw))
     user = result.scalar_one_or_none()
     if not user:
+        logger.warning("[KYC webhook] No user found for clientKey=%s", client_key_raw)
         return {"ok": True}
 
     if nv_status == "success":
