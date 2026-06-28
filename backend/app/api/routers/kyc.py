@@ -167,23 +167,41 @@ async def kyc_complete(
 
 @router.post("/webhook", summary="NeuroVision webhook receiver", include_in_schema=False)
 async def kyc_webhook(request: Request, db: AsyncSession = Depends(get_db)):
-    """Receive session-complete webhook from NeuroVision and update user KYC status."""
+    """Receive session-complete webhook from NeuroVision and update user KYC status.
+
+    NeuroVision sends the webhook body as a single task result (document check).
+    The clientKey (UUID we generated at /kyc/start) comes as a query parameter:
+      POST /kyc/webhook?clientKey=<uuid>
+
+    Body structure:
+    {
+      "status": "success"|"failed"|"suspicious"|"expired",
+      "type": "document",
+      "ocr": {
+        "status": "success",
+        "fields": [{"title": "Surname", "value": "DOE", "conf": "high"}, ...]
+      },
+      ...
+    }
+    """
     try:
         payload = await request.json()
     except Exception:
+        logger.warning("[KYC webhook] Failed to parse JSON body")
         return {"ok": False}
 
-    session_id = payload.get("sessionId")
+    # clientKey comes as query param in the webhook URL
+    client_key_raw = request.query_params.get("clientKey") or payload.get("clientKey")
     nv_status = payload.get("status")
-    client_key_raw = payload.get("clientKey")
 
-    logger.info("[KYC webhook] sessionId=%s status=%s clientKey=%s", session_id, nv_status, client_key_raw)
+    logger.info("[KYC webhook] clientKey=%s status=%s body_keys=%s",
+                client_key_raw, nv_status, list(payload.keys()))
 
     if not client_key_raw:
+        logger.warning("[KYC webhook] No clientKey in query params or body — ignoring")
         return {"ok": True}
 
     from sqlalchemy import select
-    # clientKey is now a UUID stored in kyc_session_id at /kyc/start time
     result = await db.execute(select(User).where(User.kyc_session_id == client_key_raw))
     user = result.scalar_one_or_none()
     if not user:
@@ -191,14 +209,22 @@ async def kyc_webhook(request: Request, db: AsyncSession = Depends(get_db)):
         return {"ok": True}
 
     if nv_status == "success":
-        try:
-            session = await neurovision_client.get_session_status(session_id)
-            passport_data = extract_passport_data(session)
-        except Exception as e:
-            logger.error("[KYC webhook] Failed to fetch session: %s", e)
-            passport_data = None
+        # Parse OCR data directly from webhook body (no extra API call needed)
+        # Wrap payload as a single-task session for extract_passport_data
+        session_wrapper = {"results": [payload]}
+        passport_data = extract_passport_data(session_wrapper)
 
-        values: dict = {"kyc_status": "success", "kyc_session_id": session_id}
+        if not passport_data:
+            # Fallback: try fetching full session from NV API if OCR not in webhook
+            session_id = payload.get("sessionId")
+            if session_id:
+                try:
+                    session = await neurovision_client.get_session_status(session_id)
+                    passport_data = extract_passport_data(session)
+                except Exception as e:
+                    logger.error("[KYC webhook] Failed to fetch session from NV API: %s", e)
+
+        values: dict = {"kyc_status": "success"}
         if passport_data:
             values.update(
                 kyc_first_name=passport_data["first_name"],
@@ -208,14 +234,20 @@ async def kyc_webhook(request: Request, db: AsyncSession = Depends(get_db)):
                 kyc_passport=passport_data["passport"],
                 kyc_passport_issue_date=passport_data["passport_issue_date"],
             )
-        await db.execute(update(User).where(User.id == user_id).values(**values))
+            logger.info("[KYC webhook] User %s KYC success: %s %s",
+                        user.id, passport_data.get("last_name"), passport_data.get("first_name"))
+        else:
+            logger.warning("[KYC webhook] User %s KYC success but OCR data empty", user.id)
+
+        await db.execute(update(User).where(User.id == user.id).values(**values))
         await db.commit()
-        logger.info("[KYC webhook] User %s KYC success, passport_saved=%s", user_id, bool(passport_data))
-    elif nv_status == "failed":
+
+    elif nv_status in ("failed", "suspicious", "expired"):
         await db.execute(
-            update(User).where(User.id == user_id)
-            .values(kyc_status="failed", kyc_session_id=session_id)
+            update(User).where(User.id == user.id)
+            .values(kyc_status="failed")
         )
         await db.commit()
+        logger.info("[KYC webhook] User %s KYC %s", user.id, nv_status)
 
     return {"ok": True}
