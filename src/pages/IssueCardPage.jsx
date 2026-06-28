@@ -67,7 +67,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
   const selectedCardName = selectedCard?.name || ''
   
   // Select price based on card type
-  const price = selectedCardName === 'Online+Pay'
+  const price = selectedCardName?.trim().toLowerCase().includes('pay')
     ? (Number(issuancePrice?.price_pay_rub) || 1999)
     : (Number(issuancePrice?.price_rub) || 999)
   
