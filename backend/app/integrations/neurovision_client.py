@@ -171,6 +171,7 @@ def extract_passport_data(session: Dict[str, Any]) -> Optional[Dict[str, str]]:
         
         patronymic = (
             fields_map.get("patronymic") or 
+            fields_map.get("father's name") or
             fields_map.get("отчество") or 
             ocr.get("patronymic") or 
             ""
@@ -183,13 +184,16 @@ def extract_passport_data(session: Dict[str, Any]) -> Optional[Dict[str, str]]:
             ""
         ).strip()
         
-        passport = (
+        # Russian passport = series (4 digits) + number (6 digits), combined
+        doc_series = (fields_map.get("document series") or "").replace(" ", "").strip()
+        doc_number = (
             fields_map.get("document number") or 
             fields_map.get("номер документа") or 
             ocr.get("passportNumber") or 
             ocr.get("documentNumber") or 
             ""
         ).replace(" ", "").strip()
+        passport = f"{doc_series}{doc_number}" if doc_series else doc_number
         
         issue_date = (
             fields_map.get("date of issue") or 

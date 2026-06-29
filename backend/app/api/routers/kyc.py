@@ -210,10 +210,8 @@ async def kyc_webhook(request: Request, db: AsyncSession = Depends(get_db)):
         return {"ok": True}
 
     if nv_status == "success":
-        # Parse OCR data directly from webhook body (no extra API call needed)
-        # Wrap payload as a single-task session for extract_passport_data
-        session_wrapper = {"results": [payload]}
-        passport_data = extract_passport_data(session_wrapper)
+        # Parse OCR data directly from webhook body — payload IS the session object
+        passport_data = extract_passport_data(payload)
         logger.info("[KYC webhook] Parsed passport_data: %s", passport_data)
 
         if not passport_data:
