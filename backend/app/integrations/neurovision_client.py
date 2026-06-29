@@ -59,7 +59,7 @@ class NeuroVisionClient:
     def _headers(self) -> Dict[str, str]:
         return {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {self._api_token}",
+            "token": self._api_token,
         }
 
     def generate_client_key(self, user_id: int) -> Dict[str, str]:
@@ -86,18 +86,22 @@ class NeuroVisionClient:
         }
 
     async def get_session_status(self, session_id: str) -> Dict[str, Any]:
-        """Fetch KYC session status from NeuroVision API."""
+        """Fetch KYC session status from NeuroVision API.
+        
+        Per NeuroVision docs: POST /kyc/session/status with JSON body.
+        Auth via 'token' header (JWT).
+        """
         if not self._is_configured():
             raise RuntimeError("NeuroVision not configured")
         url = f"{NV_BASE_URL}/kyc/session/status"
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.get(
+            resp = await client.post(
                 url,
                 headers=self._headers(),
-                params={"sessionId": session_id},
+                json={"sessionId": session_id},
             )
             if resp.status_code >= 400:
-                logger.error("NeuroVision GET /kyc/session/status -> %s | %s", resp.status_code, resp.text[:300])
+                logger.error("NeuroVision POST /kyc/session/status -> %s | %s", resp.status_code, resp.text[:300])
                 raise httpx.HTTPStatusError(
                     f"NeuroVision status error {resp.status_code}: {resp.text[:200]}",
                     request=resp.request, response=resp,

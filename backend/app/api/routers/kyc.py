@@ -7,6 +7,7 @@ Endpoints:
   POST /kyc/webhook       — NeuroVision webhook (session status changed)
   PUT  /kyc/contact       — update email/phone before KYC
 """
+import json
 import logging
 from typing import Optional
 
@@ -194,8 +195,8 @@ async def kyc_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     client_key_raw = request.query_params.get("clientKey") or payload.get("clientKey")
     nv_status = payload.get("status")
 
-    logger.info("[KYC webhook] clientKey=%s status=%s full_body=%s",
-                client_key_raw, nv_status, payload)
+    logger.info("[KYC webhook] clientKey=%s status=%s", client_key_raw, nv_status)
+    logger.info("[KYC webhook] Full payload: %s", json.dumps(payload, ensure_ascii=False, indent=2))
 
     if not client_key_raw:
         logger.warning("[KYC webhook] No clientKey in query params or body — ignoring")
@@ -213,6 +214,7 @@ async def kyc_webhook(request: Request, db: AsyncSession = Depends(get_db)):
         # Wrap payload as a single-task session for extract_passport_data
         session_wrapper = {"results": [payload]}
         passport_data = extract_passport_data(session_wrapper)
+        logger.info("[KYC webhook] Parsed passport_data: %s", passport_data)
 
         if not passport_data:
             # Fallback: try fetching full session from NV API if OCR not in webhook
