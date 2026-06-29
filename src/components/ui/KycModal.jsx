@@ -35,14 +35,40 @@ export default function KycModal({ isOpen, onClose, onSuccess }) {
       widgetLoadedRef.current = false
       return
     }
-    // Load existing email/phone from backend; if already verified, short-circuit
+    let cancelled = false
+    // Load existing email/phone; short-circuit if already verified
     api.kyc.status().then(status => {
+      if (cancelled) return
       if (status.email) setEmail(status.email)
       if (status.phone) setPhone(status.phone)
       if (status.kyc_status === 'success') {
         if (typeof onSuccess === 'function') onSuccess()
       }
     }).catch(() => {})
+
+    // Background polling: as soon as webhook arrives → auto-close
+    const interval = setInterval(async () => {
+      try {
+        const s = await api.kyc.status()
+        if (cancelled) return
+        if (s.kyc_status === 'success') {
+          clearInterval(interval)
+          setScreen('success')
+          setTimeout(() => {
+            if (typeof onSuccess === 'function') onSuccess()
+          }, 1200)
+        } else if (s.kyc_status === 'failed') {
+          clearInterval(interval)
+          setError('Верификация не пройдена. Попробуйте ещё раз.')
+          setScreen('error')
+        }
+      } catch {}
+    }, 3000)
+
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
   }, [isOpen])
 
   if (!isOpen) return null

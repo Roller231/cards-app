@@ -122,8 +122,6 @@ async def create_invoice(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if body.amount_rub < 1000:
-        raise HTTPException(status_code=400, detail="Minimum amount is 1000 RUB")
     if body.amount_rub > 50000:
         raise HTTPException(status_code=400, detail="Maximum amount is 50000 RUB")
     if body.purpose not in ("balance_topup", "card_issue"):
@@ -138,33 +136,48 @@ async def create_invoice(
             detail="KYC verification required. Please complete identity verification first."
         )
 
+    # Step 1: Check if client already exists
+    is_verified = False
+    client_exists = False
     try:
-        reg_result = await bitbanker_client.register_partner_client(
-            client_id=ext_ref,
-            email=current_user.email or f"{ext_ref}@prontopay.local",
-            phone=current_user.phone or settings.BB_TEST_PHONE,
-            first_name=current_user.kyc_first_name,
-            last_name=current_user.kyc_last_name,
-            patronymic=current_user.kyc_patronymic or "",
-            birth_date=current_user.kyc_birth_date,
-            passport=current_user.kyc_passport,
-            passport_issue_date=current_user.kyc_passport_issue_date,
-            country_of_passport_issue="RUS",
-        )
+        status = await bitbanker_client.get_partner_client(ext_ref)
+        client_exists = True
+        is_verified = status.get("is_verified_for_sbp", False)
         if settings.DETAILED_DEV_LOGS:
-            logger.info("[SBP] Client registered: %s | is_verified_for_sbp=%s", 
-                       ext_ref, reg_result.get("is_verified_for_sbp"))
+            logger.info("[SBP] Existing client: %s | is_verified_for_sbp=%s", ext_ref, is_verified)
     except Exception as e:
-        # Client might already exist - check status
         if settings.DETAILED_DEV_LOGS:
-            logger.warning("[SBP] Client registration error (might already exist): %s", str(e)[:200])
+            logger.info("[SBP] Client not found: %s | %s", ext_ref, str(e)[:100])
+    
+    # Step 2: Register client if doesn't exist
+    if not client_exists:
         try:
-            status = await bitbanker_client.get_partner_client(ext_ref)
+            reg_result = await bitbanker_client.register_partner_client(
+                client_id=ext_ref,
+                email=current_user.email or f"{ext_ref}@prontopay.local",
+                phone=current_user.phone or settings.BB_TEST_PHONE,
+                first_name=current_user.kyc_first_name,
+                last_name=current_user.kyc_last_name,
+                patronymic=current_user.kyc_patronymic or "",
+                birth_date=current_user.kyc_birth_date,
+                passport=current_user.kyc_passport,
+                passport_issue_date=current_user.kyc_passport_issue_date,
+                country_of_passport_issue="RUS",
+            )
+            is_verified = reg_result.get("is_verified_for_sbp", False)
             if settings.DETAILED_DEV_LOGS:
-                logger.info("[SBP] Existing client: %s | is_verified_for_sbp=%s",
-                           ext_ref, status.get("is_verified_for_sbp"))
-        except Exception:
-            pass
+                logger.info("[SBP] Client registered: %s | is_verified_for_sbp=%s", 
+                           ext_ref, is_verified)
+        except Exception as e:
+            logger.error("[SBP] Client registration failed: %s | %s", ext_ref, str(e)[:200])
+            raise HTTPException(status_code=502, detail=f"Ошибка регистрации в платёжной системе: {str(e)[:100]}")
+    
+    # Block invoice creation if client not verified by Bitbanker
+    if not is_verified:
+        raise HTTPException(
+            status_code=403,
+            detail="Верификация ещё обрабатывается. Пожалуйста, подождите несколько минут и попробуйте снова. Если проблема сохраняется, обратитесь в поддержку."
+        )
     
     idempotency_key = f"inv-{current_user.id}-{_uuid.uuid4().hex[:16]}"
 
