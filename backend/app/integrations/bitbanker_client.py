@@ -187,6 +187,8 @@ class BitbankerClient:
         partner_client_external_id: str,
         idempotency_key: str,
         take_currency: str = "USDT",
+        description: str = "",
+        header: str = "ProntoPay",
     ) -> Dict[str, Any]:
         """POST /api/v2/invoices — create SBP payment invoice, returns qr image."""
         payload = {
@@ -194,6 +196,9 @@ class BitbankerClient:
             "payment_chains": [],
             "currency": "RUBR",
             "amount": int(amount_rub),  # Bitbanker expects integer for amount
+            "header": header,
+            "description": description or f"Оплата {int(amount_rub)} руб.",
+            "language": "ru",
             "crypto_payment": False,
             "sbp_payment": True,
             "is_convert_payments": True,

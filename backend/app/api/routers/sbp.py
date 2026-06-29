@@ -181,11 +181,16 @@ async def create_invoice(
     
     idempotency_key = f"inv-{current_user.id}-{_uuid.uuid4().hex[:16]}"
 
+    description = (
+        "Выпуск карты ProntoPay" if body.purpose == "card_issue"
+        else f"Пополнение баланса {int(body.amount_rub)} руб."
+    )
     try:
         result = await bitbanker_client.create_invoice(
             amount_rub=body.amount_rub,
             partner_client_external_id=ext_ref,
             idempotency_key=idempotency_key,
+            description=description,
         )
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Bitbanker invoice error: {exc}")
