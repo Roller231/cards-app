@@ -89,7 +89,7 @@ export const api = {
     createKycSession: () => req('POST', '/sbp/kyc-session'),
   },
   kyc: {
-    updateContact: (email, phone) => req('PUT', '/kyc/contact', { email, phone }),
+    updateContact: (email, phone, gender) => req('PUT', '/kyc/contact', { email, phone, gender }),
     start: () => req('POST', '/kyc/start'),
     status: () => req('GET', '/kyc/status'),
     complete: (session_id) => req('POST', '/kyc/complete', { session_id }),

@@ -21,6 +21,21 @@ from app.services.telegram_bot_service import notify_card_issued, notify_card_tr
 logger = logging.getLogger(__name__)
 
 
+def _to_iso_date(value: Optional[str]) -> str:
+    """Convert DD.MM.YYYY → YYYY-MM-DD. Returns input unchanged if already ISO or empty."""
+    if not value:
+        return ""
+    v = value.strip()
+    if len(v) == 10 and v[4] == "-" and v[7] == "-":
+        return v  # already ISO
+    if "." in v:
+        parts = v.split(".")
+        if len(parts) == 3 and len(parts[2]) == 4:
+            dd, mm, yyyy = parts
+            return f"{yyyy}-{mm.zfill(2)}-{dd.zfill(2)}"
+    return v
+
+
 def _client_id(user: User) -> str:
     """Derive O-Plata clientId for a given local user.
 
@@ -777,7 +792,8 @@ class CardService:
         kyc_first_name = user.kyc_first_name
         kyc_last_name = user.kyc_last_name
         kyc_middle_name = user.kyc_patronymic or ""
-        kyc_dob = user.kyc_birth_date
+        # Convert dates from DD.MM.YYYY (NeuroVision) to YYYY-MM-DD (O-Plata)
+        kyc_dob = _to_iso_date(user.kyc_birth_date)
         kyc_country = "RU"
         _email = user.email or email or f"{client_id}@oplata.test"
         logger.info("Using real KYC data for O-Plata client %s: %s %s", client_id, kyc_first_name, kyc_last_name)
@@ -842,7 +858,14 @@ class CardService:
         # Always run partner/start with passport — even if already verified, to update identification document
         try:
             kyc_passport = user.kyc_passport or document_number or "1234567890"
-            kyc_passport_issue_date = user.kyc_passport_issue_date or "2025-01-01"
+            # Convert DD.MM.YYYY → YYYY-MM-DD for O-Plata
+            kyc_passport_issue_date = _to_iso_date(user.kyc_passport_issue_date) or "2025-01-01"
+            # Use user's selected gender, fallback to patronymic heuristic
+            if user.gender in ("MALE", "FEMALE"):
+                kyc_gender = user.gender
+            else:
+                _pat = (kyc_middle_name or "").lower()
+                kyc_gender = "FEMALE" if _pat.endswith(("вна", "чна")) else "MALE"
             
             result = await oplata_client.kyc_verify_partner_start(
                 client_id,
@@ -852,11 +875,12 @@ class CardService:
                 date_of_birth=kyc_dob,
                 country=kyc_country,
                 email=_email,
+                gender=kyc_gender,
                 document_number=kyc_passport,
                 issue_date=kyc_passport_issue_date,
             )
-            logger.info("KYC partner/start for %s with passport %s (already_verified=%s): %s",
-                       client_id, kyc_passport, _partner_already_verified, result)
+            logger.info("KYC partner/start for %s with passport %s gender=%s (already_verified=%s): %s",
+                       client_id, kyc_passport, kyc_gender, _partner_already_verified, result)
         except Exception as exc:
             logger.warning("kyc_verify_partner_start for %s failed: %s", client_id, exc)
 

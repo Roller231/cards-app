@@ -36,6 +36,14 @@ def check_and_update_schema(conn):
         """))
         print("Table 'faqs' created")
     
+    # Check 'users' table — add 'gender' column if missing
+    if 'users' in inspector.get_table_names():
+        user_columns = [col['name'] for col in inspector.get_columns('users')]
+        if 'gender' not in user_columns:
+            print("Adding missing 'gender' column to 'users' table")
+            conn.execute(text("ALTER TABLE users ADD COLUMN gender VARCHAR(8) NULL;"))
+            print("Column 'gender' added to 'users' table")
+
     # Add similar checks for other tables and columns if needed in the future
     return
 

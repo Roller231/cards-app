@@ -24,6 +24,7 @@ export default function KycModal({ isOpen, onClose, onSuccess }) {
   const [screen, setScreen] = useState('contact')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
+  const [gender, setGender] = useState('')  // 'MALE' | 'FEMALE'
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const widgetLoadedRef = useRef(false)
@@ -41,6 +42,7 @@ export default function KycModal({ isOpen, onClose, onSuccess }) {
       if (cancelled) return
       if (status.email) setEmail(status.email)
       if (status.phone) setPhone(status.phone)
+      if (status.gender) setGender(status.gender)
       if (status.kyc_status === 'success') {
         if (typeof onSuccess === 'function') onSuccess()
       }
@@ -79,6 +81,10 @@ export default function KycModal({ isOpen, onClose, onSuccess }) {
       setError('Введите email и номер телефона')
       return
     }
+    if (gender !== 'MALE' && gender !== 'FEMALE') {
+      setError('Выберите пол')
+      return
+    }
     const phoneClean = phone.replace(/[\s()\-]/g, '')
     if (!/^\+7\d{10}$/.test(phoneClean)) {
       setError('Телефон в формате +7XXXXXXXXXX')
@@ -88,7 +94,7 @@ export default function KycModal({ isOpen, onClose, onSuccess }) {
     setLoading(true)
     try {
       // Save contact to backend
-      await api.kyc.updateContact(email.trim(), phoneClean)
+      await api.kyc.updateContact(email.trim(), phoneClean, gender)
       // Get widget credentials from backend
       const creds = await api.kyc.start()
       setLoading(false)
@@ -259,6 +265,39 @@ export default function KycModal({ isOpen, onClose, onSuccess }) {
                   onFocus={e => e.target.style.borderColor = '#DC4D35'}
                   onBlur={e => e.target.style.borderColor = '#E5E7EB'}
                 />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <label style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Пол</label>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  {[
+                    { value: 'MALE', label: 'Мужской' },
+                    { value: 'FEMALE', label: 'Женский' },
+                  ].map(opt => {
+                    const active = gender === opt.value
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setGender(opt.value)}
+                        style={{
+                          flex: 1,
+                          padding: '12px 14px',
+                          borderRadius: 10,
+                          border: `1.5px solid ${active ? '#DC4D35' : '#E5E7EB'}`,
+                          background: active ? '#FEF2F0' : '#FFFFFF',
+                          color: active ? '#DC4D35' : '#374151',
+                          fontWeight: active ? 600 : 500,
+                          fontSize: 15,
+                          fontFamily: font,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {opt.label}
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
 
               {error && (

@@ -27,6 +27,7 @@ router = APIRouter(prefix="/kyc", tags=["kyc"])
 class ContactUpdateRequest(BaseModel):
     email: str
     phone: str
+    gender: Optional[str] = None  # 'MALE' | 'FEMALE'
 
 
 class KycCompleteRequest(BaseModel):
@@ -43,10 +44,13 @@ async def update_contact(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    values: dict = {"email": body.email, "phone": body.phone}
+    if body.gender in ("MALE", "FEMALE"):
+        values["gender"] = body.gender
     await db.execute(
         update(User)
         .where(User.id == current_user.id)
-        .values(email=body.email, phone=body.phone)
+        .values(**values)
     )
     await db.commit()
     return {"ok": True}
@@ -92,6 +96,7 @@ async def kyc_status(current_user: User = Depends(get_current_user)):
         "kyc_status": current_user.kyc_status,
         "email": current_user.email,
         "phone": current_user.phone,
+        "gender": current_user.gender,
         "has_passport_data": bool(current_user.kyc_passport),
     }
     logger.info(

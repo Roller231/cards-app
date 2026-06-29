@@ -17,6 +17,7 @@ class User(Base):
     # Contact info (collected before KYC)
     email = Column(String(255), nullable=True)
     phone = Column(String(32), nullable=True)
+    gender = Column(String(8), nullable=True)  # 'MALE' | 'FEMALE'
 
     # KYC status: None | 'pending' | 'success' | 'failed'
     kyc_status = Column(String(16), nullable=True)
