@@ -87,13 +87,15 @@ class OPlataClient:
         })
 
     async def kyc_verify_person(self, client_id: str, first_name: str, last_name: str,
-                                 date_of_birth: str, middle_name: Optional[str] = None) -> Any:
+                                 date_of_birth: str, middle_name: Optional[str] = None,
+                                 country: str = "RU") -> Any:
         """Complete person KYC verification."""
         body: Dict[str, Any] = {
             "clientId": client_id,
             "firstName": first_name,
             "lastName": last_name,
             "dateOfBirth": date_of_birth,
+            "country": country,
         }
         if middle_name:
             body["middleName"] = middle_name

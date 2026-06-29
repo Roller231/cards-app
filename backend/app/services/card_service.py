@@ -792,9 +792,10 @@ class CardService:
         # Complete basic KYC fields often required by card providers in test environment
         try:
             await oplata_client.kyc_verify_person(
-                client_id, kyc_first_name, kyc_last_name, kyc_dob, middle_name=kyc_middle_name,
+                client_id, kyc_first_name, kyc_last_name, kyc_dob, 
+                middle_name=kyc_middle_name, country=kyc_country,
             )
-            logger.info("KYC person set for %s: %s %s", client_id, kyc_first_name, kyc_last_name)
+            logger.info("KYC person set for %s: %s %s %s", client_id, kyc_first_name, kyc_last_name, kyc_country)
         except Exception as exc:
             logger.warning("kyc_verify_person for %s failed: %s", client_id, exc)
         try:
