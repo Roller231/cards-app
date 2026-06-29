@@ -839,28 +839,26 @@ class CardService:
         except Exception:
             _partner_already_verified = False
 
-        if _partner_already_verified:
-            logger.info("Skipping KYC partner/start for %s: PARTNER already verified", client_id)
-        else:
-            try:
-                # Use real NeuroVision passport data if available
-                kyc_passport = user.kyc_passport or document_number or "1234567890"
-                kyc_passport_issue_date = user.kyc_passport_issue_date or "2025-01-01"
-                
-                result = await oplata_client.kyc_verify_partner_start(
-                    client_id,
-                    first_name=kyc_first_name,
-                    last_name=kyc_last_name,
-                    middle_name=kyc_middle_name,
-                    date_of_birth=kyc_dob,
-                    country=kyc_country,
-                    email=_email,
-                    document_number=kyc_passport,
-                    issue_date=kyc_passport_issue_date,
-                )
-                logger.info("KYC partner/start for %s with passport %s: %s", client_id, kyc_passport, result)
-            except Exception as exc:
-                logger.warning("kyc_verify_partner_start for %s failed: %s", client_id, exc)
+        # Always run partner/start with passport — even if already verified, to update identification document
+        try:
+            kyc_passport = user.kyc_passport or document_number or "1234567890"
+            kyc_passport_issue_date = user.kyc_passport_issue_date or "2025-01-01"
+            
+            result = await oplata_client.kyc_verify_partner_start(
+                client_id,
+                first_name=kyc_first_name,
+                last_name=kyc_last_name,
+                middle_name=kyc_middle_name,
+                date_of_birth=kyc_dob,
+                country=kyc_country,
+                email=_email,
+                document_number=kyc_passport,
+                issue_date=kyc_passport_issue_date,
+            )
+            logger.info("KYC partner/start for %s with passport %s (already_verified=%s): %s",
+                       client_id, kyc_passport, _partner_already_verified, result)
+        except Exception as exc:
+            logger.warning("kyc_verify_partner_start for %s failed: %s", client_id, exc)
 
         # Wait for PARTNER to reach COMPLETED before returning — validate will fail otherwise
         for _attempt in range(12):
@@ -1206,7 +1204,7 @@ class CardService:
             validation_status = validation.get("status")
             logger.info("O-Plata card validation for %s on %s: %s", client_id, ravana_server_id, validation)
             if str(validation_status or "").upper() == "IDENTIFICATION_DOCUMENT_ABSENT":
-                document_value = document_number or f"DOC-{client_id.upper()}"
+                document_value = user.kyc_passport or document_number or "1234567890"
                 try:
                     await oplata_client.set_identification_document(client_id, document_value)
                     validation = await oplata_client.validate_card_registration(client_id, ravana_server_id)
