@@ -842,6 +842,10 @@ class CardService:
             logger.info("Skipping KYC partner/start for %s: PARTNER already verified", client_id)
         else:
             try:
+                # Use real NeuroVision passport data if available
+                kyc_passport = user.kyc_passport or document_number or "1234567890"
+                kyc_passport_issue_date = user.kyc_passport_issue_date or "2025-01-01"
+                
                 result = await oplata_client.kyc_verify_partner_start(
                     client_id,
                     first_name=kyc_first_name,
@@ -850,8 +854,10 @@ class CardService:
                     date_of_birth=kyc_dob,
                     country=kyc_country,
                     email=_email,
+                    document_number=kyc_passport,
+                    issue_date=kyc_passport_issue_date,
                 )
-                logger.info("KYC partner/start for %s: %s", client_id, result)
+                logger.info("KYC partner/start for %s with passport %s: %s", client_id, kyc_passport, result)
             except Exception as exc:
                 logger.warning("kyc_verify_partner_start for %s failed: %s", client_id, exc)
 
