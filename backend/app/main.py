@@ -76,6 +76,7 @@ def check_and_update_schema(conn):
         new_user_cols = {
             'email': 'VARCHAR(255) NULL',
             'phone': 'VARCHAR(32) NULL',
+            'gender': 'VARCHAR(8) NULL',
             'kyc_status': 'VARCHAR(16) NULL',
             'kyc_first_name': 'VARCHAR(100) NULL',
             'kyc_last_name': 'VARCHAR(100) NULL',
