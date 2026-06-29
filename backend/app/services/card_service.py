@@ -1353,7 +1353,7 @@ class CardService:
                     order_id=order.id,
                     payment_uuid=payment_uuid,
                     card_amount=float(card_amount),
-                    fixed_fee=float(fixed_fee),
+                    fixed_fee=float(user_payment - card_amount),
                 )
             )
             return {"local_order_id": order.id, "partner_order_id": payment_uuid}
