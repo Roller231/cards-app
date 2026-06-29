@@ -753,12 +753,13 @@ class CardService:
     async def _ensure_client(
         self,
         client_id: str,
+        user: "User",
         email: Optional[str] = None,
         document_number: Optional[str] = None,
         holder_first_name: Optional[str] = None,
         holder_last_name: Optional[str] = None,
     ) -> str:
-        """Register client if not already registered, then complete basic KYC fields. Returns clientWalletId."""
+        """Register client if not already registered, then complete basic KYC fields using real NeuroVision data. Returns clientWalletId."""
         try:
             result = await oplata_client.register_client(client_id)
             wallet_id = result.get("clientWalletId") or ""
@@ -766,15 +767,20 @@ class CardService:
             logger.warning("register_client for %s failed: %s", client_id, exc)
             wallet_id = ""
 
-        # All KYC steps use a single consistent dataset matching partner/start defaults.
-        # Inconsistency between PERSON/COUNTRY/HOME and PARTNER causes
-        # InvalidObjectContentException on partner/start.
-        kyc_first_name = "Test"
-        kyc_last_name = "Testov"
-        kyc_middle_name = "Testovich"
-        kyc_dob = "1980-01-01"
+        # Require real NeuroVision KYC data — no test data fallback
+        if user.kyc_status != "success" or not user.kyc_first_name or not user.kyc_last_name or not user.kyc_birth_date:
+            logger.error("KYC verification required for user %s to issue card", user.id)
+            raise RuntimeError(
+                "KYC verification required. Please complete identity verification before issuing a card."
+            )
+        
+        kyc_first_name = user.kyc_first_name
+        kyc_last_name = user.kyc_last_name
+        kyc_middle_name = user.kyc_patronymic or ""
+        kyc_dob = user.kyc_birth_date
         kyc_country = "RU"
-        _email = email or f"{client_id}@oplata.test"
+        _email = user.email or email or f"{client_id}@oplata.test"
+        logger.info("Using real KYC data for O-Plata client %s: %s %s", client_id, kyc_first_name, kyc_last_name)
 
         # Complete KYC email verification
         try:
@@ -1123,6 +1129,7 @@ class CardService:
         # 1. Register client on O-Plata (idempotent) and push MDM data
         await self._ensure_client(
             client_id,
+            user=user,
             email=email,
             document_number=document_number,
             holder_first_name=holder_first_name,

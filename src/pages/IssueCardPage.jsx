@@ -93,8 +93,13 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
       setResultScreen('success')
     } catch (e) {
       setIsLoading(false)
-      setErrorMsg(e.message || 'Ошибка при выпуске карты')
-      setResultScreen('failure')
+      // Check if it's a KYC verification error
+      if (e.message?.includes('KYC') || e.message?.includes('verification') || e.message?.includes('identity')) {
+        setShowKycModal(true)
+      } else {
+        setErrorMsg(e.message || 'Ошибка при выпуске карты')
+        setResultScreen('failure')
+      }
     }
   }
 

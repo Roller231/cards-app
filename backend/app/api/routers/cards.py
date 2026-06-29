@@ -65,6 +65,13 @@ async def issue_card(
     if not body.offer_id:
         raise HTTPException(status_code=400, detail="offer_id is required")
     
+    # Require KYC verification before card issuance
+    if current_user.kyc_status != "success" or not current_user.kyc_first_name or not current_user.kyc_last_name:
+        raise HTTPException(
+            status_code=403,
+            detail="KYC verification required. Please complete identity verification before issuing a card."
+        )
+    
     # Get admin-configured price
     result = await db.execute(_select(AdminSetting).where(AdminSetting.key == "CARD_ISSUANCE_PRICE_USD"))
     price_setting = result.scalar_one_or_none()
