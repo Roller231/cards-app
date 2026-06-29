@@ -35,10 +35,13 @@ export default function KycModal({ isOpen, onClose, onSuccess }) {
       widgetLoadedRef.current = false
       return
     }
-    // Load existing email/phone from backend
+    // Load existing email/phone from backend; if already verified, short-circuit
     api.kyc.status().then(status => {
       if (status.email) setEmail(status.email)
       if (status.phone) setPhone(status.phone)
+      if (status.kyc_status === 'success') {
+        if (typeof onSuccess === 'function') onSuccess()
+      }
     }).catch(() => {})
   }, [isOpen])
 
@@ -84,7 +87,9 @@ export default function KycModal({ isOpen, onClose, onSuccess }) {
         clientKey,
         theme: 'light',
         closeCb: () => {
-          setScreen('contact')
+          // Only reset to contact form if user closed the widget WITHOUT completing
+          // (i.e. screen is still 'widget'). If success/processing — leave it alone.
+          setScreen(prev => (prev === 'widget' ? 'contact' : prev))
         },
         successCb: async (payload) => {
           setScreen('processing')

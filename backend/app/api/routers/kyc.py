@@ -68,11 +68,13 @@ async def kyc_start(
     """
     try:
         result = neurovision_client.generate_client_key(current_user.id)
-        # Persist the raw UUID so the webhook can map it back to this user
+        # Persist the raw UUID so the webhook can map it back to this user.
+        # Do NOT reset kyc_status if user has already successfully passed KYC.
+        values = {"kyc_session_id": result["client_key_raw"]}
+        if current_user.kyc_status != "success":
+            values["kyc_status"] = "pending"
         await db.execute(
-            update(User)
-            .where(User.id == current_user.id)
-            .values(kyc_status="pending", kyc_session_id=result["client_key_raw"])
+            update(User).where(User.id == current_user.id).values(**values)
         )
         await db.commit()
         return result
@@ -86,12 +88,19 @@ async def kyc_start(
 
 @router.get("/status", summary="Get user KYC status")
 async def kyc_status(current_user: User = Depends(get_current_user)):
-    return {
+    resp = {
         "kyc_status": current_user.kyc_status,
         "email": current_user.email,
         "phone": current_user.phone,
         "has_passport_data": bool(current_user.kyc_passport),
     }
+    logger.info(
+        "[KYC status] user_id=%s kyc_status=%s has_passport=%s first_name=%s last_name=%s passport=%s birth=%s",
+        current_user.id, current_user.kyc_status, bool(current_user.kyc_passport),
+        current_user.kyc_first_name, current_user.kyc_last_name,
+        current_user.kyc_passport, current_user.kyc_birth_date,
+    )
+    return resp
 
 
 # ---------------------------------------------------------------------------
