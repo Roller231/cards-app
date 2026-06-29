@@ -860,12 +860,8 @@ class CardService:
             kyc_passport = user.kyc_passport or document_number or "1234567890"
             # Convert DD.MM.YYYY → YYYY-MM-DD for O-Plata
             kyc_passport_issue_date = _to_iso_date(user.kyc_passport_issue_date) or "2025-01-01"
-            # Use user's selected gender, fallback to patronymic heuristic
-            if user.gender in ("MALE", "FEMALE"):
-                kyc_gender = user.gender
-            else:
-                _pat = (kyc_middle_name or "").lower()
-                kyc_gender = "FEMALE" if _pat.endswith(("вна", "чна")) else "MALE"
+            # Use user's selected gender, default to FEMALE if not set
+            kyc_gender = user.gender if user.gender in ("MALE", "FEMALE") else "FEMALE"
             
             result = await oplata_client.kyc_verify_partner_start(
                 client_id,
