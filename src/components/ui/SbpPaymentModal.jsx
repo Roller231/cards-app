@@ -42,6 +42,14 @@ export default function SbpPaymentModal({
   const [showKycModal, setShowKycModal] = useState(false)
   const pollRef = useRef(null)
 
+  const requestedUsd = typeof amountUsdRequested === 'number' && !Number.isNaN(amountUsdRequested)
+    ? amountUsdRequested
+    : null
+  const predictedUsd = prediction
+    ? (prediction.volume_take_final || prediction.volume_take_prediction || null)
+    : null
+  const depositUsd = requestedUsd ?? predictedUsd
+
   const createInvoiceFlow = async (rubAmount) => {
     try {
       setScreen('loading')
@@ -195,10 +203,10 @@ export default function SbpPaymentModal({
                     <span>{Math.ceil(prediction.comission1_abs).toLocaleString('ru-RU')} ₽</span>
                   </div>
                 )}
-                {(prediction.volume_take_final || prediction.volume_take_prediction) && (
+                {depositUsd && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#6B7280', borderTop: '1px solid #E5E7EB', paddingTop: 12 }}>
-                    <span>Вы получите ≈</span>
-                    <span>{(prediction.volume_take_final || prediction.volume_take_prediction).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} USDT</span>
+                    <span>Вы получите</span>
+                    <span>{depositUsd.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} USDT</span>
                   </div>
                 )}
               </div>
