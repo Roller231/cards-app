@@ -499,7 +499,7 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) 
       <SbpPaymentModal
         isOpen={showSbpModal}
         onClose={() => setShowSbpModal(false)}
-        amountRub={prediction?.volume_give_prediction ? Math.ceil(prediction.volume_give_prediction) : rubRate ? Math.ceil((parseFloat(amount) || 0) * rubRate) : Math.ceil((parseFloat(amount) || 0) * 95)}
+        amountRub={rubRate ? Math.ceil((parseFloat(amount) || 0) * rubRate) : Math.ceil((parseFloat(amount) || 0) * 95)}
         purpose="balance_topup"
         onPaid={() => {
           setShowSbpModal(false)
