@@ -1138,6 +1138,7 @@ class CardService:
         document_number: Optional[str] = None,
         eager_placeholder_commit: bool = False,
         defer_follow_up: bool = False,
+        sbp_invoice_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Issue a virtual card via O-Plata for the given user."""
         ravana_server_id, type_uuid = _parse_offer_id(offer_id)
@@ -1332,7 +1333,7 @@ class CardService:
             amount=card_amount,
             fee=user_payment - card_amount,
             status="pending",
-            description=f"Card issuance: {ravana_server_id}:{type_uuid}",
+            description=f"Card issuance: {ravana_server_id}:{type_uuid}" + (f" sbp_invoice:{sbp_invoice_id}" if sbp_invoice_id else ""),
         )
         db.add(order)
         await db.flush()
