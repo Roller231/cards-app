@@ -372,10 +372,10 @@ async def _trigger_post_payment(invoice_id: int) -> None:
                     return
                 # Check if card already issued for this invoice (idempotency)
                 from app.models.order import Order
-                existing_order = await db.execute(
-                    select(Order).where(Order.user_id == user.id, Order.type == "issue", Order.description.like(f"%{invoice.offer_id}%"))
+                existing_order_result = await db.execute(
+                    select(Order).where(Order.user_id == user.id, Order.type == "issue", Order.description.like(f"%{invoice.offer_id}%")).limit(1)
                 )
-                if existing_order.scalar_one_or_none():
+                if existing_order_result.scalar_one_or_none():
                     logger.info("[SBP] Card already issued for invoice_id=%s — skipping duplicate", invoice_id)
                     return
                 logger.info("[SBP] Auto-issuing card for user_id=%s offer_id=%s (invoice_id=%s)",
