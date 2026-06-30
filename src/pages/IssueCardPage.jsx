@@ -750,7 +750,6 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
           setShowSbpModal(false)
           setPaymentMethod('sbp')
           setResultScreen('success')
-          if (typeof onCardIssued === 'function') onCardIssued()
         }}
       />
     </div>

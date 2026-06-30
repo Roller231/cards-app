@@ -256,23 +256,17 @@ async def get_invoice_status(
         return {"local_invoice_id": invoice.id, "bb_invoice_id": invoice.bb_invoice_id,
                 "status": invoice.status, "amount_rub": float(invoice.amount_rub)}
 
-    # Poll Bitbanker for live status
+    # Poll Bitbanker for live status — only update status, no post-payment side effects
+    # Post-payment actions (balance credit, card issue/topup) are handled exclusively by webhook
     if invoice.bb_invoice_id:
         try:
             live = await bitbanker_client.get_invoice(invoice.bb_invoice_id)
             sbp_info = live.get("sbp_info") or {}
             live_status = sbp_info.get("status") or live.get("status") or invoice.status
             if live_status != invoice.status:
-                old_status = invoice.status
                 invoice.status = live_status
                 invoice.raw_response = json.dumps(live, ensure_ascii=False)[:4000]
                 await db.commit()
-                # If payment captured — trigger post-payment actions in background
-                # Only if transitioning TO captured (not already captured by webhook)
-                if live_status in ("captured", "authorized") and old_status not in ("captured", "authorized"):
-                    await _credit_user_balance(db, invoice, live)
-                    import asyncio
-                    asyncio.create_task(_trigger_post_payment(invoice.id))
         except Exception as exc:
             logger.warning("[SBP] Poll invoice %s error: %s", invoice.bb_invoice_id, exc)
 
@@ -310,6 +304,10 @@ async def bitbanker_webhook(request: Request):
     if not bb_invoice_id:
         return {"ok": True}
 
+    import asyncio as _asyncio
+    local_invoice_id: Optional[int] = None
+    is_captured = status in ("captured", "authorized")
+
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(BbInvoice).where(BbInvoice.bb_invoice_id == bb_invoice_id))
         invoice = result.scalar_one_or_none()
@@ -317,17 +315,39 @@ async def bitbanker_webhook(request: Request):
             logger.warning("[SBP] Webhook: no local invoice for bb_id=%s", bb_invoice_id)
             return {"ok": True}
 
+        already_processed = bool(invoice.amount_usd) or invoice.status in ("captured", "authorized")
+        old_status = invoice.status
         invoice.status = status
         invoice.raw_response = json.dumps(payload, ensure_ascii=False)[:4000]
-
-        if status in ("captured", "authorized") and not invoice.amount_usd:
-            await _credit_user_balance(db, invoice, payload)
-            import asyncio
-            asyncio.create_task(_trigger_post_payment(invoice.id))
-
+        local_invoice_id = invoice.id
         await db.commit()
 
+    # Trigger post-payment in background ONLY on first captured transition
+    if is_captured and not already_processed:
+        _asyncio.create_task(_credit_and_trigger(local_invoice_id, payload))
+
     return {"ok": True}
+
+
+async def _credit_and_trigger(invoice_id: int, bb_payload: Dict[str, Any]) -> None:
+    """Background: credit user balance then trigger card issue/topup. Single entry point from webhook."""
+    async with AsyncSessionLocal() as db:
+        try:
+            result = await db.execute(select(BbInvoice).where(BbInvoice.id == invoice_id))
+            invoice = result.scalar_one_or_none()
+            if not invoice:
+                return
+            # Double-check idempotency under lock
+            if invoice.amount_usd:
+                logger.info("[SBP] _credit_and_trigger: already processed invoice_id=%s — skipping", invoice_id)
+            else:
+                await _credit_user_balance(db, invoice, bb_payload)
+                await db.commit()
+        except Exception as exc:
+            logger.error("[SBP] _credit_and_trigger balance credit failed for invoice_id=%s: %s", invoice_id, exc)
+
+    # Trigger post-payment in separate session (may take minutes for card issue)
+    await _trigger_post_payment(invoice_id)
 
 
 async def _trigger_post_payment(invoice_id: int) -> None:
