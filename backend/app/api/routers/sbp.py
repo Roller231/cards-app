@@ -263,11 +263,13 @@ async def get_invoice_status(
             sbp_info = live.get("sbp_info") or {}
             live_status = sbp_info.get("status") or live.get("status") or invoice.status
             if live_status != invoice.status:
+                old_status = invoice.status
                 invoice.status = live_status
                 invoice.raw_response = json.dumps(live, ensure_ascii=False)[:4000]
                 await db.commit()
                 # If payment captured — trigger post-payment actions in background
-                if live_status in ("captured", "authorized"):
+                # Only if transitioning TO captured (not already captured by webhook)
+                if live_status in ("captured", "authorized") and old_status not in ("captured", "authorized"):
                     await _credit_user_balance(db, invoice, live)
                     import asyncio
                     asyncio.create_task(_trigger_post_payment(invoice.id))
