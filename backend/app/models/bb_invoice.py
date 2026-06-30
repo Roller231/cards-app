@@ -19,6 +19,7 @@ class BbInvoice(Base):
     idempotency_key = Column(String(128), unique=True, nullable=False)
     external_client_ref = Column(String(128), nullable=False, index=True)  # our user id in BB
     purpose = Column(String(32), nullable=False, default="balance_topup")  # balance_topup | card_issue
+    offer_id = Column(String(256), nullable=True)                     # card offer_id for card_issue purpose
     amount_rub = Column(Numeric(18, 2), nullable=False)               # RUB amount paid
     amount_usd = Column(Numeric(18, 6), nullable=True)                # USD credited to user (after conversion)
     status = Column(String(32), nullable=False, default="initiated")

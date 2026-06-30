@@ -52,6 +52,7 @@ class KycRequest(BaseModel):
 class InvoiceCreateRequest(BaseModel):
     amount_rub: float
     purpose: str = "balance_topup"  # "balance_topup" | "card_issue"
+    offer_id: Optional[str] = None  # required when purpose=card_issue
 
 
 # ---------------------------------------------------------------------------
@@ -207,6 +208,7 @@ async def create_invoice(
         idempotency_key=idempotency_key,
         external_client_ref=ext_ref,
         purpose=body.purpose,
+        offer_id=body.offer_id,
         amount_rub=Decimal(str(body.amount_rub)),
         status=status,
         payment_url=payment_url,
@@ -260,9 +262,11 @@ async def get_invoice_status(
                 invoice.status = live_status
                 invoice.raw_response = json.dumps(live, ensure_ascii=False)[:4000]
                 await db.commit()
-                # If payment captured — credit user balance
+                # If payment captured — trigger post-payment actions in background
                 if live_status in ("captured", "authorized"):
                     await _credit_user_balance(db, invoice, live)
+                    import asyncio
+                    asyncio.create_task(_trigger_post_payment(invoice.id))
         except Exception as exc:
             logger.warning("[SBP] Poll invoice %s error: %s", invoice.bb_invoice_id, exc)
 
@@ -312,10 +316,50 @@ async def bitbanker_webhook(request: Request):
 
         if status in ("captured", "authorized") and not invoice.amount_usd:
             await _credit_user_balance(db, invoice, payload)
+            import asyncio
+            asyncio.create_task(_trigger_post_payment(invoice.id))
 
         await db.commit()
 
     return {"ok": True}
+
+
+async def _trigger_post_payment(invoice_id: int) -> None:
+    """Background task: runs after SBP payment captured.
+    - For balance_topup: nothing extra (balance already credited).
+    - For card_issue: auto-issue the card using the stored offer_id.
+    """
+    async with AsyncSessionLocal() as db:
+        try:
+            result = await db.execute(select(BbInvoice).where(BbInvoice.id == invoice_id))
+            invoice = result.scalar_one_or_none()
+            if not invoice or invoice.purpose != "card_issue":
+                return
+            if not invoice.offer_id:
+                logger.warning("[SBP] card_issue invoice %s has no offer_id — cannot auto-issue", invoice_id)
+                return
+            user_result = await db.execute(select(User).where(User.id == invoice.user_id))
+            user = user_result.scalar_one_or_none()
+            if not user:
+                return
+            logger.info("[SBP] Auto-issuing card for user_id=%s offer_id=%s (invoice_id=%s)",
+                        user.id, invoice.offer_id, invoice_id)
+            from app.services.card_service import card_service
+            usernameParts = (user.kyc_first_name or user.username or "User").strip().split()
+            holder_first = usernameParts[0] if usernameParts else "User"
+            holder_last = " ".join(usernameParts[1:]) if len(usernameParts) > 1 else "User"
+            await card_service.issue_card(
+                db=db,
+                user=user,
+                offer_id=invoice.offer_id,
+                holder_first_name=holder_first,
+                holder_last_name=holder_last,
+                email=user.email,
+                payment_method="sbp",
+            )
+            logger.info("[SBP] Auto-issue card completed for user_id=%s", user.id)
+        except Exception as exc:
+            logger.error("[SBP] Auto-issue card failed for invoice_id=%s: %s", invoice_id, exc)
 
 
 async def _credit_user_balance(db: AsyncSession, invoice: BbInvoice, bb_payload: Dict[str, Any]) -> None:

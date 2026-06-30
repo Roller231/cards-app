@@ -741,9 +741,11 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
         onClose={() => setShowSbpModal(false)}
         amountRub={price || 999}
         purpose="card_issue"
+        offerId={String(selectedCardType)}
         onPaid={() => {
           setShowSbpModal(false)
-          handleIssueCard()
+          setResultScreen('success')
+          if (typeof onCardIssued === 'function') onCardIssued()
         }}
       />
     </div>

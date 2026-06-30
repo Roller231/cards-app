@@ -91,7 +91,13 @@ def check_and_update_schema(conn):
                 logger.info("Adding column '%s' to 'users' table", col_name)
                 conn.execute(text(f"ALTER TABLE users ADD COLUMN {col_name} {col_def};"))
 
-    # Add similar checks for other tables and columns if needed in the future
+    # Check for offer_id column in bb_invoices table
+    if 'bb_invoices' in inspector.get_table_names():
+        inv_cols = [col['name'] for col in inspector.get_columns('bb_invoices')]
+        if 'offer_id' not in inv_cols:
+            logger.info("Adding column 'offer_id' to 'bb_invoices' table")
+            conn.execute(text("ALTER TABLE bb_invoices ADD COLUMN offer_id VARCHAR(256) NULL;"))
+
     return
 
 
