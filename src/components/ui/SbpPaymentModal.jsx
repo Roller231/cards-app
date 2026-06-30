@@ -204,7 +204,7 @@ export default function SbpPaymentModal({
                 Итоговая сумма на QR-коде включает комиссию платёжной системы.
               </div>
 
-              <Button onClick={() => createInvoiceFlow(Math.ceil(prediction.volume_give_prediction || amountRub)).catch(e => { setError(e.message || 'Ошибка создания счёта'); setScreen('error') })} fullWidth>
+              <Button onClick={() => createInvoiceFlow(amountRub).catch(e => { setError(e.message || 'Ошибка создания счёта'); setScreen('error') })} fullWidth>
                 Продолжить к оплате
               </Button>
             </div>
