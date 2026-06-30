@@ -141,6 +141,7 @@ class CardService:
     # IntegrityError on cards.aifory_card_id when /cards bg sync and the
     # post-issue follow-up poll run concurrently.
     _sync_locks: Dict[int, asyncio.Lock] = {}
+    _sync_running: set = set()  # user_ids currently being synced
 
     @classmethod
     def _get_sync_lock(cls, user_id: int) -> asyncio.Lock:
@@ -1923,6 +1924,10 @@ class CardService:
                     logger.debug("Background issue failure notification error: %s", _n)
 
     async def _run_sync_in_background(self, user_id: int) -> None:
+        if user_id in self._sync_running:
+            logger.debug("Background sync_cards already running for user_id=%s — skipping", user_id)
+            return
+        self._sync_running.add(user_id)
         logger.info("Background sync_cards START for user_id=%s", user_id)
         async with AsyncSessionLocal() as db:
             try:
@@ -1940,6 +1945,8 @@ class CardService:
                     await db.rollback()
                 except Exception:
                     pass
+            finally:
+                self._sync_running.discard(user_id)
 
     def schedule_sync_in_background(self, user_id: int) -> None:
         asyncio.create_task(self._run_sync_in_background(user_id=user_id))
