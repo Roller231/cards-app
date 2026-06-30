@@ -1690,7 +1690,18 @@ class CardService:
                     )
                     if hasattr(card, "last_notified_transaction_id"):
                         card.last_notified_transaction_id = txn_id
-                        await db.flush()
+                        # Persist in a separate session to avoid contaminating the caller's session
+                        try:
+                            from app.core.database import AsyncSessionLocal
+                            from sqlalchemy import update as _sa_update
+                            from app.models.card import Card as _Card
+                            async with AsyncSessionLocal() as _sess:
+                                await _sess.execute(
+                                    _sa_update(_Card).where(_Card.id == card.id).values(last_notified_transaction_id=txn_id)
+                                )
+                                await _sess.commit()
+                        except Exception as _pe:
+                            logger.debug("last_notified_transaction_id persist error: %s", _pe)
                 except Exception as _n:
                     logger.debug("Transaction notification error: %s", _n)
 

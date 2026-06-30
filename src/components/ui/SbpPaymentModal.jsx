@@ -32,6 +32,7 @@ export default function SbpPaymentModal({
   offerId = null,
   cardId = null,
   amountUsdRequested = null,
+  skipSuccessScreen = false,
 }) {
   // screen: 'checking' | 'kyc' | 'confirm' | 'loading' | 'qr' | 'success' | 'error'
   const [screen, setScreen] = useState('checking')
@@ -112,8 +113,12 @@ export default function SbpPaymentModal({
         const res = await api.sbp.pollInvoice(invoice.local_invoice_id)
         if (res.status && ['captured', 'authorized'].includes(res.status)) {
           clearInterval(pollRef.current)
-          setScreen('success')
-          if (typeof onPaid === 'function') onPaid(res)
+          if (skipSuccessScreen) {
+            if (typeof onPaid === 'function') onPaid(res)
+          } else {
+            setScreen('success')
+            if (typeof onPaid === 'function') onPaid(res)
+          }
         } else if (['declined', 'failed', 'cancelled', 'expired'].includes(res.status)) {
           clearInterval(pollRef.current)
           setError(`Платёж ${res.status}. Попробуйте ещё раз.`)

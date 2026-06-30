@@ -745,6 +745,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
         amountRub={price || 999}
         purpose="card_issue"
         offerId={String(selectedCardType)}
+        skipSuccessScreen={true}
         onPaid={() => {
           setShowSbpModal(false)
           setPaymentMethod('sbp')
