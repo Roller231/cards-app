@@ -370,6 +370,14 @@ async def _trigger_post_payment(invoice_id: int) -> None:
                 if not invoice.offer_id:
                     logger.warning("[SBP] card_issue invoice %s has no offer_id — cannot auto-issue", invoice_id)
                     return
+                # Check if card already issued for this invoice (idempotency)
+                from app.models.order import Order
+                existing_order = await db.execute(
+                    select(Order).where(Order.user_id == user.id, Order.type == "issue", Order.description.like(f"%{invoice.offer_id}%"))
+                )
+                if existing_order.scalar_one_or_none():
+                    logger.info("[SBP] Card already issued for invoice_id=%s — skipping duplicate", invoice_id)
+                    return
                 logger.info("[SBP] Auto-issuing card for user_id=%s offer_id=%s (invoice_id=%s)",
                             user.id, invoice.offer_id, invoice_id)
                 usernameParts = (user.kyc_first_name or user.username or "User").strip().split()
@@ -393,6 +401,8 @@ async def _trigger_post_payment(invoice_id: int) -> None:
 
 async def _credit_user_balance(db: AsyncSession, invoice: BbInvoice, bb_payload: Dict[str, Any]) -> None:
     """Credit user's local USD balance based on the exchange_deal in the Bitbanker response."""
+    # Refresh to get latest state and avoid race condition
+    await db.refresh(invoice)
     if invoice.amount_usd:
         return  # already credited
 
