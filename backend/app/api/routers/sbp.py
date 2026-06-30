@@ -380,7 +380,8 @@ async def _trigger_post_payment(invoice_id: int) -> None:
                     holder_first_name=holder_first,
                     holder_last_name=holder_last,
                     email=user.email,
-                    payment_method="sbp",
+                    skip_balance_check=True,
+                    defer_follow_up=False,
                 )
                 logger.info("[SBP] Auto-issue card completed for user_id=%s", user.id)
 

@@ -20,10 +20,27 @@ import Portal from './Portal'
 
 const font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif'
 
+function formatPhoneInput(value) {
+  // Remove all non-digits
+  const digits = value.replace(/\D/g, '')
+  // If starts with 8, replace with 7
+  const normalized = digits.startsWith('8') ? '7' + digits.slice(1) : digits
+  // If doesn't start with 7, prepend it
+  const withCountry = normalized.startsWith('7') ? normalized : '7' + normalized
+  // Take max 11 digits (7 + 10)
+  const limited = withCountry.slice(0, 11)
+  // Format as +7 (XXX) XXX-XX-XX
+  if (limited.length <= 1) return '+7'
+  if (limited.length <= 4) return `+7 (${limited.slice(1)}`
+  if (limited.length <= 7) return `+7 (${limited.slice(1, 4)}) ${limited.slice(4)}`
+  if (limited.length <= 9) return `+7 (${limited.slice(1, 4)}) ${limited.slice(4, 7)}-${limited.slice(7)}`
+  return `+7 (${limited.slice(1, 4)}) ${limited.slice(4, 7)}-${limited.slice(7, 9)}-${limited.slice(9, 11)}`
+}
+
 export default function KycModal({ isOpen, onClose, onSuccess }) {
   const [screen, setScreen] = useState('contact')
   const [email, setEmail] = useState('')
-  const [phone, setPhone] = useState('')
+  const [phone, setPhone] = useState('+7')
   const [gender, setGender] = useState('')  // 'MALE' | 'FEMALE'
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -41,7 +58,7 @@ export default function KycModal({ isOpen, onClose, onSuccess }) {
     api.kyc.status().then(status => {
       if (cancelled) return
       if (status.email) setEmail(status.email)
-      if (status.phone) setPhone(status.phone)
+      if (status.phone) setPhone(formatPhoneInput(status.phone || ''))
       if (status.gender) setGender(status.gender)
       if (status.kyc_status === 'success') {
         if (typeof onSuccess === 'function') onSuccess()
@@ -256,8 +273,8 @@ export default function KycModal({ isOpen, onClose, onSuccess }) {
                 <input
                   type="tel"
                   value={phone}
-                  onChange={e => setPhone(e.target.value)}
-                  placeholder="+79991234567"
+                  onChange={e => setPhone(formatPhoneInput(e.target.value))}
+                  placeholder="+7 (999) 123-45-67"
                   style={{
                     padding: '12px 14px', borderRadius: 10, border: '1.5px solid #E5E7EB',
                     fontSize: 15, outline: 'none', fontFamily: font,
