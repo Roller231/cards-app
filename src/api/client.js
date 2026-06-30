@@ -82,8 +82,8 @@ export const api = {
     getUsdToRubRate: () => req('GET', '/sbp/usd-to-rub-rate'),
     prediction: () => req('GET', '/sbp/prediction'),
     exchangePrediction: (amountRub) => req('GET', `/sbp/exchange-prediction?amount_rub=${amountRub}`),
-    createInvoice: (amountRub, purpose = 'balance_topup', offerId = null) =>
-      req('POST', '/sbp/invoice', { amount_rub: amountRub, purpose, offer_id: offerId }),
+    createInvoice: (amountRub, purpose = 'balance_topup', offerId = null, cardId = null, amountUsdRequested = null) =>
+      req('POST', '/sbp/invoice', { amount_rub: amountRub, purpose, offer_id: offerId, card_id: cardId, amount_usd_requested: amountUsdRequested }),
     pollInvoice: (localInvoiceId) => req('GET', `/sbp/invoice/${localInvoiceId}`),
     getKycStatus: () => req('GET', '/sbp/kyc-status'),
     createKycSession: () => req('POST', '/sbp/kyc-session'),

@@ -53,6 +53,8 @@ class InvoiceCreateRequest(BaseModel):
     amount_rub: float
     purpose: str = "balance_topup"  # "balance_topup" | "card_issue"
     offer_id: Optional[str] = None  # required when purpose=card_issue
+    card_id: Optional[str] = None   # required when purpose=balance_topup (local card UUID)
+    amount_usd_requested: Optional[float] = None  # exact USD amount user wants deposited to card
 
 
 # ---------------------------------------------------------------------------
@@ -209,6 +211,8 @@ async def create_invoice(
         external_client_ref=ext_ref,
         purpose=body.purpose,
         offer_id=body.offer_id,
+        card_id=body.card_id,
+        amount_usd_requested=Decimal(str(body.amount_usd_requested)) if body.amount_usd_requested else None,
         amount_rub=Decimal(str(body.amount_rub)),
         status=status,
         payment_url=payment_url,
@@ -326,40 +330,62 @@ async def bitbanker_webhook(request: Request):
 
 async def _trigger_post_payment(invoice_id: int) -> None:
     """Background task: runs after SBP payment captured.
-    - For balance_topup: nothing extra (balance already credited).
+    - For balance_topup: call deposit_card directly on O-Plata (skip user.balance).
     - For card_issue: auto-issue the card using the stored offer_id.
     """
     async with AsyncSessionLocal() as db:
         try:
             result = await db.execute(select(BbInvoice).where(BbInvoice.id == invoice_id))
             invoice = result.scalar_one_or_none()
-            if not invoice or invoice.purpose != "card_issue":
-                return
-            if not invoice.offer_id:
-                logger.warning("[SBP] card_issue invoice %s has no offer_id — cannot auto-issue", invoice_id)
+            if not invoice:
                 return
             user_result = await db.execute(select(User).where(User.id == invoice.user_id))
             user = user_result.scalar_one_or_none()
             if not user:
                 return
-            logger.info("[SBP] Auto-issuing card for user_id=%s offer_id=%s (invoice_id=%s)",
-                        user.id, invoice.offer_id, invoice_id)
+
             from app.services.card_service import card_service
-            usernameParts = (user.kyc_first_name or user.username or "User").strip().split()
-            holder_first = usernameParts[0] if usernameParts else "User"
-            holder_last = " ".join(usernameParts[1:]) if len(usernameParts) > 1 else "User"
-            await card_service.issue_card(
-                db=db,
-                user=user,
-                offer_id=invoice.offer_id,
-                holder_first_name=holder_first,
-                holder_last_name=holder_last,
-                email=user.email,
-                payment_method="sbp",
-            )
-            logger.info("[SBP] Auto-issue card completed for user_id=%s", user.id)
+
+            if invoice.purpose == "balance_topup":
+                if not invoice.card_id:
+                    logger.warning("[SBP] balance_topup invoice %s has no card_id — cannot deposit", invoice_id)
+                    return
+                # Use exact requested USD amount, fallback to received amount_usd
+                deposit_amount = float(invoice.amount_usd_requested or invoice.amount_usd or 0)
+                if deposit_amount <= 0:
+                    logger.warning("[SBP] balance_topup invoice %s has no deposit amount — skipping", invoice_id)
+                    return
+                logger.info("[SBP] Auto-depositing card for user_id=%s card_id=%s amount=%s (invoice_id=%s)",
+                            user.id, invoice.card_id, deposit_amount, invoice_id)
+                card_service.schedule_deposit_in_background(
+                    user_id=user.id,
+                    card_id=invoice.card_id,
+                    amount=deposit_amount,
+                    skip_balance_check=True,
+                )
+
+            elif invoice.purpose == "card_issue":
+                if not invoice.offer_id:
+                    logger.warning("[SBP] card_issue invoice %s has no offer_id — cannot auto-issue", invoice_id)
+                    return
+                logger.info("[SBP] Auto-issuing card for user_id=%s offer_id=%s (invoice_id=%s)",
+                            user.id, invoice.offer_id, invoice_id)
+                usernameParts = (user.kyc_first_name or user.username or "User").strip().split()
+                holder_first = usernameParts[0] if usernameParts else "User"
+                holder_last = " ".join(usernameParts[1:]) if len(usernameParts) > 1 else "User"
+                await card_service.issue_card(
+                    db=db,
+                    user=user,
+                    offer_id=invoice.offer_id,
+                    holder_first_name=holder_first,
+                    holder_last_name=holder_last,
+                    email=user.email,
+                    payment_method="sbp",
+                )
+                logger.info("[SBP] Auto-issue card completed for user_id=%s", user.id)
+
         except Exception as exc:
-            logger.error("[SBP] Auto-issue card failed for invoice_id=%s: %s", invoice_id, exc)
+            logger.error("[SBP] Post-payment trigger failed for invoice_id=%s: %s", invoice_id, exc)
 
 
 async def _credit_user_balance(db: AsyncSession, invoice: BbInvoice, bb_payload: Dict[str, Any]) -> None:

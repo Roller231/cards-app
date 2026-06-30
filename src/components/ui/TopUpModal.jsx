@@ -501,6 +501,8 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) 
         onClose={() => setShowSbpModal(false)}
         amountRub={rubRate ? Math.ceil((parseFloat(amount) || 0) * rubRate) : Math.ceil((parseFloat(amount) || 0) * 95)}
         purpose="balance_topup"
+        cardId={card?.aifory_card_id}
+        amountUsdRequested={parseFloat(amount) || 0}
         onPaid={() => {
           setShowSbpModal(false)
           setScreen('success')

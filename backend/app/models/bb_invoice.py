@@ -20,7 +20,9 @@ class BbInvoice(Base):
     external_client_ref = Column(String(128), nullable=False, index=True)  # our user id in BB
     purpose = Column(String(32), nullable=False, default="balance_topup")  # balance_topup | card_issue
     offer_id = Column(String(256), nullable=True)                     # card offer_id for card_issue purpose
+    card_id = Column(String(256), nullable=True)                      # local card UUID for balance_topup purpose
     amount_rub = Column(Numeric(18, 2), nullable=False)               # RUB amount paid
+    amount_usd_requested = Column(Numeric(18, 6), nullable=True)      # exact USD amount user wants on card
     amount_usd = Column(Numeric(18, 6), nullable=True)                # USD credited to user (after conversion)
     status = Column(String(32), nullable=False, default="initiated")
     payment_url = Column(String(512), nullable=True)

@@ -97,6 +97,12 @@ def check_and_update_schema(conn):
         if 'offer_id' not in inv_cols:
             logger.info("Adding column 'offer_id' to 'bb_invoices' table")
             conn.execute(text("ALTER TABLE bb_invoices ADD COLUMN offer_id VARCHAR(256) NULL;"))
+        if 'card_id' not in inv_cols:
+            logger.info("Adding column 'card_id' to 'bb_invoices' table")
+            conn.execute(text("ALTER TABLE bb_invoices ADD COLUMN card_id VARCHAR(256) NULL;"))
+        if 'amount_usd_requested' not in inv_cols:
+            logger.info("Adding column 'amount_usd_requested' to 'bb_invoices' table")
+            conn.execute(text("ALTER TABLE bb_invoices ADD COLUMN amount_usd_requested DECIMAL(18,6) NULL;"))
 
     return
 

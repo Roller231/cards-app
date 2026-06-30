@@ -30,6 +30,8 @@ export default function SbpPaymentModal({
   amountRub: amountRubProp = 0,
   purpose = 'balance_topup',
   offerId = null,
+  cardId = null,
+  amountUsdRequested = null,
 }) {
   // screen: 'checking' | 'kyc' | 'confirm' | 'loading' | 'qr' | 'success' | 'error'
   const [screen, setScreen] = useState('checking')
@@ -43,7 +45,7 @@ export default function SbpPaymentModal({
   const createInvoiceFlow = async (rubAmount) => {
     try {
       setScreen('loading')
-      const res = await api.sbp.createInvoice(rubAmount, purpose, offerId)
+      const res = await api.sbp.createInvoice(rubAmount, purpose, offerId, cardId, amountUsdRequested)
       setInvoice(res)
       setScreen('qr')
     } catch (e) {
