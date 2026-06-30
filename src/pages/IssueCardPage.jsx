@@ -24,6 +24,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
   const [showSbpModal, setShowSbpModal] = useState(false)
   const [showKycModal, setShowKycModal] = useState(false)
   const [kycStatus, setKycStatus] = useState(null)
+  const [paymentMethod, setPaymentMethod] = useState(null) // 'sbp' | 'balance'
 
 
   // Load card offers and issuance price from API
@@ -629,7 +630,9 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
                 animation: 'textAppear 0.5s ease-out 0.2s backwards',
               }}
             >
-              Запрос на выпуск карты отправлен успешно. Ожидайте до 5 минут.
+              {paymentMethod === 'sbp' 
+                ? 'Оплата прошла успешно! Карта выпускается, ожидайте до 5 минут.'
+                : 'Запрос на выпуск карты отправлен успешно. Ожидайте до 5 минут.'}
             </div>
           </div>
 
@@ -744,6 +747,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
         offerId={String(selectedCardType)}
         onPaid={() => {
           setShowSbpModal(false)
+          setPaymentMethod('sbp')
           setResultScreen('success')
           if (typeof onCardIssued === 'function') onCardIssued()
         }}
