@@ -1353,7 +1353,7 @@ class CardService:
                     order_id=order.id,
                     payment_uuid=payment_uuid,
                     card_amount=float(card_amount),
-                    fixed_fee=float(user_payment - card_amount),
+4                    fixed_fee=float(user_payment - card_amount),
                 )
             )
             return {"local_order_id": order.id, "partner_order_id": payment_uuid}
@@ -1728,7 +1728,7 @@ class CardService:
         client_id = _client_id(user)
 
         # Ensure user is registered (idempotent) and fund the wallet from parent before top-up.
-        await self._ensure_client(client_id)
+        await self._ensure_client(client_id, user)
         topup_currency = await self._provider_balance_currency(card.offer_id)
         await self._fund_user_wallet(
             user_client_id=client_id,
