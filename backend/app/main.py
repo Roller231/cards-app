@@ -109,6 +109,9 @@ def check_and_update_schema(conn):
         if 'notified' not in ord_cols:
             logger.info("Adding column 'notified' to 'orders' table")
             conn.execute(text("ALTER TABLE orders ADD COLUMN notified TINYINT(1) NOT NULL DEFAULT 0;"))
+            # Mark all existing completed/failed orders as already notified to prevent duplicate notifications
+            conn.execute(text("UPDATE orders SET notified = 1 WHERE status IN ('completed', 'failed');"))
+            logger.info("Marked existing completed/failed orders as notified")
 
     return
 

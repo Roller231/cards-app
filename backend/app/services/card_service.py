@@ -663,7 +663,12 @@ class CardService:
                             ravana_server_id=linked_card.offer_id,
                             amount=Decimal(str(card_amount)),
                         )
-                    if _card_is_active(linked_card.status) and not order.notified:
+                    # Only notify if card is active AND was created for this order (not an old card reassigned by sync)
+                    if (
+                        _card_is_active(linked_card.status)
+                        and not order.notified
+                        and linked_card.created_at >= order.created_at
+                    ):
                         try:
                             await notify_card_issued(
                                 db=db, user=user,
@@ -1394,7 +1399,8 @@ class CardService:
         # 8. Notify only when a concrete card record is already available locally
         if order.card_id and not order.notified:
             linked_card = await self._resolve_card(db, user.id, str(order.card_id))
-            if _card_is_active(linked_card.status):
+            # Only notify if card is active AND was created for this order (not an old card)
+            if _card_is_active(linked_card.status) and linked_card.created_at >= order.created_at:
                 try:
                     await notify_card_issued(
                         db=db, user=user,
