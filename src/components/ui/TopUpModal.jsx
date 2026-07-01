@@ -420,6 +420,19 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) 
             >
               Карта успешно пополнена
             </div>
+            <div
+              style={{
+                fontSize: 13,
+                color: '#6B7280',
+                textAlign: 'center',
+                maxWidth: 280,
+                lineHeight: 1.4,
+                fontFamily: font,
+                animation: 'textAppear 0.5s ease-out 0.35s backwards',
+              }}
+            >
+              Средства появятся на карте в течение 5 минут. Вы получите пуш-уведомление, как только баланс обновится.
+            </div>
           </div>
         )}
 
