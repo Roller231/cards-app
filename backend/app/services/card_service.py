@@ -594,6 +594,8 @@ class CardService:
         payment_uuid: str,
         card_amount: float,
         fixed_fee: float,
+        provider_fee_amount: float = 0.0,
+        provider_currency: str = "USDT",
     ) -> None:
         async with AsyncSessionLocal() as db:
             try:
@@ -640,6 +642,27 @@ class CardService:
                         )
                     except Exception as _n:
                         logger.debug("Card issue failure notification error: %s", _n)
+                    
+                    # If payment was REFUNDED, O-Plata returned provider fee to user's wallet.
+                    # Transfer it back to parent to maintain balance consistency.
+                    if issue_state == "REFUNDED" and provider_fee_amount > 0:
+                        try:
+                            client_id = _client_id(user)
+                            logger.info(
+                                "Issue payment REFUNDED for user_id=%s order_id=%s uuid=%s — returning %s %s to parent",
+                                user.id, order.id, payment_uuid, provider_fee_amount, provider_currency,
+                            )
+                            await self._refund_to_parent_wallet(
+                                user_client_id=client_id,
+                                currency_code=provider_currency,
+                                amount=Decimal(str(provider_fee_amount)),
+                            )
+                        except Exception as refund_exc:
+                            logger.error(
+                                "Failed to refund to parent after REFUNDED issue for user_id=%s: %s",
+                                user.id, refund_exc,
+                            )
+                    
                     await db.commit()
                     return
 
@@ -1006,6 +1029,113 @@ class CardService:
             timeout_seconds=120,
         )
 
+    async def _refund_to_parent_wallet(
+        self,
+        user_client_id: str,
+        currency_code: str,
+        amount: Decimal,
+    ) -> None:
+        """Transfer `amount` of `currency_code` from user's wallet back to parent (reverse of _fund_user_wallet).
+        
+        Called when a payment is REFUNDED by O-Plata — the funds returned to user's wallet
+        need to be sent back to parent to maintain balance consistency.
+        """
+        if amount is None or Decimal(str(amount)) <= 0:
+            logger.debug("Refund amount is zero or negative, skipping refund to parent")
+            return
+        parent = _parent_client_id()
+        if user_client_id == parent:
+            logger.debug("User is parent client, skipping self-refund")
+            return
+        
+        # Get parent wallet ID
+        parent_wallet_id = await self._resolve_client_wallet_id(parent)
+        
+        # Snapshot user's pre-refund balance
+        prev_balance = await self._get_user_currency_balance(user_client_id, currency_code)
+        
+        if prev_balance < amount:
+            logger.warning(
+                "User wallet balance (%s %s) is less than refund amount (%s) for client=%s — will attempt partial refund",
+                prev_balance, currency_code, amount, user_client_id,
+            )
+            # Attempt to refund whatever is available
+            amount = prev_balance
+            if amount <= 0:
+                logger.error("User wallet has no funds to refund for client=%s currency=%s", user_client_id, currency_code)
+                return
+        
+        result: Any = None
+        last_exc: Optional[Exception] = None
+        max_attempts = 5
+        for attempt in range(1, max_attempts + 1):
+            try:
+                result = await oplata_client.create_transfer(
+                    client_id=user_client_id,  # Transfer FROM user
+                    currency_code=currency_code,
+                    amount=float(amount),
+                    wallet_id=parent_wallet_id,  # TO parent wallet
+                )
+                logger.info(
+                    "User->Parent refund transfer ok (attempt %s/%s): from=%s to=%s wallet=%s amount=%s %s result=%s",
+                    attempt, max_attempts, user_client_id, parent, parent_wallet_id, amount, currency_code, result,
+                )
+                last_exc = None
+                break
+            except Exception as exc:
+                last_exc = exc
+                logger.warning(
+                    "User->Parent refund transfer attempt %s/%s failed: from=%s to=%s wallet=%s amount=%s %s: %s",
+                    attempt, max_attempts, user_client_id, parent, parent_wallet_id, amount, currency_code, exc,
+                )
+                if attempt < max_attempts:
+                    backoff = min(2 ** (attempt - 1), 8)
+                    await asyncio.sleep(backoff)
+        
+        if last_exc is not None:
+            logger.error(
+                "User->Parent refund transfer FAILED after %s attempts: from=%s to=%s wallet=%s amount=%s %s: %s",
+                max_attempts, user_client_id, parent, parent_wallet_id, amount, currency_code, last_exc,
+            )
+            # Don't raise — this is a cleanup operation, we don't want to fail the whole flow
+            return
+        
+        # Confirm the refund transfer on user side
+        transfer_uuid = ""
+        if isinstance(result, dict):
+            transfer_uuid = str(result.get("uuid") or result.get("id") or "")
+        if transfer_uuid:
+            try:
+                confirm_result = await oplata_client.confirm_payment(user_client_id, transfer_uuid)
+                logger.info(
+                    "User refund transfer confirmed: user=%s uuid=%s state=%s",
+                    user_client_id, transfer_uuid,
+                    (confirm_result or {}).get("state") if isinstance(confirm_result, dict) else confirm_result,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "User refund transfer confirm failed for user=%s uuid=%s: %s",
+                    user_client_id, transfer_uuid, exc,
+                )
+        
+        # Wait for balance to decrease (funds left user wallet)
+        try:
+            await self._wait_for_user_balance_decrease(
+                user_client_id=user_client_id,
+                currency_code=currency_code,
+                max_balance=Decimal(str(prev_balance)) - Decimal(str(amount)),
+                timeout_seconds=120,
+            )
+            logger.info(
+                "Refund to parent completed: user=%s parent=%s amount=%s %s",
+                user_client_id, parent, amount, currency_code,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Refund balance decrease confirmation failed for user=%s: %s",
+                user_client_id, exc,
+            )
+
     async def _get_user_currency_balance(self, user_client_id: str, currency_code: str) -> Decimal:
         """Best-effort fetch of a single-currency balance for a user's O-Plata wallet."""
         try:
@@ -1111,6 +1241,34 @@ class CardService:
         )
         raise ValueError(
             f"Средства не поступили на дочерний кошелёк за {timeout_seconds}с (баланс {last_balance} < {min_balance} {currency_code})"
+        )
+
+    async def _wait_for_user_balance_decrease(
+        self,
+        user_client_id: str,
+        currency_code: str,
+        max_balance: Decimal,
+        timeout_seconds: int = 120,
+        poll_interval_seconds: float = 2.0,
+    ) -> None:
+        """Poll user wallet balance until it drops to `max_balance` or below (confirms funds left wallet)."""
+        deadline_attempts = max(1, int(timeout_seconds / max(poll_interval_seconds, 0.5)))
+        last_balance = Decimal("0")
+        for _attempt in range(deadline_attempts):
+            last_balance = await self._get_user_currency_balance(user_client_id, currency_code)
+            if last_balance <= max_balance:
+                logger.info(
+                    "User wallet refund confirmed: client=%s currency=%s balance=%s expected_max=%s",
+                    user_client_id, currency_code, last_balance, max_balance,
+                )
+                return
+            await asyncio.sleep(poll_interval_seconds)
+        logger.warning(
+            "User wallet refund not confirmed in time: client=%s currency=%s last_balance=%s expected_max=%s",
+            user_client_id, currency_code, last_balance, max_balance,
+        )
+        raise ValueError(
+            f"Средства не ушли с кошелька за {timeout_seconds}с (баланс {last_balance} > {max_balance} {currency_code})"
         )
 
     async def _provider_balance_currency(
@@ -1362,6 +1520,8 @@ class CardService:
                     payment_uuid=payment_uuid,
                     card_amount=float(card_amount),
                     fixed_fee=float(user_payment - card_amount),
+                    provider_fee_amount=float(provider_issue_fee_usdt),
+                    provider_currency=provider_balance_currency,
                 )
             )
             return {"local_order_id": order.id, "partner_order_id": payment_uuid}
@@ -1821,6 +1981,25 @@ class CardService:
                 )
             except Exception as _n:
                 logger.debug("Topup notification error: %s", _n)
+            
+            # If payment was REFUNDED, O-Plata returned funds to user's wallet.
+            # Transfer them back to parent to maintain balance consistency.
+            if topup_payment_state == "REFUNDED":
+                try:
+                    logger.info(
+                        "Topup payment REFUNDED for user_id=%s card=%s uuid=%s — returning %s %s to parent",
+                        user.id, card.aifory_card_id, payment_uuid, base_amount, topup_currency,
+                    )
+                    await self._refund_to_parent_wallet(
+                        user_client_id=client_id,
+                        currency_code=topup_currency,
+                        amount=base_amount,
+                    )
+                except Exception as refund_exc:
+                    logger.error(
+                        "Failed to refund to parent after REFUNDED topup for user_id=%s: %s",
+                        user.id, refund_exc,
+                    )
         else:
             logger.info(
                 "Topup still in progress (state=%s) for user_id=%s card=%s uuid=%s: notification deferred",
