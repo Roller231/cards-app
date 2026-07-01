@@ -73,7 +73,10 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
     : (Number(issuancePrice?.price_rub) || 999)
   
   const initialBalance = issuancePrice?.initial_balance || 0
-  const canIssueCard = selectedCardType !== '' && price > 0
+  const maxCards = selectedCard?.max_issued_count || 999
+  const currentCards = selectedCard?.current_count || 0
+  const limitReached = currentCards >= maxCards
+  const canIssueCard = selectedCardType !== '' && price > 0 && !limitReached
 
 
   const handleIssueCard = async () => {
@@ -219,7 +222,12 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
                     }
                   }}
                 >
-                  {card.name}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>{card.name}</span>
+                    {card.current_count >= card.max_issued_count && (
+                      <span style={{ fontSize: 12, color: '#DC4D35', fontWeight: 500 }}>Лимит</span>
+                    )}
+                  </div>
                 </button>
               ))}
             </div>
@@ -264,6 +272,32 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
               }}
             >
               Карта будет выпущена с нулевым балансом. Вы сможете пополнить её после выпуска.
+            </div>
+          </div>
+        )}
+
+        {/* Card Limit Warning */}
+        {selectedCard && limitReached && (
+          <div
+            style={{
+              backgroundColor: '#FEF2F2',
+              borderRadius: 12,
+              padding: '14px 16px',
+              border: '1px solid #FEE2E2',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'start', gap: 12 }}>
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" style={{ flexShrink: 0, marginTop: 2 }}>
+                <path d="M10 6V10M10 14H10.01M19 10C19 14.9706 14.9706 19 10 19C5.02944 19 1 14.9706 1 10C1 5.02944 5.02944 1 10 1C14.9706 1 19 5.02944 19 10Z" stroke="#DC2626" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#991B1B', marginBottom: 4, fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif' }}>
+                  Достигнут лимит карт
+                </div>
+                <div style={{ fontSize: 13, color: '#7F1D1D', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif' }}>
+                  У вас уже {currentCards} из {maxCards} карт данного типа. Удалите неиспользуемые карты перед выпуском новой.
+                </div>
+              </div>
             </div>
           </div>
         )}

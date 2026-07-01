@@ -748,6 +748,8 @@ class CardService:
             min_balance_raw = provider.get("minimumCardBalance") or 0
             mdm_types = provider.get("clientMDMDataTypes") or []
             issue_fee = float(settings.ONLINE_ISSUE_FEE_USD)
+            max_issued_count = int(provider.get("maxIssuedCount") or 999)
+            current_cards_count = len(provider.get("cardsList") or [])
             card_types = provider.get("cardTypesList") or []
             for ct in card_types:
                 type_uuid = ct.get("uuid") or ""
@@ -787,6 +789,8 @@ class CardService:
                     "monthly_fee": 0.0,
                     "ravana_server_id": ravana_server_id,
                     "type_uuid": type_uuid,
+                    "max_issued_count": max_issued_count,
+                    "current_count": current_cards_count,
                     "description": f"{name} | Fee: ${issue_fee:.2f} | Min balance: ${float(min_balance_raw):.2f} | MDM: {', '.join(map(str, mdm_types)) if mdm_types else 'none'}",
                 })
         return offers
@@ -1350,15 +1354,27 @@ class CardService:
                 raise ValueError(f"O-Plata provider {ravana_server_id} is unavailable for this client")
             provider_issue_fee_usdt = Decimal(str(provider.get("issueConstantFee") or 0))
             provider_balance_currency = str(provider.get("balanceCurrency") or provider.get("cardCurrency") or "USDT")
+            max_issued_count = int(provider.get("maxIssuedCount") or 999)
+            current_cards_count = len(provider.get("cardsList") or [])
+            
             logger.info(
-                "O-Plata provider requirements for %s on %s: clientMDMDataTypes=%s registered=%s issueConstantFee=%s balanceCurrency=%s",
+                "O-Plata provider requirements for %s on %s: clientMDMDataTypes=%s registered=%s issueConstantFee=%s balanceCurrency=%s maxIssuedCount=%s currentCount=%s",
                 client_id,
                 ravana_server_id,
                 provider.get("clientMDMDataTypes"),
                 provider.get("registered"),
                 provider_issue_fee_usdt,
                 provider_balance_currency,
+                max_issued_count,
+                current_cards_count,
             )
+            
+            # Check if user has reached the maximum number of cards for this provider
+            if current_cards_count >= max_issued_count:
+                raise ValueError(
+                    f"Достигнут лимит карт для данного провайдера ({current_cards_count}/{max_issued_count}). "
+                    f"Удалите неиспользуемые карты перед выпуском новой."
+                )
             selected_card_type = next(
                 (ct for ct in (provider.get("cardTypesList") or []) if str(ct.get("uuid") or "") == type_uuid),
                 None,
