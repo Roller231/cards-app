@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Integer, Numeric, String
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -20,6 +20,7 @@ class Order(Base):
     aifory_status_id = Column(Integer, nullable=True)
     aifory_type = Column(Integer, nullable=True)
     description = Column(String(500), nullable=True)
+    notified = Column(Boolean, default=False, nullable=False)  # Track if user was notified about completion
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

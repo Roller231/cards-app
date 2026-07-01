@@ -104,6 +104,12 @@ def check_and_update_schema(conn):
             logger.info("Adding column 'amount_usd_requested' to 'bb_invoices' table")
             conn.execute(text("ALTER TABLE bb_invoices ADD COLUMN amount_usd_requested DECIMAL(18,6) NULL;"))
 
+    if 'orders' in inspector.get_table_names():
+        ord_cols = [col['name'] for col in inspector.get_columns('orders')]
+        if 'notified' not in ord_cols:
+            logger.info("Adding column 'notified' to 'orders' table")
+            conn.execute(text("ALTER TABLE orders ADD COLUMN notified TINYINT(1) NOT NULL DEFAULT 0;"))
+
     return
 
 

@@ -663,7 +663,7 @@ class CardService:
                             ravana_server_id=linked_card.offer_id,
                             amount=Decimal(str(card_amount)),
                         )
-                    if _card_is_active(linked_card.status):
+                    if _card_is_active(linked_card.status) and not order.notified:
                         try:
                             await notify_card_issued(
                                 db=db, user=user,
@@ -672,6 +672,7 @@ class CardService:
                                 fee=fixed_fee,
                                 success=True,
                             )
+                            order.notified = True
                         except Exception as _n:
                             logger.debug("Card issue notification error: %s", _n)
 
@@ -1391,7 +1392,7 @@ class CardService:
         # 7b. No auto-topup needed - card is issued with zero balance
 
         # 8. Notify only when a concrete card record is already available locally
-        if order.card_id:
+        if order.card_id and not order.notified:
             linked_card = await self._resolve_card(db, user.id, str(order.card_id))
             if _card_is_active(linked_card.status):
                 try:
@@ -1402,6 +1403,7 @@ class CardService:
                         fee=float(user_payment - card_amount),
                         success=True,
                     )
+                    order.notified = True
                 except Exception as _n:
                     logger.debug("Card issue notification error: %s", _n)
 
