@@ -103,7 +103,23 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/config", summary="Get public app config (fixed issuance fees and topup percents)")
-async def get_config():
+async def get_config(db: AsyncSession = Depends(get_db)):
+    # Issuance prices in RUB: DB (admin panel) is the source of truth,
+    # settings (env) is the fallback — same order as /cards/issuance-price.
+    from app.models.admin_setting import AdminSetting
+    price_rub = settings.CARD_ISSUANCE_PRICE_RUB
+    price_pay_rub = settings.CARD_ISSUANCE_PRICE_PAY_RUB
+    try:
+        keys = ["CARD_ISSUANCE_PRICE_RUB", "CARD_ISSUANCE_PRICE_PAY_RUB"]
+        result = await db.execute(select(AdminSetting).where(AdminSetting.key.in_(keys)))
+        rows = {r.key: r.value for r in result.scalars().all()}
+        if rows.get("CARD_ISSUANCE_PRICE_RUB"):
+            price_rub = float(rows["CARD_ISSUANCE_PRICE_RUB"])
+        if rows.get("CARD_ISSUANCE_PRICE_PAY_RUB"):
+            price_pay_rub = float(rows["CARD_ISSUANCE_PRICE_PAY_RUB"])
+    except Exception:
+        pass
+
     return {
         "online_issue_fee_usd": settings.ONLINE_ISSUE_FEE_USD,
         "online_topup_markup_percent": settings.ONLINE_TOPUP_MARKUP_PERCENT,
@@ -114,6 +130,8 @@ async def get_config():
         "online_plus_card_validity_text": settings.ONLINE_PLUS_CARD_VALIDITY_TEXT,
         "online_operation_fee_usd": settings.ONLINE_OPERATION_FEE_USD,
         "online_plus_operation_fee_usd": settings.ONLINE_PLUS_OPERATION_FEE_USD,
+        "card_issuance_price_rub": price_rub,
+        "card_issuance_price_pay_rub": price_pay_rub,
     }
 
 

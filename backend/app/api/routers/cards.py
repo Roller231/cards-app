@@ -34,8 +34,8 @@ async def get_issuance_price(db: AsyncSession = Depends(get_db), _: User = Depen
     result = await db.execute(_select(AdminSetting).where(AdminSetting.key.in_(keys)))
     rows = {r.key: r.value for r in result.scalars().all()}
 
-    price_rub = float(rows.get("CARD_ISSUANCE_PRICE_RUB") or 999)
-    price_pay_rub = float(rows.get("CARD_ISSUANCE_PRICE_PAY_RUB") or 1999)
+    price_rub = float(rows.get("CARD_ISSUANCE_PRICE_RUB") or settings.CARD_ISSUANCE_PRICE_RUB)
+    price_pay_rub = float(rows.get("CARD_ISSUANCE_PRICE_PAY_RUB") or settings.CARD_ISSUANCE_PRICE_PAY_RUB)
 
     return {
         "price_rub": price_rub,

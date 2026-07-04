@@ -38,6 +38,7 @@ SETTINGS_KEYS: Dict[str, Dict[str, Any]] = {
     "CARD_ISSUANCE_PRICE_RUB": {"desc": "Цена выпуска карты Online (руб) — итоговая сумма к оплате через СБП", "type": float},
     "CARD_ISSUANCE_PRICE_PAY_RUB": {"desc": "Цена выпуска карты Online+Pay (руб) — итоговая сумма к оплате через СБП", "type": float},
     "ONLINE_TOPUP_MARKUP_PERCENT": {"desc": "Online card top-up markup (%)", "type": float},
+    "ONLINE_PLUS_TOPUP_MARKUP_PERCENT": {"desc": "Online+Pay card top-up markup (%)", "type": float},
     "ONLINE_CARD_VALIDITY_TEXT": {"desc": "Online card validity text", "type": str},
     "ONLINE_PLUS_CARD_VALIDITY_TEXT": {"desc": "Online+ card validity text", "type": str},
     "ONLINE_OPERATION_FEE_USD": {"desc": "Online card operation fee (USD)", "type": float},

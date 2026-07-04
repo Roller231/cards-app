@@ -122,6 +122,8 @@ export function AuthProvider({ children }) {
     online_plus_card_validity_text = '1 год',
     online_operation_fee_usd = 0.4,
     online_plus_operation_fee_usd = 0.4,
+    card_issuance_price_rub = 999,
+    card_issuance_price_pay_rub = 1999,
   } = appConfig || {}
 
   return (
@@ -141,6 +143,8 @@ export function AuthProvider({ children }) {
         online_plus_validity_text: online_plus_card_validity_text,
         online_operation_fee: online_operation_fee_usd,
         online_plus_operation_fee: online_plus_operation_fee_usd,
+        online_issue_price_rub: card_issuance_price_rub,
+        online_plus_issue_price_rub: card_issuance_price_pay_rub,
       },
       fetchMe,
     }}>

@@ -1993,20 +1993,13 @@ class CardService:
         elif topup_payment_state in {"CANCELED", "FAILED", "REFUNDED"}:
             order.status = "failed"
 
-        # Only notify on terminal states. Intermediate states like WITHDRAWAL_SENT /
-        # DEPOSIT_SENT mean the payment is still in progress, not a failure.
+        # Only notify on terminal FAILURE states. Successful top-ups are announced
+        # by the regular per-transaction notification from the transaction sync,
+        # so no dedicated "top-up completed" message is sent.
+        # Intermediate states like WITHDRAWAL_SENT / DEPOSIT_SENT mean the payment
+        # is still in progress, not a failure.
         if topup_payment_state == "COMPLETED":
-            try:
-                await notify_topup_result(
-                    db=db, user=user,
-                    card_last4=card.last4 or "",
-                    amount=float(amount),
-                    fee=float(our_profit),
-                    success=True,
-                )
-                order.notified = True
-            except Exception as _n:
-                logger.warning("Topup notification error: %s", _n)
+            order.notified = True
         elif topup_payment_state in {"CANCELED", "FAILED", "REFUNDED"}:
             try:
                 await notify_topup_result(
@@ -2309,14 +2302,18 @@ class CardService:
                 if order:
                     order.status = "completed" if success else "failed"
                     order.notified = True
-                await notify_topup_result(
-                    db=db, user=user,
-                    card_last4=card_last4,
-                    amount=amount,
-                    fee=fee,
-                    success=success,
-                    error_msg="" if success else final_state,
-                )
+                # Successful top-ups are announced by the regular per-transaction
+                # notification from the transaction sync — only failures get a
+                # dedicated message here.
+                if not success:
+                    await notify_topup_result(
+                        db=db, user=user,
+                        card_last4=card_last4,
+                        amount=amount,
+                        fee=fee,
+                        success=False,
+                        error_msg=final_state,
+                    )
                 await db.commit()
                 logger.info(
                     "Topup follow-up finished: user_id=%s uuid=%s state=%s",

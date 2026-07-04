@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     ONLINE_TOPUP_MARKUP_PERCENT: float = 3.8
     ONLINE_PLUS_ISSUE_FEE_USD: float = 0.0  # Fixed fee for Online + Pay card issuance
     ONLINE_PLUS_TOPUP_MARKUP_PERCENT: float = 4.0
+    # SBP prices users actually pay for issuance (admin panel / DB overrides these)
+    CARD_ISSUANCE_PRICE_RUB: float = 999.0
+    CARD_ISSUANCE_PRICE_PAY_RUB: float = 1999.0
     ISSUE_APPLY_TOPUP_MARKUP: bool = False
     ONLINE_CARD_VALIDITY_TEXT: str = "1 год"
     ONLINE_PLUS_CARD_VALIDITY_TEXT: str = "1 год"
