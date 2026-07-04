@@ -12,7 +12,7 @@ const PULL_THRESHOLD = 120
 const PULL_MAX = 180
 const PULL_DEAD_ZONE = 30
 
-function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNavigateToIssueCard, onCardClick, onNavigateToHistory, commissions = {}, cardsLoading = false, transactionsLoading = false, onRefresh }) {
+function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNavigateToIssueCard, onCardClick, onNavigateToHistory, commissions = {}, cardsLoading = false, transactionsLoading = false, onRefresh, issueLimitReached = false }) {
   const [expandedCard, setExpandedCard] = useState(null)
   const scrollRef = useDragScroll()
   const font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif'
@@ -182,12 +182,20 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
               Мои карты
             </h2>
 
-            <Button variant="link" onClick={() => onNavigateToIssueCard()}>
+            <Button
+              variant="link"
+              disabled={issueLimitReached}
+              onClick={() => {
+                if (issueLimitReached) return
+                onNavigateToIssueCard()
+              }}
+              style={issueLimitReached ? { color: '#9CA3AF', cursor: 'not-allowed' } : undefined}
+            >
               <span className="relative mr-2 inline-block h-3 w-3">
                 <span className="absolute left-1/2 top-1/2 h-[2.5px] w-full -translate-x-1/2 -translate-y-1/2 rounded-full bg-current" />
                 <span className="absolute left-1/2 top-1/2 h-full w-[2.5px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-current" />
               </span>
-              <span>Оформить карту</span>
+              <span>{issueLimitReached ? 'Лимит карт' : 'Оформить карту'}</span>
             </Button>
           </div>
 
@@ -470,11 +478,16 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
               </div>
 
 <Button
-  onClick={() => onNavigateToIssueCard('online')}
+  onClick={() => {
+    if (issueLimitReached) return
+    onNavigateToIssueCard('online')
+  }}
   variant="secondary"
+  disabled={issueLimitReached}
   fullWidth
+  style={issueLimitReached ? { backgroundColor: '#D1D5DB', cursor: 'not-allowed' } : undefined}
 >
-  Оформить
+  {issueLimitReached ? 'Достигнут лимит карт' : 'Оформить'}
 </Button>
             </div>
           </div>
@@ -641,11 +654,16 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
               </div>
 
 <Button
-  onClick={() => onNavigateToIssueCard('online-plus')}
+  onClick={() => {
+    if (issueLimitReached) return
+    onNavigateToIssueCard('online-plus')
+  }}
   variant="secondary"
+  disabled={issueLimitReached}
   fullWidth
+  style={issueLimitReached ? { backgroundColor: '#D1D5DB', cursor: 'not-allowed' } : undefined}
 >
-  Оформить
+  {issueLimitReached ? 'Достигнут лимит карт' : 'Оформить'}
 </Button>
             </div>
         </div>
@@ -696,11 +714,15 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
                 </div>
               </div>
               <Button
-                onClick={() => onNavigateToIssueCard()}
+                onClick={() => {
+                  if (issueLimitReached) return
+                  onNavigateToIssueCard()
+                }}
+                disabled={issueLimitReached}
                 fullWidth
                 style={{ borderRadius: 12, padding: '16px' }}
               >
-                + Выпустить карту
+                {issueLimitReached ? 'Достигнут лимит карт' : '+ Выпустить карту'}
               </Button>
             </>
           ) : (

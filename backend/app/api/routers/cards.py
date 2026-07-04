@@ -45,9 +45,11 @@ async def get_issuance_price(db: AsyncSession = Depends(get_db), _: User = Depen
 
 
 @router.get("/offers", response_model=List[CardOfferItem], summary="List available virtual card types from O-Plata")
-async def list_offers(_: User = Depends(get_current_user)):
+async def list_offers(current_user: User = Depends(get_current_user)):
     try:
-        return await card_service.get_offers()
+        # current_count in each offer reflects THIS user's issued cards,
+        # so the frontend can disable issuing when maxIssuedCount is reached
+        return await card_service.get_offers(user=current_user)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 

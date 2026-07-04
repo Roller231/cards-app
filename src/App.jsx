@@ -64,6 +64,7 @@ function AppInner() {
   const [cardTypeToIssue, setCardTypeToIssue] = useState(null)
   const [selectedCard, setSelectedCard] = useState(null)
   const [userCards, setUserCards] = useState([])
+  const [offers, setOffers] = useState([])
   const [transactions, setTransactions] = useState([])
   const [cardsLoading, setCardsLoading] = useState(false)
   const [transactionsLoading, setTransactionsLoading] = useState(false)
@@ -105,6 +106,17 @@ function AppInner() {
     }
   }, [])
 
+  // Load card offers — carries per-user max_issued_count / current_count
+  // so issue buttons can be disabled when the O-Plata limit is reached
+  const refreshOffers = useCallback(async () => {
+    try {
+      const data = await api.cards.offers()
+      setOffers(Array.isArray(data) ? data : [])
+    } catch {
+      setOffers([])
+    }
+  }, [])
+
   // Load transactions for all cards (first 10 each) for history page
   const refreshTransactions = useCallback(
     async (cards) => {
@@ -139,6 +151,7 @@ function AppInner() {
         const [ordersRes, cards] = await Promise.all([
           api.orders.list().catch(() => []),
           refreshCards(),
+          refreshOffers(),
         ])
         if (canceled) return
         const orders = Array.isArray(ordersRes) ? ordersRes : []
@@ -155,15 +168,16 @@ function AppInner() {
       setDataReady(true)
     })()
     return () => { canceled = true }
-  }, [user, refreshCards, refreshTransactions, currentPage])
+  }, [user, refreshCards, refreshOffers, refreshTransactions, currentPage])
 
-  // After card issued: reload cards list
+  // After card issued: reload cards list and offer limits
   const handleCardIssued = useCallback(async () => {
     setCardTypeToIssue(null)
     setCurrentPage('home')
     const cards = await refreshCards()
+    refreshOffers()
     if (cards.length > 0) refreshTransactions(cards)
-  }, [refreshCards, refreshTransactions])
+  }, [refreshCards, refreshOffers, refreshTransactions])
 
   // After deposit: reload cards to update balance
   const handleDeposited = useCallback(async () => {
@@ -224,6 +238,11 @@ function AppInner() {
   }
 
 
+  // All issuable offers at their O-Plata maxIssuedCount → block issuing everywhere
+  const issueLimitReached =
+    offers.length > 0 &&
+    offers.every((o) => Number(o.current_count ?? 0) >= Number(o.max_issued_count ?? 999))
+
   // Banned screen
   if (banned) {
     return (
@@ -275,8 +294,10 @@ function AppInner() {
           commissions={commissions}
           cardsLoading={cardsLoading}
           transactionsLoading={transactionsLoading}
+          issueLimitReached={issueLimitReached}
           onRefresh={async () => {
             const cards = await refreshCards()
+            refreshOffers()
             if (cards.length > 0) await refreshTransactions(cards)
           }}
           onNavigateToFAQ={() => setCurrentPage('faq')}
