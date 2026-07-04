@@ -28,6 +28,7 @@ from app.core.database import get_db, AsyncSessionLocal
 from app.integrations.bitbanker_client import bitbanker_client, verify_webhook_signature
 from app.models.bb_invoice import BbInvoice
 from app.models.user import User
+from app.services.telegram_bot_service import notify_sbp_payment
 
 logger = logging.getLogger(__name__)
 
@@ -264,9 +265,23 @@ async def get_invoice_status(
             sbp_info = live.get("sbp_info") or {}
             live_status = sbp_info.get("status") or live.get("status") or invoice.status
             if live_status != invoice.status:
+                old_status = invoice.status
                 invoice.status = live_status
                 invoice.raw_response = json.dumps(live, ensure_ascii=False)[:4000]
                 await db.commit()
+                # Failure statuses may never arrive via webhook (e.g. expired) —
+                # notify the user here on the first transition detected by polling.
+                if live_status in ("declined", "failed", "cancelled", "expired") and old_status != live_status:
+                    try:
+                        await notify_sbp_payment(
+                            db, current_user,
+                            amount_rub=float(invoice.amount_rub),
+                            purpose=invoice.purpose,
+                            success=False,
+                            status=live_status,
+                        )
+                    except Exception as _n:
+                        logger.warning("[SBP] Poll failure notification error for invoice_id=%s: %s", invoice.id, _n)
         except Exception as exc:
             logger.warning("[SBP] Poll invoice %s error: %s", invoice.bb_invoice_id, exc)
 
@@ -307,6 +322,7 @@ async def bitbanker_webhook(request: Request):
     import asyncio as _asyncio
     local_invoice_id: Optional[int] = None
     is_captured = status in ("captured", "authorized")
+    failed_statuses = ("declined", "failed", "cancelled", "expired")
 
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(BbInvoice).where(BbInvoice.bb_invoice_id == bb_invoice_id))
@@ -320,7 +336,26 @@ async def bitbanker_webhook(request: Request):
         invoice.status = status
         invoice.raw_response = json.dumps(payload, ensure_ascii=False)[:4000]
         local_invoice_id = invoice.id
+        purpose = invoice.purpose
+        amount_rub = float(invoice.amount_rub)
+        user_result = await db.execute(select(User).where(User.id == invoice.user_id))
+        user = user_result.scalar_one_or_none()
         await db.commit()
+
+        # Notify user about the payment outcome (only on the first transition,
+        # so repeated webhooks with the same status don't spam).
+        try:
+            if user:
+                if is_captured and not already_processed:
+                    await notify_sbp_payment(
+                        db, user, amount_rub=amount_rub, purpose=purpose, success=True,
+                    )
+                elif status in failed_statuses and old_status != status:
+                    await notify_sbp_payment(
+                        db, user, amount_rub=amount_rub, purpose=purpose, success=False, status=status,
+                    )
+        except Exception as _n:
+            logger.warning("[SBP] Payment notification failed for invoice_id=%s: %s", local_invoice_id, _n)
 
     # Trigger post-payment in background ONLY on first captured transition
     if is_captured and not already_processed:

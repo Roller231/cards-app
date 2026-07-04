@@ -38,6 +38,8 @@ class CardOfferItem(BaseModel):
     monthly_fee: Optional[float] = None
     ravana_server_id: Optional[str] = None
     type_uuid: Optional[str] = None
+    max_issued_count: Optional[int] = None
+    current_count: Optional[int] = None
     description: Optional[str] = None
 
 

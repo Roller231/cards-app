@@ -5,8 +5,10 @@ Telegram Bot service.
   - poll_once() is called in a background loop from main.py
 """
 import asyncio
+import html as _html
 import json
 import logging
+import re
 import uuid
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -128,31 +130,54 @@ async def send_welcome(chat_id: int, db: AsyncSession) -> None:
 
     markup = _build_markup(buttons)
 
-    if WELCOME_IMAGE_PATH.exists():
-        base_data: dict = {"chat_id": str(chat_id), "caption": text, "parse_mode": parse_mode}
-        if markup:
-            base_data["reply_markup"] = json.dumps(markup)
-
-        if cached_fid:
-            # Reuse previously uploaded file_id — no re-upload needed
-            payload: dict = {"chat_id": chat_id, "photo": cached_fid, "caption": text, "parse_mode": parse_mode}
+    async def _send(body_text: str, mode: Optional[str]) -> dict:
+        nonlocal cached_fid
+        if WELCOME_IMAGE_PATH.exists():
+            if cached_fid:
+                payload: dict = {"chat_id": chat_id, "photo": cached_fid, "caption": body_text}
+                if mode:
+                    payload["parse_mode"] = mode
+                if markup:
+                    payload["reply_markup"] = markup
+                r = await _tg_post("sendPhoto", payload)
+                if r.get("ok"):
+                    return r
+                # Cached file_id may belong to a previous bot token — drop it and re-upload
+                logger.warning("Welcome photo via cached file_id failed (%s) — re-uploading",
+                               r.get("description"))
+                cached_fid = ""
+            base_data: dict = {"chat_id": str(chat_id), "caption": body_text}
+            if mode:
+                base_data["parse_mode"] = mode
             if markup:
-                payload["reply_markup"] = markup
-            r = await _tg_post("sendPhoto", payload)
-        else:
+                base_data["reply_markup"] = json.dumps(markup)
             file_bytes = WELCOME_IMAGE_PATH.read_bytes()
             r = await _tg_post_file("sendPhoto", base_data, file_bytes, WELCOME_IMAGE_PATH.name)
-            # Cache file_id for future sends
             if r.get("ok"):
                 photos = r.get("result", {}).get("photo", [])
                 if photos:
-                    await _save_setting(db, "BOT_WELCOME_FILE_ID", photos[-1]["file_id"],
+                    cached_fid = photos[-1]["file_id"]
+                    await _save_setting(db, "BOT_WELCOME_FILE_ID", cached_fid,
                                         "Telegram file_id (кеш, не менять вручную)")
-    else:
-        payload = {"chat_id": chat_id, "text": text, "parse_mode": parse_mode}
+            return r
+        payload = {"chat_id": chat_id, "text": body_text}
+        if mode:
+            payload["parse_mode"] = mode
         if markup:
             payload["reply_markup"] = markup
-        await _tg_post("sendMessage", payload)
+        return await _tg_post("sendMessage", payload)
+
+    r = await _send(text, parse_mode)
+    if not r.get("ok"):
+        desc = str(r.get("description") or "")
+        logger.warning("send_welcome failed for chat %s: %s", chat_id, desc)
+        # Invalid HTML in the admin-configured text — retry as plain text
+        if "parse" in desc.lower():
+            plain = re.sub(r"<[^>]+>", "", text)
+            r2 = await _send(plain, None)
+            if not r2.get("ok"):
+                logger.warning("send_welcome plain-text retry failed for chat %s: %s",
+                               chat_id, r2.get("description"))
 
 
 # ─── broadcast ─────────────────────────────────────────────────────────────
@@ -174,34 +199,56 @@ async def broadcast_message(
     image_bytes = image_path.read_bytes() if (image_path and image_path.exists()) else None
     cached_fid: Optional[str] = None
     sent = failed = 0
+    # If the admin's HTML is invalid, Telegram rejects EVERY send with
+    # "can't parse entities" — after the first such error we fall back to
+    # tag-stripped plain text for the rest of the broadcast.
+    use_plain = False
+    plain_text = re.sub(r"<[^>]+>", "", text)
+
+    async def _send_one(chat_id: str, body_text: str, mode: Optional[str]) -> dict:
+        nonlocal cached_fid
+        if image_bytes:
+            if cached_fid:
+                payload = {"chat_id": chat_id, "photo": cached_fid, "caption": body_text}
+                if mode:
+                    payload["parse_mode"] = mode
+                if markup:
+                    payload["reply_markup"] = markup
+                return await _tg_post("sendPhoto", payload)
+            data = {"chat_id": str(chat_id), "caption": body_text}
+            if mode:
+                data["parse_mode"] = mode
+            if markup:
+                data["reply_markup"] = json.dumps(markup)
+            fn = image_path.name if image_path else "image.jpg"
+            r = await _tg_post_file("sendPhoto", data, image_bytes, fn)
+            if r.get("ok"):
+                photos = r.get("result", {}).get("photo", [])
+                if photos:
+                    cached_fid = photos[-1]["file_id"]
+            return r
+        payload = {"chat_id": chat_id, "text": body_text}
+        if mode:
+            payload["parse_mode"] = mode
+        if markup:
+            payload["reply_markup"] = markup
+        return await _tg_post("sendMessage", payload)
 
     for user in users:
         if not user.telegram_user_id:
             continue
         try:
-            if image_bytes:
-                data = {"chat_id": str(user.telegram_user_id), "caption": text, "parse_mode": parse_mode}
-                if markup:
-                    data["reply_markup"] = json.dumps(markup)
-
-                if cached_fid:
-                    payload = {"chat_id": user.telegram_user_id, "photo": cached_fid,
-                               "caption": text, "parse_mode": parse_mode}
-                    if markup:
-                        payload["reply_markup"] = markup
-                    r = await _tg_post("sendPhoto", payload)
-                else:
-                    fn = image_path.name if image_path else "image.jpg"
-                    r = await _tg_post_file("sendPhoto", data, image_bytes, fn)
-                    if r.get("ok"):
-                        photos = r.get("result", {}).get("photo", [])
-                        if photos:
-                            cached_fid = photos[-1]["file_id"]
-            else:
-                payload = {"chat_id": user.telegram_user_id, "text": text, "parse_mode": parse_mode}
-                if markup:
-                    payload["reply_markup"] = markup
-                r = await _tg_post("sendMessage", payload)
+            r = await _send_one(
+                user.telegram_user_id,
+                plain_text if use_plain else text,
+                None if use_plain else parse_mode,
+            )
+            desc = str(r.get("description") or "")
+            if not r.get("ok") and not use_plain and "parse" in desc.lower():
+                logger.warning("Broadcast text has invalid %s markup (%s) — falling back to plain text",
+                               parse_mode, desc)
+                use_plain = True
+                r = await _send_one(user.telegram_user_id, plain_text, None)
 
             if r.get("ok"):
                 sent += 1
@@ -219,16 +266,30 @@ async def broadcast_message(
 
 # ─── direct user notifications ─────────────────────────────────────────────
 
-async def send_notification(telegram_user_id: str, text: str, parse_mode: str = "HTML") -> None:
-    """Send a plain Telegram message directly to one user."""
+async def send_notification(telegram_user_id: str, text: str, parse_mode: str = "HTML") -> bool:
+    """Send a plain Telegram message directly to one user. Returns True if delivered."""
     try:
-        await _tg_post("sendMessage", {
+        r = await _tg_post("sendMessage", {
             "chat_id": telegram_user_id,
             "text": text,
             "parse_mode": parse_mode,
         })
+        if r.get("ok"):
+            return True
+        desc = str(r.get("description") or "")
+        logger.warning("send_notification rejected by Telegram for %s: %s", telegram_user_id, desc)
+        # HTML parse error — retry as plain text so the user still gets the message
+        if "parse" in desc.lower():
+            plain = re.sub(r"<[^>]+>", "", text)
+            r2 = await _tg_post("sendMessage", {"chat_id": telegram_user_id, "text": plain})
+            if r2.get("ok"):
+                return True
+            logger.warning("send_notification plain-text retry failed for %s: %s",
+                           telegram_user_id, r2.get("description"))
+        return False
     except Exception as exc:
         logger.error("send_notification failed for %s: %s", telegram_user_id, exc)
+        return False
 
 
 async def notify_card_issued(
@@ -260,7 +321,7 @@ async def notify_card_issued(
         text = (
             f"<b>{header}</b>\n\n"
             f"💵 Сумма: <b>${card_amount:.2f}</b>\n"
-            f"⚠️ {error_msg or 'Неизвестная ошибка'}\n"
+            f"⚠️ {_html.escape(error_msg or 'Неизвестная ошибка')}\n"
             f"🕐 {now}"
         )
     await send_notification(user.telegram_user_id, text)
@@ -297,7 +358,7 @@ async def notify_topup_result(
             f"<b>{header}</b>\n"
             f"{last4_str}\n"
             f"💵 Сумма: <b>${amount:.2f}</b>\n"
-            f"⚠️ {error_msg or 'Неизвестная ошибка'}\n"
+            f"⚠️ {_html.escape(error_msg or 'Неизвестная ошибка')}\n"
             f"🕐 {now}"
         )
     await send_notification(user.telegram_user_id, text)
@@ -320,9 +381,9 @@ async def notify_card_transaction(
     now = datetime.now(timezone.utc).strftime("%d.%m.%Y %H:%M UTC")
     header = await _get_setting(db, "BOT_NOTIFY_TRANSACTION_HEADER", "🔔 Новая транзакция по карте")
     last4_str = f"\n💳 Карта: <b>•••• {card_last4}</b>" if card_last4 else ""
-    merchant_str = f"\n🏬 Продавец: <b>{merchant}</b>" if merchant else ""
-    status_str = f"\n📊 Статус: <b>{status}</b>" if status else ""
-    date_str = f"\n📅 Дата: <b>{date}</b>" if date else ""
+    merchant_str = f"\n🏬 Продавец: <b>{_html.escape(merchant)}</b>" if merchant else ""
+    status_str = f"\n📊 Статус: <b>{_html.escape(status)}</b>" if status else ""
+    date_str = f"\n📅 Дата: <b>{_html.escape(date)}</b>" if date else ""
     text = (
         f"<b>{header}</b>\n"
         f"{last4_str}\n"
@@ -332,6 +393,46 @@ async def notify_card_transaction(
         f"{date_str}"
         f"\n🕐 {now}"
     )
+    await send_notification(user.telegram_user_id, text)
+
+
+async def notify_sbp_payment(
+    db: AsyncSession,
+    user: User,
+    amount_rub: float,
+    purpose: str,
+    success: bool,
+    status: str = "",
+) -> None:
+    """Notify user via Telegram about SBP payment result.
+
+    success=True  → payment received, card will be issued/topped up within ~5 min.
+    success=False → payment failed/declined/expired.
+    purpose: 'card_issue' | 'balance_topup'
+    """
+    if not user.telegram_user_id:
+        return
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).strftime("%d.%m.%Y %H:%M UTC")
+    action = "карта будет выпущена" if purpose == "card_issue" else "карта будет пополнена"
+    if success:
+        header = await _get_setting(db, "BOT_NOTIFY_SBP_RECEIVED_HEADER", "✅ Платёж получен")
+        text = (
+            f"<b>{header}</b>\n\n"
+            f"💵 Сумма: <b>{amount_rub:.0f} ₽</b>\n"
+            f"⏳ Всё обрабатывается — в течение 5 минут {action}.\n"
+            f"🕐 {now}"
+        )
+    else:
+        header = await _get_setting(db, "BOT_NOTIFY_SBP_FAILED_HEADER", "❌ Платёж не прошёл")
+        status_str = f"\n⚠️ Статус: <b>{_html.escape(status)}</b>" if status else ""
+        text = (
+            f"<b>{header}</b>\n\n"
+            f"💵 Сумма: <b>{amount_rub:.0f} ₽</b>"
+            f"{status_str}\n"
+            f"Деньги не зачислены. Попробуйте ещё раз или обратитесь в поддержку.\n"
+            f"🕐 {now}"
+        )
     await send_notification(user.telegram_user_id, text)
 
 

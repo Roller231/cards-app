@@ -1,9 +1,11 @@
 import asyncio
 import logging
 import sys
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api.routers import auth, admin, cards, faq, orders, balance, sbp, kyc
 from app.core.config import settings
@@ -38,6 +40,65 @@ app.include_router(orders.router)
 app.include_router(balance.router)
 app.include_router(sbp.router)
 app.include_router(kyc.router)
+
+
+# Static uploads (bot welcome image, broadcast images)
+_UPLOADS_DIR = Path(__file__).parent.parent / "static" / "uploads"
+_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(_UPLOADS_DIR)), name="uploads")
+
+
+async def _bot_poll_loop() -> None:
+    """Long-poll Telegram getUpdates so the bot handles /start."""
+    from app.services.telegram_bot_service import poll_once
+    while True:
+        try:
+            await poll_once()
+        except Exception as exc:
+            logger.error("Bot poll loop error: %s", exc)
+            await asyncio.sleep(5)
+
+
+async def _gmail_poll_loop() -> None:
+    """Poll Gmail for Apple Pay verification code emails."""
+    from app.services.gmail_service import check_gmail_once
+    while True:
+        try:
+            await check_gmail_once()
+        except Exception as exc:
+            logger.error("Gmail poll loop error: %s", exc)
+        await asyncio.sleep(10)
+
+
+async def _load_admin_settings() -> None:
+    """Load admin setting overrides from DB into the in-memory settings object."""
+    from sqlalchemy import select as sa_select
+    from app.core.database import AsyncSessionLocal
+    from app.models.admin_setting import AdminSetting
+    try:
+        async with AsyncSessionLocal() as db:
+            default_settings = {
+                "CARD_ISSUANCE_PRICE_USD": ("10.0", "Card issuance price (USD) - user pays this fixed amount, card issued with zero balance"),
+            }
+            for key, (value, description) in default_settings.items():
+                result = await db.execute(sa_select(AdminSetting).where(AdminSetting.key == key))
+                if not result.scalar_one_or_none():
+                    db.add(AdminSetting(key=key, value=value, description=description))
+                    logger.info("Created default admin setting: %s = %s", key, value)
+            await db.commit()
+
+            result = await db.execute(sa_select(AdminSetting))
+            for s in result.scalars().all():
+                key_upper = s.key.upper()
+                if hasattr(settings, key_upper):
+                    cur = getattr(settings, key_upper)
+                    try:
+                        setattr(settings, key_upper, type(cur)(s.value))
+                        logger.info("Admin setting loaded: %s = %s", key_upper, s.value)
+                    except (ValueError, TypeError):
+                        pass
+    except Exception as exc:
+        logger.warning("Could not load admin settings: %s", exc)
 
 
 # Function to check and update database schema
@@ -123,9 +184,14 @@ async def startup_db_client():
         await conn.run_sync(Base.metadata.create_all)
         # Check and update schema for existing tables
         await conn.run_sync(check_and_update_schema)
+    # Apply admin setting overrides from DB (prices, rates, headers)
+    await _load_admin_settings()
     # Start persistent auto-topup worker (drains pending_auto_topups across restarts)
     from app.services.card_service import card_service as _cs
     asyncio.create_task(_cs.run_pending_auto_topups_worker())
+    # Telegram bot long-polling (/start handler) and Gmail Apple Pay code polling
+    asyncio.create_task(_bot_poll_loop())
+    asyncio.create_task(_gmail_poll_loop())
     logger.info("Database tables created (if not existed) and schema updated")
 
 

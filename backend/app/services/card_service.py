@@ -641,7 +641,7 @@ class CardService:
                             error_msg=issue_state or "Card issuance failed",
                         )
                     except Exception as _n:
-                        logger.debug("Card issue failure notification error: %s", _n)
+                        logger.warning("Card issue failure notification error: %s", _n)
                     
                     # If payment was REFUNDED, O-Plata returned provider fee to user's wallet.
                     # Transfer it back to parent to maintain balance consistency.
@@ -686,12 +686,10 @@ class CardService:
                             ravana_server_id=linked_card.offer_id,
                             amount=Decimal(str(card_amount)),
                         )
-                    # Only notify if card is active AND was created for this order (not an old card reassigned by sync)
-                    if (
-                        _card_is_active(linked_card.status)
-                        and not order.notified
-                        and linked_card.created_at >= order.created_at
-                    ):
+                    # Only notify once per order and only when the card is active.
+                    # NOTE: Card model has no created_at column — comparing it here
+                    # raised AttributeError and silently killed success notifications.
+                    if _card_is_active(linked_card.status) and not order.notified:
                         try:
                             await notify_card_issued(
                                 db=db, user=user,
@@ -702,7 +700,7 @@ class CardService:
                             )
                             order.notified = True
                         except Exception as _n:
-                            logger.debug("Card issue notification error: %s", _n)
+                            logger.warning("Card issue notification error: %s", _n)
 
                 await db.commit()
             except Exception as exc:
@@ -717,7 +715,7 @@ class CardService:
                             error_msg=str(exc),
                         )
                     except Exception as _n:
-                        logger.debug("Card issue exception notification error: %s", _n)
+                        logger.warning("Card issue exception notification error: %s", _n)
                 logger.error(
                     "Async issue follow-up failed for user_id=%s order_id=%s payment_uuid=%s: %s",
                     user_id,
@@ -731,14 +729,33 @@ class CardService:
     # Offers (card types from O-Plata)
     # ------------------------------------------------------------------
 
-    async def get_offers(self) -> List[Dict[str, Any]]:
-        """Return available virtual card types from O-Plata."""
+    async def get_offers(self, user: Optional[User] = None) -> List[Dict[str, Any]]:
+        """Return available virtual card types from O-Plata.
+
+        When `user` is given, current_count reflects THAT user's issued cards
+        per provider (same source issue_card uses to enforce maxIssuedCount).
+        """
         test_client = settings.OPLATA_TEST_CLIENT_ID or "Developer"
         try:
             providers = await oplata_client.get_virtual_card_list(test_client)
         except Exception as exc:
             logger.warning("Could not fetch O-Plata card types: %s: %s", exc.__class__.__name__, exc)
             return []
+
+        # Per-user issued card counts by provider. Unregistered client / fetch
+        # error → empty map → counts default to 0 (issue_card still enforces
+        # the real limit at issue time).
+        user_counts: Dict[str, int] = {}
+        if user is not None:
+            try:
+                user_providers = await oplata_client.get_virtual_card_list(_client_id(user))
+                for p in user_providers:
+                    rid = str(p.get("ravanaServerId") or p.get("ravanaId") or "")
+                    if rid:
+                        user_counts[rid] = len(p.get("cardsList") or [])
+            except Exception as exc:
+                logger.info("get_offers: could not fetch card list for user_id=%s (%s) — counts default to 0",
+                            user.id, exc)
 
         offers = []
         for provider in providers:
@@ -749,7 +766,10 @@ class CardService:
             mdm_types = provider.get("clientMDMDataTypes") or []
             issue_fee = float(settings.ONLINE_ISSUE_FEE_USD)
             max_issued_count = int(provider.get("maxIssuedCount") or 999)
-            current_cards_count = len(provider.get("cardsList") or [])
+            if user is not None:
+                current_cards_count = user_counts.get(str(ravana_server_id), 0)
+            else:
+                current_cards_count = len(provider.get("cardsList") or [])
             card_types = provider.get("cardTypesList") or []
             for ct in card_types:
                 type_uuid = ct.get("uuid") or ""
@@ -1575,8 +1595,9 @@ class CardService:
         # 8. Notify only when a concrete card record is already available locally
         if order.card_id and not order.notified:
             linked_card = await self._resolve_card(db, user.id, str(order.card_id))
-            # Only notify if card is active AND was created for this order (not an old card)
-            if _card_is_active(linked_card.status) and linked_card.created_at >= order.created_at:
+            # Only notify once per order and only when the card is active.
+            # NOTE: Card model has no created_at column — do not compare it here.
+            if _card_is_active(linked_card.status):
                 try:
                     await notify_card_issued(
                         db=db, user=user,
@@ -1587,7 +1608,7 @@ class CardService:
                     )
                     order.notified = True
                 except Exception as _n:
-                    logger.debug("Card issue notification error: %s", _n)
+                    logger.warning("Card issue notification error: %s", _n)
 
         if settings.DETAILED_DEV_LOGS:
             logger.info(
@@ -1983,8 +2004,9 @@ class CardService:
                     fee=float(our_profit),
                     success=True,
                 )
+                order.notified = True
             except Exception as _n:
-                logger.debug("Topup notification error: %s", _n)
+                logger.warning("Topup notification error: %s", _n)
         elif topup_payment_state in {"CANCELED", "FAILED", "REFUNDED"}:
             try:
                 await notify_topup_result(
@@ -1995,8 +2017,9 @@ class CardService:
                     success=False,
                     error_msg=topup_payment_state or "Top-up failed",
                 )
+                order.notified = True
             except Exception as _n:
-                logger.debug("Topup notification error: %s", _n)
+                logger.warning("Topup notification error: %s", _n)
             
             # If payment was REFUNDED, O-Plata returned funds to user's wallet.
             # Transfer them back to parent to maintain balance consistency.
@@ -2017,9 +2040,25 @@ class CardService:
                         user.id, refund_exc,
                     )
         else:
+            # Payment did not reach a terminal state within _follow_payment's short
+            # window (~20s). Keep watching it in the background so the user still
+            # gets a success/failure notification when it settles.
             logger.info(
-                "Topup still in progress (state=%s) for user_id=%s card=%s uuid=%s: notification deferred",
+                "Topup still in progress (state=%s) for user_id=%s card=%s uuid=%s: scheduling follow-up",
                 topup_payment_state, user.id, card.aifory_card_id, payment_uuid,
+            )
+            asyncio.create_task(
+                self._finalize_topup_follow_up(
+                    user_id=user.id,
+                    order_id=order.id,
+                    client_id=client_id,
+                    payment_uuid=payment_uuid,
+                    card_last4=card.last4 or "",
+                    amount=float(amount),
+                    fee=float(our_profit),
+                    refund_amount=base_amount,
+                    refund_currency=topup_currency,
+                )
             )
 
         return {"local_order_id": order.id, "partner_order_id": payment_uuid}
@@ -2124,7 +2163,7 @@ class CardService:
                             error_msg=str(exc),
                         )
                 except Exception as _n:
-                    logger.debug("Background issue failure notification error: %s", _n)
+                    logger.warning("Background issue failure notification error: %s", _n)
 
     async def _run_sync_in_background(self, user_id: int) -> None:
         if user_id in self._sync_running:
@@ -2221,7 +2260,93 @@ class CardService:
                             error_msg=str(exc),
                         )
                 except Exception as _n:
-                    logger.debug("Background deposit failure notification error: %s", _n)
+                    logger.warning("Background deposit failure notification error: %s", _n)
+
+    async def _finalize_topup_follow_up(
+        self,
+        user_id: int,
+        order_id: int,
+        client_id: str,
+        payment_uuid: str,
+        card_last4: str,
+        amount: float,
+        fee: float,
+        refund_amount: Decimal,
+        refund_currency: str,
+    ) -> None:
+        """Watch a topup payment that was still in progress when deposit_card
+        returned; update the order and notify the user once it reaches a
+        terminal state. Polls up to ~15 minutes."""
+        final_state = ""
+        for _attempt in range(60):
+            await asyncio.sleep(15)
+            try:
+                payment = await oplata_client.get_transaction_payment(client_id, payment_uuid)
+                state = str(payment.get("state") or "").upper()
+            except Exception as exc:
+                logger.warning("Topup follow-up poll failed for uuid=%s: %s", payment_uuid, exc)
+                continue
+            if state in {"COMPLETED", "CANCELED", "FAILED", "REFUNDED"}:
+                final_state = state
+                break
+
+        if not final_state:
+            logger.warning(
+                "Topup follow-up gave up waiting for terminal state: user_id=%s uuid=%s",
+                user_id, payment_uuid,
+            )
+            return
+
+        async with AsyncSessionLocal() as db:
+            try:
+                order_res = await db.execute(select(Order).where(Order.id == order_id))
+                order = order_res.scalar_one_or_none()
+                user_res = await db.execute(select(User).where(User.id == user_id))
+                user = user_res.scalar_one_or_none()
+                if not user or (order and order.notified):
+                    return
+                success = final_state == "COMPLETED"
+                if order:
+                    order.status = "completed" if success else "failed"
+                    order.notified = True
+                await notify_topup_result(
+                    db=db, user=user,
+                    card_last4=card_last4,
+                    amount=amount,
+                    fee=fee,
+                    success=success,
+                    error_msg="" if success else final_state,
+                )
+                await db.commit()
+                logger.info(
+                    "Topup follow-up finished: user_id=%s uuid=%s state=%s",
+                    user_id, payment_uuid, final_state,
+                )
+            except Exception as exc:
+                logger.warning("Topup follow-up finalize failed for order_id=%s: %s", order_id, exc)
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+
+        # If O-Plata refunded the payment, funds returned to the user's wallet —
+        # transfer them back to parent, same as the immediate REFUNDED path.
+        if final_state == "REFUNDED":
+            try:
+                logger.info(
+                    "Topup payment REFUNDED (follow-up) for user_id=%s uuid=%s — returning %s %s to parent",
+                    user_id, payment_uuid, refund_amount, refund_currency,
+                )
+                await self._refund_to_parent_wallet(
+                    user_client_id=client_id,
+                    currency_code=refund_currency,
+                    amount=refund_amount,
+                )
+            except Exception as refund_exc:
+                logger.error(
+                    "Failed to refund to parent after REFUNDED topup (follow-up) for user_id=%s: %s",
+                    user_id, refund_exc,
+                )
 
     def schedule_deposit_in_background(
         self,
@@ -2316,7 +2441,7 @@ class CardService:
                                 success=True,
                             )
                         except Exception as _n:
-                            logger.debug("Worker post-topup notification failed: %s", _n)
+                            logger.warning("Worker post-topup notification failed: %s", _n)
                 else:
                     # Schedule retry: leave status='pending' so worker picks it up again.
                     row2.status = "pending"
