@@ -583,13 +583,13 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
         </Card>
       </Section>
 
-      {/* Top-up Modal */}
+      {/* Top-up Modal — payment amount is computed purely from Bitbanker's
+          exchange prediction (their commissions); env markups are display-only */}
       <TopUpModal
         isOpen={isTopUpModalOpen}
         onClose={() => setIsTopUpModalOpen(false)}
         card={card}
         onTopUp={onTopUp}
-        topupMarkupPercent={card?.offer_id ? getCommissionForCardType(card.offer_id, 'topup') : 0}
       />
     </div>
   )

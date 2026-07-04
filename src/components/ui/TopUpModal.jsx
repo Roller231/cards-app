@@ -8,18 +8,17 @@ const TOPUP_PAYMENT_METHODS = [
   { id: 'sbp', label: 'СБП', description: 'Мгновенное пополнение через Систему Быстрых Платежей', iconSrc: '/images/sbp.png' },
 ]
 
-function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) {
+function TopUpModal({ isOpen, onClose, card, onTopUp }) {
   const [depositError, setDepositError] = useState('')
   const [amount, setAmount] = useState(0)
   const [amountInput, setAmountInput] = useState('')
-  const [totalInput, setTotalInput] = useState('')
   const [screen, setScreen] = useState('form') // 'form' | 'confirmation' | 'loading' | 'success' | 'failure'
   const [showSbpModal, setShowSbpModal] = useState(false)
   const [rubRate, setRubRate] = useState(null)  // approximate_rate from Bitbanker
-  const [prediction, setPrediction] = useState(null)  // full exchange_prediction for current amount
+  const [prediction, setPrediction] = useState(null)  // final exchange_prediction for the picked invoice volume
+  const [invoiceRub, setInvoiceRub] = useState(null)  // invoice RUB volume whose USDT yield covers `amount`
+  const [predictionError, setPredictionError] = useState(false)
   const amountInputRef = useRef(null)
-  const totalInputRef = useRef(null)
-  const lastEditedRef = useRef('amount')
   const predTimerRef = useRef(null)
 
   // Load Bitbanker exchange rate once on open
@@ -30,15 +29,35 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) 
     }).catch(() => {})
   }, [isOpen])
 
-  // Debounced exchange_prediction for the entered USD amount
+  // Debounced: pick the invoice RUB volume so that Bitbanker's converted amount
+  // (volume_take_final, i.e. after ALL of Bitbanker's own commissions) covers the
+  // requested USD amount. No env/markup math here — Bitbanker fees only.
   useEffect(() => {
     clearTimeout(predTimerRef.current)
-    if (!amount || amount <= 0 || !rubRate) { setPrediction(null); return }
-    const rubAmount = Math.ceil(amount * rubRate)
-    predTimerRef.current = setTimeout(() => {
-      api.sbp.exchangePrediction(rubAmount).then(pred => {
+    setPrediction(null)
+    setInvoiceRub(null)
+    setPredictionError(false)
+    if (!amount || amount <= 0 || !rubRate) return
+    predTimerRef.current = setTimeout(async () => {
+      try {
+        let volume = Math.ceil(amount * rubRate)
+        let pred = null
+        for (let i = 0; i < 3; i++) {
+          pred = await api.sbp.exchangePrediction(volume)
+          const takeFinal = Number(pred?.volume_take_final || 0)
+          const rate = Number(pred?.approximate_rate || rubRate)
+          const deficit = amount - takeFinal
+          if (deficit <= 0.005) break
+          // Grow the invoice by the missing USDT converted back to RUB,
+          // compensating the percent fees Bitbanker takes from the volume.
+          const feePct = (Number(pred?.comission2_pct || 0) + Number(pred?.comission3_pct || 0)) / 100
+          volume += Math.ceil((deficit * rate) / Math.max(1 - feePct, 0.5))
+        }
         setPrediction(pred)
-      }).catch(() => {})
+        setInvoiceRub(volume)
+      } catch {
+        setPredictionError(true)
+      }
     }, 600)
     return () => clearTimeout(predTimerRef.current)
   }, [amount, rubRate])
@@ -56,10 +75,8 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) 
       const t = setTimeout(() => {
         setAmount(0)
         setAmountInput('')
-        setTotalInput('')
         setScreen('form')
         setDepositError('')
-        lastEditedRef.current = 'amount'
       }, 350)
       return () => clearTimeout(t)
     }
@@ -106,9 +123,6 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) 
     return `${Math.max(visualLength, 1) + 0.5}ch`
   }
 
-  const commissionRate = topupMarkupPercent / 100
-  const total = amount > 0 ? round2(amount * (1 + commissionRate)) : 0
-  const commission = amount > 0 ? round2(total - amount) : 0
   const hasAmount = amount > 0
   const amountText = amountInput || ''
   const fullCardNumber = card?.cardNumber
@@ -118,47 +132,6 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) 
       : '—'
 
   const font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif'
-
-  useEffect(() => {
-    if (lastEditedRef.current !== 'amount') return
-    if (!amount || amount <= 0) {
-      setTotalInput('')
-      return
-    }
-    const nextTotal = round2(amount * (1 + commissionRate))
-    setTotalInput(nextTotal.toFixed(2))
-  }, [amount, commissionRate])
-
-  useEffect(() => {
-    if (lastEditedRef.current !== 'total') return
-    if (!amount || amount <= 0) {
-      setAmountInput('')
-      return
-    }
-    setAmountInput(String(amount))
-  }, [amount])
-
-  useEffect(() => {
-    // If user last edited the total, keep total constant and recompute amount when commission changes.
-    if (lastEditedRef.current !== 'total') return
-    if (!totalInput) {
-      setAmount(0)
-      setAmountInput('')
-      return
-    }
-
-    const parsedTotal = parseFloat(totalInput) || 0
-    if (!parsedTotal || parsedTotal <= 0) {
-      setAmount(0)
-      setAmountInput('')
-      return
-    }
-
-    const nextAmount = commissionRate > 0 ? parsedTotal / (1 + commissionRate) : parsedTotal
-    const safeAmount = nextAmount > 0 ? Number(nextAmount.toFixed(2)) : 0
-    setAmount(safeAmount)
-    setAmountInput(String(safeAmount))
-  }, [commissionRate, totalInput])
 
   const DetailRow = ({ label, value }) => (
     <div>
@@ -259,7 +232,6 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) 
                     value={amountInput}
                     onChange={(e) => {
                       const next = sanitizeDecimalInput(e.target.value)
-                      lastEditedRef.current = 'amount'
                       setAmountInput(next)
                       setAmount(round2(parseFloat(next) || 0))
                     }}
@@ -282,14 +254,16 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) 
                 </label>
                 <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
                   <span style={{ fontSize: 15, fontWeight: 600, color: '#111827', fontFamily: font }}>
-                    {!rubRate || !amount
+                    {!amount
                       ? '—'
-                      : prediction
-                        ? `${Math.ceil(prediction.volume_give_prediction).toLocaleString('ru-RU')} ₽`
-                        : `≈ ${Math.ceil(amount * rubRate).toLocaleString('ru-RU')} ₽`
+                      : predictionError
+                        ? 'недоступно'
+                        : prediction && invoiceRub
+                          ? `${Math.ceil(prediction.volume_give_prediction).toLocaleString('ru-RU')} ₽`
+                          : 'рассчитываем…'
                     }
                   </span>
-                  {rubRate && amount > 0 && (
+                  {rubRate && amount > 0 && !predictionError && (
                     <span style={{ fontSize: 12, color: '#9CA3AF', fontFamily: font }}>
                       {prediction
                         ? `курс ${prediction.approximate_rate?.toFixed(2)} ₽/$`
@@ -344,8 +318,8 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 24, paddingTop: 20, paddingBottom: 16}}>
               <DetailRow label="Номер карты" value={fullCardNumber} />
               <DetailRow
-                label="Сумма к пополнению с учетом комиссии"
-                value={`${total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`}
+                label="Сумма к пополнению"
+                value={`${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`}
               />
               <DetailRow
                 label="Способ оплаты"
@@ -480,7 +454,7 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) 
 
           <div style={{ padding: '12px 16px 24px 16px' }}>
             {screen === 'form' && (
-              <Button disabled={!hasAmount} onClick={() => setShowSbpModal(true)} fullWidth>
+              <Button disabled={!hasAmount || !invoiceRub} onClick={() => setShowSbpModal(true)} fullWidth>
                 Продолжить
               </Button>
             )}
@@ -512,7 +486,7 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, topupMarkupPercent = 0 }) 
       <SbpPaymentModal
         isOpen={showSbpModal}
         onClose={() => setShowSbpModal(false)}
-        amountRub={rubRate ? Math.ceil((parseFloat(amount) || 0) * rubRate) : Math.ceil((parseFloat(amount) || 0) * 95)}
+        amountRub={invoiceRub || 0}
         purpose="balance_topup"
         cardId={card?.aifory_card_id}
         amountUsdRequested={parseFloat(amount) || 0}
