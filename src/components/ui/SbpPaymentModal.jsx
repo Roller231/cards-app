@@ -26,6 +26,21 @@ const font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text"
 // Public offer document served from /public
 const OFFER_FILE = 'Приложение_2_ББ_КГ_Публичная_оферта_Битбанкер_КГ_безнал_физлица.docx'
 
+// Once the user accepts the offer, remember it — the checkbox defaults to
+// checked on every later payment.
+const OFFER_ACCEPTED_KEY = 'pp_offer_accepted'
+
+function isOfferAccepted() {
+  try { return localStorage.getItem(OFFER_ACCEPTED_KEY) === '1' } catch { return false }
+}
+
+function persistOfferAccepted(accepted) {
+  try {
+    if (accepted) localStorage.setItem(OFFER_ACCEPTED_KEY, '1')
+    else localStorage.removeItem(OFFER_ACCEPTED_KEY)
+  } catch { /* ignore */ }
+}
+
 function openOfferDoc(e) {
   if (e) e.preventDefault()
   const url = `${window.location.origin}/${encodeURIComponent(OFFER_FILE)}`
@@ -51,7 +66,7 @@ export default function SbpPaymentModal({
   const [invoice, setInvoice] = useState(null)   // { local_invoice_id, bb_invoice_id, qr_base64, payment_url, amount_rub }
   const [amountRub, setAmountRub] = useState(0)
   const [payerInfo, setPayerInfo] = useState(null)  // { first_name, last_name_initial, phone } from KYC
-  const [offerAccepted, setOfferAccepted] = useState(false)
+  const [offerAccepted, setOfferAccepted] = useState(isOfferAccepted)
   const [showKycModal, setShowKycModal] = useState(false)
   const pollRef = useRef(null)
 
@@ -83,7 +98,8 @@ export default function SbpPaymentModal({
     setScreen('checking')
     setError('')
     setInvoice(null)
-    setOfferAccepted(false)
+    // Keep the offer acceptance: checked by default once the user accepted it once.
+    setOfferAccepted(isOfferAccepted())
     setAmountRub(amountRubProp)
     ;(async () => {
       try {
@@ -237,7 +253,7 @@ export default function SbpPaymentModal({
                 <input
                   type="checkbox"
                   checked={offerAccepted}
-                  onChange={(e) => setOfferAccepted(e.target.checked)}
+                  onChange={(e) => { setOfferAccepted(e.target.checked); persistOfferAccepted(e.target.checked) }}
                   style={{ width: 18, height: 18, marginTop: 1, accentColor: '#DC4D35', cursor: 'pointer', flexShrink: 0 }}
                 />
                 <span style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5 }}>
