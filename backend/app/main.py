@@ -164,6 +164,11 @@ def check_and_update_schema(conn):
         if 'amount_usd_requested' not in inv_cols:
             logger.info("Adding column 'amount_usd_requested' to 'bb_invoices' table")
             conn.execute(text("ALTER TABLE bb_invoices ADD COLUMN amount_usd_requested DECIMAL(18,6) NULL;"))
+        if 'created_at' not in inv_cols:
+            logger.info("Adding column 'created_at' to 'bb_invoices' table")
+            conn.execute(text("ALTER TABLE bb_invoices ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP;"))
+            # Backdate existing invoices so they don't count against today's QR limit
+            conn.execute(text("UPDATE bb_invoices SET created_at = DATE_SUB(NOW(), INTERVAL 2 DAY);"))
 
     if 'orders' in inspector.get_table_names():
         ord_cols = [col['name'] for col in inspector.get_columns('orders')]

@@ -17,6 +17,19 @@ class Settings(BaseSettings):
     # SBP prices users actually pay for issuance (admin panel / DB overrides these)
     CARD_ISSUANCE_PRICE_RUB: float = 999.0
     CARD_ISSUANCE_PRICE_PAY_RUB: float = 1999.0
+
+    # App exchange-rate formula: rate = [BB index] × bitbFee × myFee × clarusFee,
+    # where each multiplier is (1 + percent/100). Percents are admin-editable.
+    SBP_BITBANKER_FEE_PERCENT: float = 2.1
+    SBP_OUR_FEE_PERCENT: float = 1.9
+    SBP_CLARUS_FEE_PERCENT: float = 2.8
+    # Fixed Bitbanker commission passed on to the user for small top-ups
+    SBP_SMALL_PAYMENT_FEE_RUB: float = 210.0
+    SBP_SMALL_PAYMENT_THRESHOLD_RUB: float = 10000.0
+
+    # Billing address shown in card info (O-Plata API does not provide one —
+    # set the issuer's address here via admin panel once known)
+    CARD_BILLING_ADDRESS: str = ""
     ISSUE_APPLY_TOPUP_MARKUP: bool = False
     ONLINE_CARD_VALIDITY_TEXT: str = "1 год"
     ONLINE_PLUS_CARD_VALIDITY_TEXT: str = "1 год"

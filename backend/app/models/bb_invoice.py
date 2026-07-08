@@ -1,4 +1,6 @@
-from sqlalchemy import BigInteger, Column, ForeignKey, Numeric, String, Text
+from datetime import datetime
+
+from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Numeric, String, Text
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -28,5 +30,6 @@ class BbInvoice(Base):
     payment_url = Column(String(512), nullable=True)
     qr_base64 = Column(Text, nullable=True)                           # sbp_qr base64 image
     raw_response = Column(Text, nullable=True)                        # last raw JSON from BB
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     user = relationship("User", foreign_keys=[user_id])

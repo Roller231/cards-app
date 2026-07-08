@@ -132,6 +132,7 @@ async def get_config(db: AsyncSession = Depends(get_db)):
         "online_plus_operation_fee_usd": settings.ONLINE_PLUS_OPERATION_FEE_USD,
         "card_issuance_price_rub": price_rub,
         "card_issuance_price_pay_rub": price_pay_rub,
+        "card_billing_address": settings.CARD_BILLING_ADDRESS,
     }
 
 

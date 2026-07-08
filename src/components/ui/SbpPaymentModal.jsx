@@ -39,21 +39,19 @@ export default function SbpPaymentModal({
   const [error, setError] = useState('')
   const [invoice, setInvoice] = useState(null)   // { local_invoice_id, bb_invoice_id, qr_base64, payment_url, amount_rub }
   const [amountRub, setAmountRub] = useState(0)
-  const [prediction, setPrediction] = useState(null)  // exchange prediction (gross amount + fees)
+  const [payerInfo, setPayerInfo] = useState(null)  // { first_name, last_name_initial, phone } from KYC
   const [showKycModal, setShowKycModal] = useState(false)
   const pollRef = useRef(null)
 
   const requestedUsd = typeof amountUsdRequested === 'number' && !Number.isNaN(amountUsdRequested)
     ? amountUsdRequested
     : null
-  const predictedUsd = prediction
-    ? (prediction.volume_take_final || prediction.volume_take_prediction || null)
-    : null
-  const depositUsd = requestedUsd ?? predictedUsd
 
   const createInvoiceFlow = async (rubAmount) => {
     try {
       setScreen('loading')
+      // The invoice is created for exactly this amount — the app rate formula
+      // already includes all fees, the user pays exactly what was shown.
       const res = await api.sbp.createInvoice(rubAmount, purpose, offerId, cardId, amountUsdRequested)
       setInvoice(res)
       setScreen('qr')
@@ -67,37 +65,23 @@ export default function SbpPaymentModal({
     }
   }
 
-  // Fetch exchange prediction (gross amount with SBP fee) then show confirm screen.
-  // Falls back to direct invoice creation if prediction is unavailable.
-  const loadConfirm = async (rubAmount) => {
-    try {
-      const pred = await api.sbp.exchangePrediction(rubAmount)
-      setPrediction(pred)
-      setScreen('confirm')
-    } catch (e) {
-      // Prediction failed — skip confirm and create invoice directly
-      await createInvoiceFlow(rubAmount)
-    }
-  }
-
-  // Check KYC, load exchange prediction, show confirm screen
+  // Check KYC, then show confirm screen with payer identity
   useEffect(() => {
     if (!isOpen || !amountRubProp) return
     setScreen('checking')
     setError('')
     setInvoice(null)
-    setPrediction(null)
     setAmountRub(amountRubProp)
     ;(async () => {
       try {
-        // Check KYC status
+        // Check KYC status (also carries payer name/phone for display)
         const kycRes = await api.kyc.status()
         if (kycRes.kyc_status !== 'success') {
           setScreen('kyc')
           return
         }
-
-        await loadConfirm(amountRubProp)
+        setPayerInfo(kycRes)
+        setScreen('confirm')
       } catch (e) {
         setError(e.message || 'Ошибка создания счёта')
         setScreen('error')
@@ -190,8 +174,8 @@ export default function SbpPaymentModal({
             </div>
           )}
 
-          {/* === CONFIRM (итоговая сумма с комиссией) === */}
-          {screen === 'confirm' && prediction && (
+          {/* === CONFIRM (сумма по курсу приложения, все комиссии включены) === */}
+          {screen === 'confirm' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div style={{ fontSize: 15, color: '#111827', fontWeight: 600 }}>Подтверждение оплаты</div>
 
@@ -199,28 +183,51 @@ export default function SbpPaymentModal({
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                   <span style={{ fontSize: 14, color: '#6B7280' }}>К оплате через СБП</span>
                   <span style={{ fontSize: 20, fontWeight: 700, color: '#111827' }}>
-                    {Math.ceil(prediction.volume_give_prediction || amountRub).toLocaleString('ru-RU')} ₽
+                    {Math.ceil(amountRub).toLocaleString('ru-RU')} ₽
                   </span>
                 </div>
-                {(prediction.comission1_abs > 0) && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#9CA3AF' }}>
-                    <span>включая комиссию СБП</span>
-                    <span>{Math.ceil(prediction.comission1_abs).toLocaleString('ru-RU')} ₽</span>
-                  </div>
-                )}
-                {depositUsd && (
+                {requestedUsd > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#6B7280', borderTop: '1px solid #E5E7EB', paddingTop: 12 }}>
                     <span>Вы получите</span>
-                    <span>{depositUsd.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} USDT</span>
+                    <span>{requestedUsd.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} $</span>
+                  </div>
+                )}
+                {(payerInfo?.first_name || payerInfo?.phone) && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, borderTop: '1px solid #E5E7EB', paddingTop: 12 }}>
+                    {payerInfo?.first_name && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#6B7280' }}>
+                        <span>Плательщик</span>
+                        <span style={{ fontWeight: 600, color: '#111827' }}>
+                          {payerInfo.first_name} {payerInfo.last_name_initial || ''}
+                        </span>
+                      </div>
+                    )}
+                    {payerInfo?.phone && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#6B7280' }}>
+                        <span>Телефон</span>
+                        <span style={{ fontWeight: 600, color: '#111827' }}>{payerInfo.phone}</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
 
-              <div style={{ fontSize: 12, color: '#9CA3AF', textAlign: 'center' }}>
-                Итоговая сумма на QR-коде включает комиссию платёжной системы.
+              {/* Identity-match warning */}
+              <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 12, padding: '12px 14px', fontSize: 12, color: '#92400E', lineHeight: 1.55 }}>
+                <b>Проверьте:</b> ФИО и номер телефона выше должны совпадать с данными владельца
+                банковского счёта, с которого вы будете платить. При несовпадении платёж может быть
+                отклонён или заблокирован.
               </div>
 
-              <Button onClick={() => createInvoiceFlow(Math.ceil(prediction.volume_give_prediction || amountRub)).catch(e => { setError(e.message || 'Ошибка создания счёта'); setScreen('error') })} fullWidth>
+              {/* SBP limits warning (Bitbanker prod) */}
+              <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 12, padding: '12px 14px', fontSize: 12, color: '#92400E', lineHeight: 1.55 }}>
+                <b>Лимиты СБП:</b> от 1 000 ₽ до 50 000 ₽ за перевод, не более 2 переводов в сутки.
+                <br />
+                <b>Важно:</b> обязательно оплачивайте созданный QR-код. После трёх неоплаченных QR-кодов подряд
+                платёжная система заблокирует пополнения по СБП — восстановление только через службу поддержки.
+              </div>
+
+              <Button onClick={() => createInvoiceFlow(Math.ceil(amountRub)).catch(e => { setError(e.message || 'Ошибка создания счёта'); setScreen('error') })} fullWidth>
                 Продолжить к оплате
               </Button>
             </div>
@@ -270,6 +277,10 @@ export default function SbpPaymentModal({
               )}
               <div style={{ fontSize: 12, color: '#9CA3AF', textAlign: 'center' }}>
                 QR-код действителен 1 час. Статус обновляется автоматически.
+              </div>
+              <div style={{ fontSize: 12, color: '#92400E', textAlign: 'center', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 10, padding: '10px 12px', lineHeight: 1.5 }}>
+                Пожалуйста, завершите оплату этого QR-кода. Неоплаченные QR-коды приводят
+                к блокировке пополнений по СБП.
               </div>
             </div>
           )}

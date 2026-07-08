@@ -14,53 +14,20 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
   const [amountInput, setAmountInput] = useState('')
   const [screen, setScreen] = useState('form') // 'form' | 'confirmation' | 'loading' | 'success' | 'failure'
   const [showSbpModal, setShowSbpModal] = useState(false)
-  const [rubRate, setRubRate] = useState(null)  // approximate_rate from Bitbanker
-  const [prediction, setPrediction] = useState(null)  // final exchange_prediction for the picked invoice volume
-  const [invoiceRub, setInvoiceRub] = useState(null)  // invoice RUB volume whose USDT yield covers `amount`
-  const [predictionError, setPredictionError] = useState(false)
+  // App rate = [BB index] × bitbFee × myFee × clarusFee (computed on backend,
+  // multipliers configured in the admin panel). Plus a fixed fee for small payments.
+  const [rateInfo, setRateInfo] = useState(null)  // { index, rate, small_payment_fee_rub, small_payment_threshold_rub }
+  const [rateError, setRateError] = useState(false)
   const amountInputRef = useRef(null)
-  const predTimerRef = useRef(null)
 
-  // Load Bitbanker exchange rate once on open
+  // Load the app exchange rate once on open
   useEffect(() => {
-    if (!isOpen || rubRate !== null) return
-    api.sbp.exchangePrediction(1000).then(pred => {
-      if (pred?.approximate_rate) setRubRate(pred.approximate_rate)
-    }).catch(() => {})
+    if (!isOpen || rateInfo !== null) return
+    setRateError(false)
+    api.sbp.rate()
+      .then(setRateInfo)
+      .catch(() => setRateError(true))
   }, [isOpen])
-
-  // Debounced: pick the invoice RUB volume so that Bitbanker's converted amount
-  // (volume_take_final, i.e. after ALL of Bitbanker's own commissions) covers the
-  // requested USD amount. No env/markup math here — Bitbanker fees only.
-  useEffect(() => {
-    clearTimeout(predTimerRef.current)
-    setPrediction(null)
-    setInvoiceRub(null)
-    setPredictionError(false)
-    if (!amount || amount <= 0 || !rubRate) return
-    predTimerRef.current = setTimeout(async () => {
-      try {
-        let volume = Math.ceil(amount * rubRate)
-        let pred = null
-        for (let i = 0; i < 3; i++) {
-          pred = await api.sbp.exchangePrediction(volume)
-          const takeFinal = Number(pred?.volume_take_final || 0)
-          const rate = Number(pred?.approximate_rate || rubRate)
-          const deficit = amount - takeFinal
-          if (deficit <= 0.005) break
-          // Grow the invoice by the missing USDT converted back to RUB,
-          // compensating the percent fees Bitbanker takes from the volume.
-          const feePct = (Number(pred?.comission2_pct || 0) + Number(pred?.comission3_pct || 0)) / 100
-          volume += Math.ceil((deficit * rate) / Math.max(1 - feePct, 0.5))
-        }
-        setPrediction(pred)
-        setInvoiceRub(volume)
-      } catch {
-        setPredictionError(true)
-      }
-    }, 600)
-    return () => clearTimeout(predTimerRef.current)
-  }, [amount, rubRate])
 
   // Auto-focus amount input when modal opens
   useEffect(() => {
@@ -125,6 +92,22 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
 
   const hasAmount = amount > 0
   const amountText = amountInput || ''
+  // payRub = ceil(amount × rate); payments below the threshold additionally
+  // carry Bitbanker's fixed fee (210 ₽), payments above pay exactly the amount.
+  const rate = rateInfo?.rate || null
+  const smallFee = Number(rateInfo?.small_payment_fee_rub ?? 210)
+  const smallThreshold = Number(rateInfo?.small_payment_threshold_rub ?? 10000)
+  const baseRub = rate && amount > 0 ? Math.ceil(amount * rate) : null
+  const feeApplied = baseRub !== null && baseRub < smallThreshold ? smallFee : 0
+  const payRub = baseRub !== null ? baseRub + feeApplied : null
+  // Bitbanker prod limits: 1000..50000 RUB per SBP transfer
+  const rubTooSmall = payRub !== null && payRub < 1000
+  const rubTooBig = payRub !== null && payRub > 50000
+  const rubLimitError = rubTooSmall
+    ? 'Минимальная сумма перевода по СБП — 1 000 ₽. Увеличьте сумму пополнения.'
+    : rubTooBig
+      ? 'Максимальная сумма перевода по СБП — 50 000 ₽. Уменьшите сумму пополнения.'
+      : ''
   const fullCardNumber = card?.cardNumber
     ? `${card.cardNumber.slice(0, 4)} ${card.cardNumber.slice(4, 8)} ${card.cardNumber.slice(8, 12)} ${card.cardNumber.slice(12, 16)}`
     : card?.last4
@@ -256,22 +239,36 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
                   <span style={{ fontSize: 15, fontWeight: 600, color: '#111827', fontFamily: font }}>
                     {!amount
                       ? '—'
-                      : predictionError
+                      : rateError
                         ? 'недоступно'
-                        : prediction && invoiceRub
-                          ? `${Math.ceil(prediction.volume_give_prediction).toLocaleString('ru-RU')} ₽`
-                          : 'рассчитываем…'
+                        : payRub !== null
+                          ? `${payRub.toLocaleString('ru-RU')} ₽`
+                          : 'загружаем курс…'
                     }
                   </span>
-                  {rubRate && amount > 0 && !predictionError && (
+                  {rate && amount > 0 && (
                     <span style={{ fontSize: 12, color: '#9CA3AF', fontFamily: font }}>
-                      {prediction
-                        ? `курс ${prediction.approximate_rate?.toFixed(2)} ₽/$`
-                        : `курс ${rubRate.toFixed(2)} ₽/$`
-                      }
+                      курс {rate.toFixed(2)} ₽/$
                     </span>
                   )}
                 </div>
+                {feeApplied > 0 && (
+                  <div style={{ fontSize: 12, color: '#6B7280', fontFamily: font, marginTop: 8, lineHeight: 1.5 }}>
+                    Включая комиссию платёжной системы {smallFee.toLocaleString('ru-RU')} ₽ —
+                    она применяется к платежам до {smallThreshold.toLocaleString('ru-RU')} ₽.
+                    При сумме от {smallThreshold.toLocaleString('ru-RU')} ₽ комиссии нет.
+                  </div>
+                )}
+                {rubLimitError && (
+                  <div style={{ fontSize: 12, color: '#DC2626', fontFamily: font, marginTop: 8, lineHeight: 1.5 }}>
+                    {rubLimitError}
+                  </div>
+                )}
+                {rateError && (
+                  <div style={{ fontSize: 12, color: '#DC2626', fontFamily: font, marginTop: 8, lineHeight: 1.5 }}>
+                    Не удалось загрузить курс. Закройте окно и попробуйте ещё раз.
+                  </div>
+                )}
               </div>
 
               {/* Payment Method */}
@@ -307,6 +304,15 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
                     </div>
                   </div>
                 ))}
+              </div>
+
+              {/* SBP limits info (Bitbanker prod) */}
+              <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 12, padding: '12px 14px', fontSize: 12, color: '#92400E', fontFamily: font, lineHeight: 1.55 }}>
+                <b>Лимиты СБП:</b> от 1 000 ₽ до 50 000 ₽ за перевод, не более 2 пополнений в сутки
+                (обновляется в 00:00 по Москве).
+                <br />
+                <b>Важно:</b> оплачивайте каждый созданный QR-код — после трёх неоплаченных подряд
+                платёжная система блокирует пополнения по СБП.
               </div>
             </div>
           </div>
@@ -454,7 +460,11 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
 
           <div style={{ padding: '12px 16px 24px 16px' }}>
             {screen === 'form' && (
-              <Button disabled={!hasAmount || !invoiceRub} onClick={() => setShowSbpModal(true)} fullWidth>
+              <Button
+                disabled={!hasAmount || !payRub || rubTooSmall || rubTooBig}
+                onClick={() => setShowSbpModal(true)}
+                fullWidth
+              >
                 Продолжить
               </Button>
             )}
@@ -486,7 +496,7 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
       <SbpPaymentModal
         isOpen={showSbpModal}
         onClose={() => setShowSbpModal(false)}
-        amountRub={invoiceRub || 0}
+        amountRub={payRub || 0}
         purpose="balance_topup"
         cardId={card?.aifory_card_id}
         amountUsdRequested={parseFloat(amount) || 0}

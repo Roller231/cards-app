@@ -98,6 +98,10 @@ async def kyc_status(current_user: User = Depends(get_current_user)):
         "phone": current_user.phone,
         "gender": current_user.gender,
         "has_passport_data": bool(current_user.kyc_passport),
+        # For payer-identity display at payment time ("Имя Ф.")
+        "first_name": current_user.kyc_first_name,
+        "last_name": current_user.kyc_last_name,
+        "last_name_initial": (current_user.kyc_last_name[:1] + ".") if current_user.kyc_last_name else None,
     }
     logger.info(
         "[KYC status] user_id=%s kyc_status=%s has_passport=%s first_name=%s last_name=%s passport=%s birth=%s",

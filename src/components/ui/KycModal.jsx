@@ -251,6 +251,13 @@ export default function KycModal({ isOpen, onClose, onSuccess }) {
                 Для выпуска карты необходимо пройти верификацию личности. Введите ваши контактные данные и отсканируйте паспорт.
               </div>
 
+              {/* Bank identity-match warning */}
+              <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 12, padding: '12px 14px', fontSize: 12, color: '#92400E', lineHeight: 1.55 }}>
+                <b>Важно:</b> ФИО (по паспорту) и номер телефона должны совпадать с данными владельца
+                банковского счёта, с которого вы будете оплачивать по СБП. При несовпадении платежи
+                могут отклоняться или блокироваться.
+              </div>
+
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <label style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Email</label>
                 <input

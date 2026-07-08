@@ -14,18 +14,19 @@ from __future__ import annotations
 import json
 import logging
 import uuid as _uuid
+from datetime import datetime, timedelta, timezone as _dt_timezone
 from decimal import Decimal
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.core.config import settings
 from app.core.database import get_db, AsyncSessionLocal
-from app.integrations.bitbanker_client import bitbanker_client, verify_webhook_signature
+from app.integrations.bitbanker_client import bitbanker_client, humanize_bb_error, verify_webhook_signature
 from app.models.bb_invoice import BbInvoice
 from app.models.user import User
 from app.services.telegram_bot_service import notify_sbp_payment
@@ -35,6 +36,20 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/sbp", tags=["sbp"])
 
 RUB_TO_USD_FALLBACK = Decimal("0.011")  # rough fallback if no exchange rate available
+
+# Bitbanker prod limits (see partner docs): 1000..50000 RUB per transfer,
+# max 2 paid QR codes per day, account block after 3 consecutive unpaid QRs.
+SBP_MIN_AMOUNT_RUB = 1000
+SBP_MAX_AMOUNT_RUB = 50000
+SBP_MAX_QR_PER_DAY = 2
+_PAID_STATUSES = ("captured", "authorized")
+
+
+def _msk_day_start_utc() -> datetime:
+    """Start of the current Moscow day as naive UTC (DB stores naive UTC)."""
+    msk = _dt_timezone(timedelta(hours=3))
+    day_start_msk = datetime.now(msk).replace(hour=0, minute=0, second=0, microsecond=0)
+    return day_start_msk.astimezone(_dt_timezone.utc).replace(tzinfo=None)
 
 
 def _external_ref(user: User) -> str:
@@ -66,6 +81,32 @@ class InvoiceCreateRequest(BaseModel):
 async def get_usd_to_rub_rate(_: User = Depends(get_current_user)):
     """Returns the admin-configured USD to RUB rate for SBP payments."""
     return {"usd_to_rub_rate": settings.USD_TO_RUB_RATE}
+
+
+@router.get("/rate", summary="App exchange rate: BB index × bitbFee × myFee × clarusFee")
+async def get_sbp_rate(_: User = Depends(get_current_user)):
+    """Rate formula (always applies): [Bitbanker index] × three admin-configured
+    multipliers. Also returns the fixed fee applied to payments below threshold."""
+    try:
+        pred = await bitbanker_client.get_exchange_prediction(10000)
+        index = float(pred.get("approximate_rate") or 0)
+    except Exception as exc:
+        logger.warning("[SBP] rate: exchange prediction failed: %s", str(exc)[:200])
+        index = 0.0
+    if index <= 0:
+        raise HTTPException(status_code=502, detail="Курс временно недоступен. Попробуйте позже.")
+    rate = (
+        index
+        * (1 + settings.SBP_BITBANKER_FEE_PERCENT / 100)
+        * (1 + settings.SBP_OUR_FEE_PERCENT / 100)
+        * (1 + settings.SBP_CLARUS_FEE_PERCENT / 100)
+    )
+    return {
+        "index": round(index, 4),
+        "rate": round(rate, 4),
+        "small_payment_fee_rub": settings.SBP_SMALL_PAYMENT_FEE_RUB,
+        "small_payment_threshold_rub": settings.SBP_SMALL_PAYMENT_THRESHOLD_RUB,
+    }
 
 
 @router.post("/kyc-session", summary="Create Bitbanker KYC session")
@@ -126,10 +167,53 @@ async def create_invoice(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if body.amount_rub > 50000:
-        raise HTTPException(status_code=400, detail="Maximum amount is 50000 RUB")
+    if body.amount_rub < SBP_MIN_AMOUNT_RUB:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Минимальная сумма перевода по СБП — {SBP_MIN_AMOUNT_RUB:,} ₽.".replace(",", " "),
+        )
+    if body.amount_rub > SBP_MAX_AMOUNT_RUB:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Максимальная сумма перевода по СБП — {SBP_MAX_AMOUNT_RUB:,} ₽.".replace(",", " "),
+        )
     if body.purpose not in ("balance_topup", "card_issue"):
         raise HTTPException(status_code=400, detail="purpose must be balance_topup or card_issue")
+
+    # --- Our own QR guards: keep users well inside Bitbanker's prod limits ---
+    # 1) No more than 2 created QR codes per Moscow day (BB allows 2 paid/day;
+    #    we cap creation so users can't even approach the block).
+    day_count_res = await db.execute(
+        select(func.count()).select_from(BbInvoice).where(
+            BbInvoice.user_id == current_user.id,
+            BbInvoice.created_at >= _msk_day_start_utc(),
+        )
+    )
+    if (day_count_res.scalar() or 0) >= SBP_MAX_QR_PER_DAY:
+        raise HTTPException(
+            status_code=429,
+            detail="Можно создавать не более 2 QR-кодов в сутки. Лимит обновится в 00:00 по Москве.",
+        )
+
+    # 2) Never let a user create a 3rd consecutive unpaid QR — Bitbanker blocks
+    #    the account after 3 unpaid QRs in a row, and unblocking goes through
+    #    their support with compliance questions.
+    last_two_res = await db.execute(
+        select(BbInvoice).where(
+            BbInvoice.user_id == current_user.id,
+            BbInvoice.created_at >= datetime.utcnow() - timedelta(days=30),
+        ).order_by(BbInvoice.id.desc()).limit(2)
+    )
+    last_two = list(last_two_res.scalars().all())
+    if len(last_two) == 2 and all(inv.status not in _PAID_STATUSES for inv in last_two):
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                "У вас уже два неоплаченных QR-кода подряд. Оплатите последний созданный счёт — "
+                "ещё один неоплаченный QR приведёт к блокировке пополнений по СБП. "
+                "Если оплатить не получается, обратитесь в поддержку."
+            ),
+        )
 
     ext_ref = _external_ref(current_user)
     
@@ -173,8 +257,8 @@ async def create_invoice(
                 logger.info("[SBP] Client registered: %s | is_verified_for_sbp=%s", 
                            ext_ref, is_verified)
         except Exception as e:
-            logger.error("[SBP] Client registration failed: %s | %s", ext_ref, str(e)[:200])
-            raise HTTPException(status_code=502, detail=f"Ошибка регистрации в платёжной системе: {str(e)[:100]}")
+            logger.error("[SBP] Client registration failed: %s | %s", ext_ref, str(e)[:400])
+            raise HTTPException(status_code=502, detail=humanize_bb_error(e))
     
     # Block invoice creation if client not verified by Bitbanker
     if not is_verified:
@@ -197,7 +281,8 @@ async def create_invoice(
             description=description,
         )
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Bitbanker invoice error: {exc}")
+        logger.error("[SBP] Invoice creation failed for %s: %s", ext_ref, str(exc)[:400])
+        raise HTTPException(status_code=502, detail=humanize_bb_error(exc))
 
     bb_id = str(result.get("id") or result.get("invoice_id") or "")
     sbp_info = result.get("sbp_info") or {}

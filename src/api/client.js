@@ -80,6 +80,7 @@ export const api = {
   },
   sbp: {
     getUsdToRubRate: () => req('GET', '/sbp/usd-to-rub-rate'),
+    rate: () => req('GET', '/sbp/rate'),
     prediction: () => req('GET', '/sbp/prediction'),
     exchangePrediction: (amountRub) => req('GET', `/sbp/exchange-prediction?amount_rub=${amountRub}`),
     createInvoice: (amountRub, purpose = 'balance_topup', offerId = null, cardId = null, amountUsdRequested = null) =>
