@@ -6,18 +6,23 @@ import Section from '../components/ui/Section'
 import PageHeader from '../components/ui/PageHeader'
 import { useToast } from '../components/ui/ToastProvider'
 import TopUpModal from '../components/ui/TopUpModal'
-import { useAuth } from '../context/AuthContext'
+import Portal from '../components/ui/Portal'
 import { TxIcon } from './HistoryPage'
 
+// Template billing identity shown in the "Данные карты" modal — same for all cards
+const CARD_DATA_TEMPLATE = [
+  { label: 'Имя владельца', value: 'Howard Willis' },
+  { label: 'Адрес', value: 'Singapore 160 Lor 1 Toa Payoh #01-1564' },
+  { label: 'Страна', value: 'Singapore' },
+  { label: 'Почтовый адрес', value: '310160' },
+]
+
 function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateToHistory, getCommissionForCardType }) {
-  const { appConfig } = useAuth()
   const [showCardNumber, setShowCardNumber] = useState(false)
   const [isTopUpModalOpen, setIsTopUpModalOpen] = useState(false)
   const [requisites, setRequisites] = useState(null)  // { pan, expiry, cvv, holder }
   const [requisitesLoading, setRequisitesLoading] = useState(false)
-  const [showCardInfo, setShowCardInfo] = useState(false)
-  const [cardInfo, setCardInfo] = useState(null)      // { first_name, last_name } from KYC
-  const [cardInfoLoading, setCardInfoLoading] = useState(false)
+  const [showCardData, setShowCardData] = useState(false)
   const [cardTransactionsApi, setCardTransactionsApi] = useState(null)  // null = not loaded yet
   const [txLoading, setTxLoading] = useState(false)
   const { showToast } = useToast()
@@ -39,28 +44,6 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
       .catch(() => setCardTransactionsApi([]))
       .finally(() => setTxLoading(false))
   }, [card?.aifory_card_id, isCardActive])
-
-  // Card info: holder name from KYC + billing address from admin config.
-  // O-Plata's API returns no billing address, so it's admin-configured.
-  const toggleCardInfo = useCallback(async () => {
-    if (showCardInfo) {
-      setShowCardInfo(false)
-      return
-    }
-    if (cardInfo) {
-      setShowCardInfo(true)
-      return
-    }
-    setCardInfoLoading(true)
-    try {
-      const s = await api.kyc.status()
-      setCardInfo({ first_name: s.first_name || '', last_name: s.last_name || '' })
-    } catch {
-      setCardInfo({ first_name: '', last_name: '' })
-    }
-    setCardInfoLoading(false)
-    setShowCardInfo(true)
-  }, [showCardInfo, cardInfo])
 
   const loadRequisites = useCallback(async () => {
     if (!card?.aifory_card_id) return
@@ -456,137 +439,6 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
         </Card>
       </Section>
 
-      {/* Card Info: holder name + billing address */}
-      <Section>
-        <Card padding="20px">
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: showCardInfo ? 16 : 0,
-            }}
-          >
-            <h2
-              style={{
-                fontSize: 22,
-                fontWeight: 600,
-                color: '#111827',
-                fontFamily:
-                  '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-                margin: 0,
-              }}
-            >
-              Информация по карте
-            </h2>
-            <button
-              onClick={toggleCardInfo}
-              disabled={cardInfoLoading}
-              style={{
-                fontSize: 16,
-                fontWeight: 600,
-                color: cardInfoLoading ? '#9CA3AF' : '#DC4D35',
-                fontFamily:
-                  '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-                background: 'none',
-                border: 'none',
-                cursor: cardInfoLoading ? 'default' : 'pointer',
-                padding: 0,
-              }}
-            >
-              {cardInfoLoading ? 'Загрузка...' : showCardInfo ? 'Скрыть' : 'Показать'}
-            </button>
-          </div>
-
-          {showCardInfo && (
-            <>
-              {/* Holder name */}
-              <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '16px', marginBottom: 12 }}>
-                <div
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 400,
-                    color: '#6B7280',
-                    fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-                    marginBottom: 4,
-                  }}
-                >
-                  Имя Фамилия
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div
-                    style={{
-                      fontSize: 17,
-                      fontWeight: 600,
-                      color: '#111827',
-                      fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-                      cursor: 'pointer',
-                    }}
-                    onClick={() => handleCopy('Имя Фамилия', `${cardInfo?.first_name || ''} ${cardInfo?.last_name || ''}`.trim())}
-                  >
-                    {`${cardInfo?.first_name || ''} ${cardInfo?.last_name || ''}`.trim() || card.holder_name || '—'}
-                  </div>
-                  <img
-                    src="/images/Copy.png"
-                    alt="Copy"
-                    style={{ width: 20, height: 20, cursor: 'pointer' }}
-                    onClick={() => handleCopy('Имя Фамилия', `${cardInfo?.first_name || ''} ${cardInfo?.last_name || ''}`.trim() || card.holder_name || '')}
-                  />
-                </div>
-              </div>
-
-              {/* Billing address */}
-              <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '16px' }}>
-                <div
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 400,
-                    color: '#6B7280',
-                    fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-                    marginBottom: 4,
-                  }}
-                >
-                  Биллинговый адрес
-                </div>
-                {appConfig?.card_billing_address ? (
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div
-                      style={{
-                        fontSize: 15,
-                        fontWeight: 600,
-                        color: '#111827',
-                        fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-                        lineHeight: 1.4,
-                        cursor: 'pointer',
-                      }}
-                      onClick={() => handleCopy('Биллинговый адрес', appConfig.card_billing_address)}
-                    >
-                      {appConfig.card_billing_address}
-                    </div>
-                    <img
-                      src="/images/Copy.png"
-                      alt="Copy"
-                      style={{ width: 20, height: 20, cursor: 'pointer', flexShrink: 0, marginLeft: 12 }}
-                      onClick={() => handleCopy('Биллинговый адрес', appConfig.card_billing_address)}
-                    />
-                  </div>
-                ) : (
-                  <div
-                    style={{
-                      fontSize: 14,
-                      color: '#6B7280',
-                      fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-                    }}
-                  >
-                    Уточняется — обратитесь в поддержку
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-        </Card>
-      </Section>
-
       {/* Top-up Button */}
       <Section>
         <Button
@@ -600,6 +452,21 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
             <span className="absolute left-1/2 top-1/2 h-full -translate-x-1/2 -translate-y-1/2 rounded-full bg-current" style={{ width: 3 }} />
           </span>
           <span>Пополнить</span>
+        </Button>
+
+        {/* Show card data (template billing identity) */}
+        <Button
+          onClick={() => setShowCardData(true)}
+          fullWidth
+          style={{
+            borderRadius: 12,
+            padding: '16px',
+            marginTop: 8,
+            backgroundColor: '#FFFFFF',
+            color: '#111827',
+          }}
+        >
+          Показать данные
         </Button>
       </Section>
 
@@ -749,6 +616,72 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
         card={card}
         onTopUp={onTopUp}
       />
+
+      {/* Card Data Modal — template billing identity */}
+      {showCardData && (
+        <Portal>
+          <div
+            style={{
+              position: 'fixed', inset: 0, zIndex: 1000,
+              background: 'rgba(0,0,0,0.45)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: 16,
+            }}
+            onClick={(e) => { if (e.target === e.currentTarget) setShowCardData(false) }}
+          >
+            <div
+              style={{
+                width: '100%', maxWidth: 420,
+                background: '#FFFFFF', borderRadius: 20,
+                padding: '24px 20px 20px',
+                fontFamily: font,
+              }}
+            >
+              {/* Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                <div style={{ fontSize: 20, fontWeight: 700, color: '#111827' }}>Данные карты</div>
+                <button
+                  onClick={() => setShowCardData(false)}
+                  style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: '#6B7280', lineHeight: 1, padding: 0 }}
+                >×</button>
+              </div>
+
+              {/* Rows */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 18, marginBottom: 24 }}>
+                {CARD_DATA_TEMPLATE.map((row) => (
+                  <div key={row.label} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+                    <div style={{ fontSize: 14, color: '#6B7280', flexShrink: 0, paddingTop: 2 }}>
+                      {row.label}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontSize: 15, fontWeight: 600, color: '#111827',
+                          textAlign: 'right', lineHeight: 1.4, cursor: 'pointer',
+                          maxWidth: 220,
+                        }}
+                        onClick={() => handleCopy(row.label, row.value)}
+                      >
+                        {row.value}
+                      </div>
+                      <img
+                        src="/images/Copy.png"
+                        alt="Copy"
+                        style={{ width: 18, height: 18, cursor: 'pointer', flexShrink: 0, marginTop: 2 }}
+                        onClick={() => handleCopy(row.label, row.value)}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <Button onClick={() => setShowCardData(false)} fullWidth style={{ borderRadius: 12, padding: '16px' }}>
+                Закрыть
+              </Button>
+            </div>
+          </div>
+        </Portal>
+      )}
     </div>
   )
 }
