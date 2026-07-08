@@ -219,14 +219,6 @@ export default function SbpPaymentModal({
                 отклонён или заблокирован.
               </div>
 
-              {/* SBP limits warning (Bitbanker prod) */}
-              <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 12, padding: '12px 14px', fontSize: 12, color: '#92400E', lineHeight: 1.55 }}>
-                <b>Лимиты СБП:</b> от 1 000 ₽ до 50 000 ₽ за перевод, не более 2 переводов в сутки.
-                <br />
-                <b>Важно:</b> обязательно оплачивайте созданный QR-код. После трёх неоплаченных QR-кодов подряд
-                платёжная система заблокирует пополнения по СБП — восстановление только через службу поддержки.
-              </div>
-
               <Button onClick={() => createInvoiceFlow(Math.ceil(amountRub)).catch(e => { setError(e.message || 'Ошибка создания счёта'); setScreen('error') })} fullWidth>
                 Продолжить к оплате
               </Button>
