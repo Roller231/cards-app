@@ -23,6 +23,17 @@ import KycModal from './KycModal'
 const POLL_INTERVAL_MS = 5000
 const font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif'
 
+// Public offer document served from /public
+const OFFER_FILE = 'Приложение_2_ББ_КГ_Публичная_оферта_Битбанкер_КГ_безнал_физлица.docx'
+
+function openOfferDoc(e) {
+  if (e) e.preventDefault()
+  const url = `${window.location.origin}/${encodeURIComponent(OFFER_FILE)}`
+  const tg = window?.Telegram?.WebApp
+  if (tg?.openLink) tg.openLink(url)
+  else window.open(url, '_blank', 'noopener')
+}
+
 export default function SbpPaymentModal({
   isOpen,
   onClose,
@@ -40,6 +51,7 @@ export default function SbpPaymentModal({
   const [invoice, setInvoice] = useState(null)   // { local_invoice_id, bb_invoice_id, qr_base64, payment_url, amount_rub }
   const [amountRub, setAmountRub] = useState(0)
   const [payerInfo, setPayerInfo] = useState(null)  // { first_name, last_name_initial, phone } from KYC
+  const [offerAccepted, setOfferAccepted] = useState(false)
   const [showKycModal, setShowKycModal] = useState(false)
   const pollRef = useRef(null)
 
@@ -71,6 +83,7 @@ export default function SbpPaymentModal({
     setScreen('checking')
     setError('')
     setInvoice(null)
+    setOfferAccepted(false)
     setAmountRub(amountRubProp)
     ;(async () => {
       try {
@@ -219,7 +232,32 @@ export default function SbpPaymentModal({
                 отклонён или заблокирован.
               </div>
 
-              <Button onClick={() => createInvoiceFlow(Math.ceil(amountRub)).catch(e => { setError(e.message || 'Ошибка создания счёта'); setScreen('error') })} fullWidth>
+              {/* Offer acceptance (required) */}
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', userSelect: 'none' }}>
+                <input
+                  type="checkbox"
+                  checked={offerAccepted}
+                  onChange={(e) => setOfferAccepted(e.target.checked)}
+                  style={{ width: 18, height: 18, marginTop: 1, accentColor: '#DC4D35', cursor: 'pointer', flexShrink: 0 }}
+                />
+                <span style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5 }}>
+                  Я ознакомлен(а) с{' '}
+                  <a
+                    href={`/${encodeURIComponent(OFFER_FILE)}`}
+                    onClick={openOfferDoc}
+                    style={{ color: '#DC4D35', fontWeight: 600, textDecoration: 'underline' }}
+                  >
+                    публичной офертой
+                  </a>
+                  {' '}и принимаю её условия
+                </span>
+              </label>
+
+              <Button
+                disabled={!offerAccepted}
+                onClick={() => createInvoiceFlow(Math.ceil(amountRub)).catch(e => { setError(e.message || 'Ошибка создания счёта'); setScreen('error') })}
+                fullWidth
+              >
                 Продолжить к оплате
               </Button>
             </div>

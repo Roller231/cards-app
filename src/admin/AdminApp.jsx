@@ -1031,6 +1031,11 @@ function FAQPage() {
               onChange={e => setAnswer(e.target.value)}
               style={{ width: '100%', minHeight: 120, padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14, boxSizing: 'border-box', outline: 'none' }}
             />
+            <div style={{ fontSize: 12, color: '#6b7280', marginTop: 6, lineHeight: 1.5 }}>
+              Ссылки: <code style={{ background: '#f3f4f6', padding: '1px 4px', borderRadius: 4 }}>[текст ссылки](https://example.com)</code> —
+              в приложении отобразится кликабельной ссылкой. Обычные URL (https://…) тоже становятся ссылками автоматически.
+              Переносы строк сохраняются.
+            </div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <Btn small onClick={saveFaq}>Сохранить</Btn>

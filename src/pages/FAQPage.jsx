@@ -1,6 +1,43 @@
 import { useEffect, useState } from 'react'
 import PageHeader from '../components/ui/PageHeader'
 
+// Matches [текст](https://url) markdown-style links OR bare http(s) URLs
+const LINK_RE = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>()]+)/g
+
+function openExternal(url) {
+  const tg = window?.Telegram?.WebApp
+  if (tg?.openLink) tg.openLink(url)
+  else window.open(url, '_blank', 'noopener')
+}
+
+// Renders an FAQ answer: keeps admin line breaks, turns [текст](url) and
+// bare URLs into tappable links.
+function renderAnswer(text) {
+  const s = String(text || '')
+  const parts = []
+  const re = new RegExp(LINK_RE)
+  let last = 0
+  let m
+  while ((m = re.exec(s)) !== null) {
+    if (m.index > last) parts.push(s.slice(last, m.index))
+    const url = m[2] || m[3]
+    const label = m[1] || m[3]
+    parts.push(
+      <a
+        key={`${m.index}-${url}`}
+        href={url}
+        onClick={(e) => { e.preventDefault(); openExternal(url) }}
+        style={{ color: '#DC4D35', fontWeight: 600, textDecoration: 'underline', wordBreak: 'break-all' }}
+      >
+        {label}
+      </a>
+    )
+    last = m.index + m[0].length
+  }
+  if (last < s.length) parts.push(s.slice(last))
+  return parts
+}
+
 const DEFAULT_FAQ_ITEMS = [
   {
     id: 1,
@@ -164,7 +201,7 @@ function FAQPage({ onBack }) {
 
               <div
                 style={{
-                  maxHeight: isExpanded ? 500 : 0,
+                  maxHeight: isExpanded ? 1200 : 0,
                   opacity: isExpanded ? 1 : 0,
                   overflow: 'hidden',
                   transition: 'max-height 300ms ease, opacity 200ms ease',
@@ -178,9 +215,10 @@ function FAQPage({ onBack }) {
                     color: '#6B7280',
                     fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
                     lineHeight: '20px',
+                    whiteSpace: 'pre-line',
                   }}
                 >
-                  {item.answer}
+                  {renderAnswer(item.answer)}
                 </div>
               </div>
             </div>
