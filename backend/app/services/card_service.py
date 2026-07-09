@@ -122,6 +122,17 @@ def _card_is_active(state: Any) -> bool:
     return _card_state_to_status(state) == "active"
 
 
+# Explicit display-name mapping by O-Plata offer_id ("<ravanaServerId>:<typeUuid>").
+# Parsing the localized description is unreliable — e.g. the "Online" card text
+# mentions "Apple Pay и Google Pay" in its "not supported" list and got
+# misclassified as Online+Pay. Keep this authoritative; fall back to heuristics
+# only for offers not listed here.
+CARD_NAME_BY_OFFER: Dict[str, str] = {
+    "RAVANA:RT-prod:faa1988b-a467-4397-85c7-ab380fea7bb4": "Online",
+    "RAVANA:RT-2-prod:9535aec3-3c6a-4130-b9c2-27d887e54041": "Online+Pay",
+}
+
+
 def _is_card_type_issuable(card_type: Dict[str, Any]) -> bool:
     if bool(card_type.get("readOnly")):
         return False
@@ -788,17 +799,22 @@ class CardService:
                     continue
                 payment_system = ct.get("paymentSystem") or ""
                 raw_name = ct.get("localizedName") or f"{payment_system} Virtual Card"
-                
-                # Hardcoded mapping for known card types
-                raw_lower = raw_name.lower()
-                if "apple pay" in raw_lower or "google pay" in raw_lower:
-                    name = "Online+Pay"
-                elif "подписок" in raw_lower or "сервисов" in raw_lower or "gaming" in raw_lower or "гейминг" in raw_lower:
-                    name = "Online"
+                offer_id = f"{ravana_server_id}:{type_uuid}"
+
+                # 1) Authoritative mapping by offer_id (prod card types).
+                # 2) Fallback heuristic by description text for anything unlisted.
+                if offer_id in CARD_NAME_BY_OFFER:
+                    name = CARD_NAME_BY_OFFER[offer_id]
                 else:
-                    # Strip markdown — take only the first non-empty line
-                    first_line = next((l.strip().lstrip('#').strip() for l in raw_name.splitlines() if l.strip()), raw_name)
-                    name = first_line or f"{payment_system} Virtual Card"
+                    raw_lower = raw_name.lower()
+                    if "apple pay" in raw_lower or "google pay" in raw_lower:
+                        name = "Online+Pay"
+                    elif "подписок" in raw_lower or "сервисов" in raw_lower or "gaming" in raw_lower or "гейминг" in raw_lower:
+                        name = "Online"
+                    else:
+                        # Strip markdown — take only the first non-empty line
+                        first_line = next((l.strip().lstrip('#').strip() for l in raw_name.splitlines() if l.strip()), raw_name)
+                        name = first_line or f"{payment_system} Virtual Card"
                 offers.append({
                     "id": f"{ravana_server_id}:{type_uuid}",
                     "name": name,
