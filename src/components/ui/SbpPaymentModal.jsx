@@ -14,7 +14,7 @@
  *   amountRub      — number  exact amount in RUB (from admin settings or user input)
  *   purpose        — 'balance_topup' | 'card_issue'  (default: 'balance_topup')
  */
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import api from '../../api/client'
 import Button from './Button'
 import Portal from './Portal'
@@ -92,31 +92,36 @@ export default function SbpPaymentModal({
     }
   }
 
-  // Check KYC, then show confirm screen with payer identity
-  useEffect(() => {
-    if (!isOpen || !amountRubProp) return
+  // Check KYC, then show confirm screen with payer identity.
+  // Extracted so the error screen's retry button can re-run it (setState alone
+  // wouldn't re-trigger the effect and left the modal stuck on "checking").
+  const startFlow = useCallback(async () => {
+    if (!amountRubProp) return
     setScreen('checking')
     setError('')
     setInvoice(null)
     // Keep the offer acceptance: checked by default once the user accepted it once.
     setOfferAccepted(isOfferAccepted())
     setAmountRub(amountRubProp)
-    ;(async () => {
-      try {
-        // Check KYC status (also carries payer name/phone for display)
-        const kycRes = await api.kyc.status()
-        if (kycRes.kyc_status !== 'success') {
-          setScreen('kyc')
-          return
-        }
-        setPayerInfo(kycRes)
-        setScreen('confirm')
-      } catch (e) {
-        setError(e.message || 'Ошибка создания счёта')
-        setScreen('error')
+    try {
+      // Check KYC status (also carries payer name/phone for display)
+      const kycRes = await api.kyc.status()
+      if (kycRes.kyc_status !== 'success') {
+        setScreen('kyc')
+        return
       }
-    })()
-  }, [isOpen, amountRubProp, purpose])
+      setPayerInfo(kycRes)
+      setScreen('confirm')
+    } catch (e) {
+      setError(e.message || 'Ошибка создания счёта')
+      setScreen('error')
+    }
+  }, [amountRubProp, purpose])
+
+  useEffect(() => {
+    if (!isOpen) return
+    startFlow()
+  }, [isOpen, startFlow])
 
   // Polling when QR is shown
   useEffect(() => {
@@ -347,9 +352,13 @@ export default function SbpPaymentModal({
           {screen === 'error' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div style={{ fontSize: 15, color: '#DC2626', lineHeight: 1.5 }}>{error || 'Произошла ошибка'}</div>
-              <Button onClick={() => { setError(''); setScreen('checking') }} fullWidth>
-                Попробовать ещё раз
-              </Button>
+              {/* Blocking errors (limits / support required) can't be retried —
+                  show a Close button. Everything else retries the flow. */}
+              {/поддержк|лимит|заблокир/i.test(error || '') ? (
+                <Button onClick={onClose} fullWidth>Закрыть</Button>
+              ) : (
+                <Button onClick={startFlow} fullWidth>Попробовать ещё раз</Button>
+              )}
             </div>
           )}
         </div>
