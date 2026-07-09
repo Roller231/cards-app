@@ -100,13 +100,15 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
   const baseRub = rate && amount > 0 ? Math.ceil(amount * rate) : null
   const feeApplied = baseRub !== null && baseRub < smallThreshold ? smallFee : 0
   const payRub = baseRub !== null ? baseRub + feeApplied : null
-  // Bitbanker prod limits: 1000..50000 RUB per SBP transfer
-  const rubTooSmall = payRub !== null && payRub < 1000
-  const rubTooBig = payRub !== null && payRub > 50000
+  // Bitbanker prod limits (min is grossed up by their acquiring fee — backend value)
+  const minTransferRub = Number(rateInfo?.min_transfer_rub ?? 1022)
+  const maxTransferRub = Number(rateInfo?.max_transfer_rub ?? 50000)
+  const rubTooSmall = payRub !== null && payRub < minTransferRub
+  const rubTooBig = payRub !== null && payRub > maxTransferRub
   const rubLimitError = rubTooSmall
-    ? 'Минимальная сумма перевода по СБП — 1 000 ₽. Увеличьте сумму пополнения.'
+    ? `Минимальная сумма перевода по СБП — ${minTransferRub.toLocaleString('ru-RU')} ₽. Увеличьте сумму пополнения.`
     : rubTooBig
-      ? 'Максимальная сумма перевода по СБП — 50 000 ₽. Уменьшите сумму пополнения.'
+      ? `Максимальная сумма перевода по СБП — ${maxTransferRub.toLocaleString('ru-RU')} ₽. Уменьшите сумму пополнения.`
       : ''
   const fullCardNumber = card?.cardNumber
     ? `${card.cardNumber.slice(0, 4)} ${card.cardNumber.slice(4, 8)} ${card.cardNumber.slice(8, 12)} ${card.cardNumber.slice(12, 16)}`

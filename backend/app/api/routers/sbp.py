@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import time as _time
 import uuid as _uuid
 from datetime import datetime, timedelta, timezone as _dt_timezone
 from decimal import Decimal
@@ -101,11 +103,16 @@ async def get_sbp_rate(_: User = Depends(get_current_user)):
         * (1 + settings.SBP_OUR_FEE_PERCENT / 100)
         * (1 + settings.SBP_CLARUS_FEE_PERCENT / 100)
     )
+    bb_fee, bb_fee_min = await _get_bb_fee_params()
     return {
         "index": round(index, 4),
         "rate": round(rate, 4),
         "small_payment_fee_rub": settings.SBP_SMALL_PAYMENT_FEE_RUB,
         "small_payment_threshold_rub": settings.SBP_SMALL_PAYMENT_THRESHOLD_RUB,
+        "min_transfer_rub": _min_transfer_rub(bb_fee, bb_fee_min),
+        "max_transfer_rub": SBP_MAX_AMOUNT_RUB,
+        "bb_fee_pct": round(bb_fee * 100, 4),
+        "bb_fee_min_rub": bb_fee_min,
     }
 
 
@@ -161,16 +168,62 @@ async def exchange_prediction(
         raise HTTPException(status_code=502, detail=str(exc))
 
 
+# Bitbanker QR commission = max(pct × QR, min_abs), charged ON TOP of the
+# invoice amount. Live values come from their prediction-sbp endpoint
+# (sbp_fee_pct / sbp_fee_abs) and are cached; config values are the fallback.
+_bb_fee_cache: Dict[str, Any] = {"ts": 0.0, "pct": None, "abs": None}
+_BB_FEE_CACHE_TTL = 300  # seconds
+
+
+async def _get_bb_fee_params() -> tuple[float, float]:
+    """Returns (pct_fraction, min_abs_rub) of Bitbanker's QR commission."""
+    now = _time.time()
+    if _bb_fee_cache["pct"] is not None and now - _bb_fee_cache["ts"] < _BB_FEE_CACHE_TTL:
+        return _bb_fee_cache["pct"], _bb_fee_cache["abs"]
+    pct = settings.SBP_BITBANKER_FEE_PERCENT / 100.0
+    min_abs = float(settings.SBP_BB_MIN_FEE_RUB)
+    try:
+        pred = await bitbanker_client.get_sbp_prediction()
+        live_pct = float(pred.get("sbp_fee_pct") or 0)
+        if live_pct > 0:
+            pct = live_pct / 100.0
+            min_abs = float(pred.get("sbp_fee_abs") or 0)
+    except Exception as exc:
+        logger.warning("[SBP] prediction-sbp unavailable, using config fee fallback: %s", str(exc)[:200])
+    _bb_fee_cache.update(ts=now, pct=pct, abs=min_abs)
+    return pct, min_abs
+
+
+def _discounted_invoice_rub(shown_rub: float, pct: float, min_abs: float) -> int:
+    """Invert Bitbanker's QR grossing so the user pays exactly `shown_rub`:
+    percent branch: QR = invoice / (1 − pct); flat branch: QR = invoice + min_abs."""
+    if shown_rub * pct >= min_abs:
+        return int(shown_rub * (1 - pct))  # floor → QR never exceeds shown
+    return int(shown_rub - min_abs)
+
+
+def _min_transfer_rub(pct: float, min_abs: float) -> int:
+    """Smallest payable amount: the discounted invoice must stay ≥ BB's minimum."""
+    return max(math.ceil(SBP_MIN_AMOUNT_RUB / (1 - pct)), int(SBP_MIN_AMOUNT_RUB + min_abs))
+
+
 @router.post("/invoice", summary="Create SBP invoice and get QR code")
 async def create_invoice(
     body: InvoiceCreateRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if body.amount_rub < SBP_MIN_AMOUNT_RUB:
+    # Bitbanker charges max(pct × QR, min_abs) ON TOP of the invoice. We create
+    # the invoice discounted so the QR the user pays equals exactly the amount
+    # shown in the app.
+    bb_fee, bb_fee_min = await _get_bb_fee_params()
+    invoice_amount_rub = _discounted_invoice_rub(body.amount_rub, bb_fee, bb_fee_min)
+
+    min_transfer = _min_transfer_rub(bb_fee, bb_fee_min)
+    if body.amount_rub < min_transfer or invoice_amount_rub < SBP_MIN_AMOUNT_RUB:
         raise HTTPException(
             status_code=400,
-            detail=f"Минимальная сумма перевода по СБП — {SBP_MIN_AMOUNT_RUB:,} ₽.".replace(",", " "),
+            detail=f"Минимальная сумма перевода по СБП — {min_transfer:,} ₽.".replace(",", " "),
         )
     if body.amount_rub > SBP_MAX_AMOUNT_RUB:
         raise HTTPException(
@@ -274,8 +327,13 @@ async def create_invoice(
         else f"Пополнение баланса {int(body.amount_rub)} руб."
     )
     try:
+        # Discounted amount goes to Bitbanker; the bank grosses it back up by the
+        # acquiring fee, so the user's QR ≈ body.amount_rub (what the app showed).
+        if settings.DETAILED_DEV_LOGS:
+            logger.info("[SBP] Invoice discount | shown=%s -> invoice=%s (fee=%.2f%%)",
+                        body.amount_rub, invoice_amount_rub, bb_fee * 100)
         result = await bitbanker_client.create_invoice(
-            amount_rub=body.amount_rub,
+            amount_rub=invoice_amount_rub,
             partner_client_external_id=ext_ref,
             idempotency_key=idempotency_key,
             description=description,

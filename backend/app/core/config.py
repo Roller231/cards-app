@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     # App exchange-rate formula: rate = [BB index] × bitbFee × myFee × clarusFee,
     # where each multiplier is (1 + percent/100). Percents are admin-editable.
     SBP_BITBANKER_FEE_PERCENT: float = 2.1
+    # Bitbanker QR commission = max(pct × QR, this absolute minimum). Live values
+    # come from BB's prediction-sbp; these are fallbacks when it's unavailable.
+    # Prod is 21 ₽ today, BB plans to raise it to 210 ₽.
+    SBP_BB_MIN_FEE_RUB: float = 21.0
     SBP_OUR_FEE_PERCENT: float = 1.9
     SBP_CLARUS_FEE_PERCENT: float = 2.8
     # Fixed Bitbanker commission passed on to the user for small top-ups
