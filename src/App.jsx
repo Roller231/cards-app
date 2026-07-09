@@ -243,6 +243,12 @@ function AppInner() {
     offers.length > 0 &&
     offers.every((o) => Number(o.current_count ?? 0) >= Number(o.max_issued_count ?? 999))
 
+  // Card types can be disabled in the admin panel — hide their promo blocks.
+  // While offers haven't loaded yet, show everything (avoid flicker/hard hide on error).
+  const offersLoaded = offers.length > 0
+  const onlineAvailable = !offersLoaded || offers.some((o) => o.name === 'Online')
+  const onlinePlusAvailable = !offersLoaded || offers.some((o) => o.name === 'Online+Pay')
+
   // Banned screen
   if (banned) {
     return (
@@ -295,6 +301,8 @@ function AppInner() {
           cardsLoading={cardsLoading}
           transactionsLoading={transactionsLoading}
           issueLimitReached={issueLimitReached}
+          onlineAvailable={onlineAvailable}
+          onlinePlusAvailable={onlinePlusAvailable}
           onRefresh={async () => {
             const cards = await refreshCards()
             refreshOffers()

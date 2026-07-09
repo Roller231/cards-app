@@ -233,6 +233,15 @@ async def create_invoice(
     if body.purpose not in ("balance_topup", "card_issue"):
         raise HTTPException(status_code=400, detail="purpose must be balance_topup or card_issue")
 
+    # Admin toggles: refuse payment for a disabled card type
+    if body.purpose == "card_issue" and body.offer_id:
+        from app.services.card_service import CARD_NAME_BY_OFFER
+        _card_name = CARD_NAME_BY_OFFER.get(body.offer_id)
+        if (_card_name == "Online" and not settings.CARD_ONLINE_ENABLED) or (
+            _card_name == "Online+Pay" and not settings.CARD_ONLINE_PLUS_ENABLED
+        ):
+            raise HTTPException(status_code=400, detail="Выпуск этого типа карты временно недоступен. Попробуйте позже.")
+
     # --- Our own QR guards: keep users well inside Bitbanker's prod limits ---
     # 1) No more than 2 created QR codes per Moscow day (BB allows 2 paid/day;
     #    we cap creation so users can't even approach the block).

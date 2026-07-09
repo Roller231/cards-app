@@ -9,6 +9,10 @@ class Settings(BaseSettings):
     DETAILED_DEV_LOGS: bool = False  # Enable verbose development logging
     LOCAL_DEV_CLIENT_SUFFIX: str = ""  # Override fallback tg_dev_<suffix> for dev/testing
 
+    # Card type availability toggles (admin panel)
+    CARD_ONLINE_ENABLED: bool = True
+    CARD_ONLINE_PLUS_ENABLED: bool = True
+
     # Per-card-type commission settings
     ONLINE_ISSUE_FEE_USD: float = 0.0  # Fixed fee for Online card issuance
     ONLINE_TOPUP_MARKUP_PERCENT: float = 3.8

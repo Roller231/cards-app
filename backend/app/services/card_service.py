@@ -815,6 +815,12 @@ class CardService:
                         # Strip markdown — take only the first non-empty line
                         first_line = next((l.strip().lstrip('#').strip() for l in raw_name.splitlines() if l.strip()), raw_name)
                         name = first_line or f"{payment_system} Virtual Card"
+
+                # Admin toggles: hide disabled card types from the app
+                if name == "Online" and not settings.CARD_ONLINE_ENABLED:
+                    continue
+                if name == "Online+Pay" and not settings.CARD_ONLINE_PLUS_ENABLED:
+                    continue
                 offers.append({
                     "id": f"{ravana_server_id}:{type_uuid}",
                     "name": name,

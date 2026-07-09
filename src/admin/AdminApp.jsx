@@ -469,49 +469,153 @@ function AnalyticsPage() {
 }
 
 // ─────────── SETTINGS ───────────
+
+const SETTING_GROUPS = [
+  {
+    title: '💳 Типы карт',
+    desc: 'Какие карты доступны пользователям для выпуска. Выключенная карта скрывается из приложения, оплата по ней блокируется.',
+    keys: ['CARD_ONLINE_ENABLED', 'CARD_ONLINE_PLUS_ENABLED'],
+  },
+  {
+    title: '₽ Цены выпуска',
+    desc: 'Итоговая сумма к оплате через СБП. Должна быть не ниже минимума перевода (~1 210 ₽).',
+    keys: ['CARD_ISSUANCE_PRICE_RUB', 'CARD_ISSUANCE_PRICE_PAY_RUB'],
+  },
+  {
+    title: '📈 Курс и комиссии СБП',
+    desc: 'Формула курса: индекс Битбанкера × (1 + %ББ) × (1 + %наш) × (1 + %Clarus). Минимальная комиссия ББ — фолбэк на случай недоступности их API.',
+    keys: ['SBP_BITBANKER_FEE_PERCENT', 'SBP_OUR_FEE_PERCENT', 'SBP_CLARUS_FEE_PERCENT', 'SBP_BB_MIN_FEE_RUB'],
+  },
+  {
+    title: '🏷 Витрина карт',
+    desc: 'Значения, отображаемые в описаниях карт на главной странице приложения.',
+    keys: [
+      'ONLINE_TOPUP_MARKUP_PERCENT', 'ONLINE_PLUS_TOPUP_MARKUP_PERCENT',
+      'ONLINE_OPERATION_FEE_USD', 'ONLINE_PLUS_OPERATION_FEE_USD',
+      'ONLINE_CARD_VALIDITY_TEXT', 'ONLINE_PLUS_CARD_VALIDITY_TEXT',
+    ],
+  },
+  {
+    title: '⚙️ Прочее',
+    desc: '',
+    keys: ['CARD_BILLING_ADDRESS'],
+  },
+]
+
+function Toggle({ checked, onChange }) {
+  return (
+    <div
+      onClick={() => onChange(!checked)}
+      style={{
+        width: 46, height: 26, borderRadius: 13, flexShrink: 0,
+        background: checked ? '#10b981' : '#d1d5db',
+        position: 'relative', cursor: 'pointer', transition: 'background .15s',
+      }}
+    >
+      <div style={{
+        position: 'absolute', top: 3, left: checked ? 23 : 3,
+        width: 20, height: 20, borderRadius: '50%', background: '#fff',
+        transition: 'left .15s', boxShadow: '0 1px 3px rgba(0,0,0,.25)',
+      }} />
+    </div>
+  )
+}
+
+function SettingRow({ s, update, last }) {
+  const isBool = s.type === 'bool'
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 20,
+      padding: '14px 0', borderBottom: last ? 'none' : '1px solid #f3f4f6',
+    }}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', lineHeight: 1.4 }}>{s.description}</div>
+        <div style={{ fontSize: 11, color: '#9ca3af', fontFamily: 'monospace', marginTop: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
+          {s.key}
+          <span style={{
+            fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 6,
+            background: s.source === 'db' ? '#ecfdf5' : '#f3f4f6',
+            color: s.source === 'db' ? '#059669' : '#9ca3af',
+          }}>
+            {s.source === 'db' ? 'сохранено' : 'из env'}
+          </span>
+        </div>
+      </div>
+      {isBool ? (
+        <Toggle checked={!!s.value} onChange={v => update(s.key, v)} />
+      ) : (
+        <input
+          value={s.value}
+          onChange={e => update(s.key, e.target.value)}
+          style={{
+            width: 180, padding: '8px 12px', borderRadius: 8, flexShrink: 0,
+            border: '1px solid #d1d5db', fontSize: 14, outline: 'none', textAlign: 'right',
+            transition: 'border-color .15s',
+          }}
+          onFocus={e => (e.target.style.borderColor = '#6366f1')}
+          onBlur={e => (e.target.style.borderColor = '#d1d5db')}
+        />
+      )}
+    </div>
+  )
+}
+
 function SettingsPage() {
   const [items, setItems] = useState([])
   const [saving, setSaving] = useState(false)
+  const [savedAt, setSavedAt] = useState(null)
 
   useEffect(() => { adminApi.settings.list().then(setItems).catch(() => {}) }, [])
 
   const update = (key, value) => {
+    setSavedAt(null)
     setItems(prev => prev.map(s => s.key === key ? { ...s, value } : s))
   }
   const save = async () => {
     setSaving(true)
     try {
       await adminApi.settings.update(items.map(s => ({ key: s.key, value: s.value })))
-      alert('Настройки сохранены')
+      const fresh = await adminApi.settings.list().catch(() => null)
+      if (fresh) setItems(fresh)
+      setSavedAt(new Date())
     } catch (e) { alert(e.message) }
     finally { setSaving(false) }
   }
 
+  const byKey = Object.fromEntries(items.map(s => [s.key, s]))
+  const groupedKeys = new Set(SETTING_GROUPS.flatMap(g => g.keys))
+  const leftovers = items.filter(s => !groupedKeys.has(s.key))
+
   return (
-    <div>
-      <h2 style={{ margin: '0 0 20px', fontSize: 22, fontWeight: 700 }}>Настройки</h2>
-      <div style={{ background: '#fff', borderRadius: 14, padding: 24, boxShadow: '0 1px 3px rgba(0,0,0,.08)', maxWidth: 600 }}>
-        {items.map(s => (
-          <div key={s.key} style={{ marginBottom: 16 }}>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 2 }}>{s.description}</label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {s.type === 'bool' ? (
-                <input
-                  type="checkbox"
-                  checked={!!s.value}
-                  onChange={e => update(s.key, e.target.checked)}
-                  style={{ width: 18, height: 18 }}
-                />
-              ) : (
-                <input value={s.value} onChange={e => update(s.key, e.target.value)}
-                  style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14, outline: 'none' }} />
-              )}
-              <span style={{ fontSize: 11, color: '#9ca3af', minWidth: 30 }}>{s.source === 'db' ? 'DB' : 'ENV'}</span>
+    <div style={{ maxWidth: 680 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+        <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>Настройки</h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {savedAt && <span style={{ fontSize: 13, color: '#059669', fontWeight: 600 }}>✓ Сохранено</span>}
+          <Btn onClick={save} disabled={saving}>{saving ? 'Сохранение…' : 'Сохранить'}</Btn>
+        </div>
+      </div>
+
+      {SETTING_GROUPS.map(group => {
+        const rows = group.keys.map(k => byKey[k]).filter(Boolean)
+        const extra = group.title.startsWith('⚙️') ? leftovers : []
+        const all = [...rows, ...extra.filter(s => !rows.some(r => r.key === s.key))]
+        if (all.length === 0) return null
+        return (
+          <div key={group.title} style={{ background: '#fff', borderRadius: 14, padding: '20px 24px', boxShadow: '0 1px 3px rgba(0,0,0,.08)', marginBottom: 16 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#111827' }}>{group.title}</div>
+            {group.desc && <div style={{ fontSize: 12.5, color: '#6b7280', marginTop: 4, marginBottom: 6, lineHeight: 1.5 }}>{group.desc}</div>}
+            <div>
+              {all.map((s, i) => (
+                <SettingRow key={s.key} s={s} update={update} last={i === all.length - 1} />
+              ))}
             </div>
-            <span style={{ fontSize: 11, color: '#9ca3af' }}>{s.key}</span>
           </div>
-        ))}
-        <Btn onClick={save} disabled={saving} style={{ marginTop: 8 }}>{saving ? 'Сохранение...' : 'Сохранить настройки'}</Btn>
+        )
+      })}
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <Btn onClick={save} disabled={saving}>{saving ? 'Сохранение…' : 'Сохранить настройки'}</Btn>
       </div>
     </div>
   )

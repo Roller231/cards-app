@@ -66,6 +66,14 @@ async def issue_card(
     # Quick synchronous validation only; heavy O-Plata pipeline runs in background.
     if not body.offer_id:
         raise HTTPException(status_code=400, detail="offer_id is required")
+
+    # Admin toggles: refuse issuing a disabled card type
+    from app.services.card_service import CARD_NAME_BY_OFFER
+    _card_name = CARD_NAME_BY_OFFER.get(body.offer_id)
+    if (_card_name == "Online" and not settings.CARD_ONLINE_ENABLED) or (
+        _card_name == "Online+Pay" and not settings.CARD_ONLINE_PLUS_ENABLED
+    ):
+        raise HTTPException(status_code=400, detail="Выпуск этого типа карты временно недоступен. Попробуйте позже.")
     
     # Require KYC verification before card issuance
     if current_user.kyc_status != "success" or not current_user.kyc_first_name or not current_user.kyc_last_name:

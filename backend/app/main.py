@@ -93,7 +93,12 @@ async def _load_admin_settings() -> None:
                 if hasattr(settings, key_upper):
                     cur = getattr(settings, key_upper)
                     try:
-                        setattr(settings, key_upper, type(cur)(s.value))
+                        if isinstance(cur, bool):
+                            # bool("False") is True — parse explicitly
+                            typed = str(s.value).strip().lower() in ("1", "true", "yes", "on")
+                        else:
+                            typed = type(cur)(s.value)
+                        setattr(settings, key_upper, typed)
                         logger.info("Admin setting loaded: %s = %s", key_upper, s.value)
                     except (ValueError, TypeError):
                         pass

@@ -12,7 +12,7 @@ const PULL_THRESHOLD = 120
 const PULL_MAX = 180
 const PULL_DEAD_ZONE = 30
 
-function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNavigateToIssueCard, onCardClick, onNavigateToHistory, commissions = {}, cardsLoading = false, transactionsLoading = false, onRefresh, issueLimitReached = false }) {
+function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNavigateToIssueCard, onCardClick, onNavigateToHistory, commissions = {}, cardsLoading = false, transactionsLoading = false, onRefresh, issueLimitReached = false, onlineAvailable = true, onlinePlusAvailable = true }) {
   const [expandedCard, setExpandedCard] = useState(null)
   const scrollRef = useDragScroll()
   const font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif'
@@ -315,7 +315,7 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
         </Card>
       </Section>
 
-      {userCards.length === 0 && (
+      {userCards.length === 0 && onlineAvailable && (
         <Section>
           <Card padding={isOnlineExpanded ? '20px 20px 16px 20px' : '20px'}>
           <div className="flex items-start justify-between">
@@ -495,7 +495,7 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
         </Section>
       )}
 
-      {userCards.length === 0 && (
+      {userCards.length === 0 && onlinePlusAvailable && (
         <Section>
         <Card padding={isOnlinePlusExpanded ? '20px 20px 16px 20px' : '20px'}>
           <div className="flex items-start justify-between">
