@@ -251,11 +251,14 @@ class BitbankerClient:
         header: str = "ProntoPay",
     ) -> Dict[str, Any]:
         """POST /api/v2/invoices — create SBP payment invoice, returns qr image."""
+        amt = round(float(amount_rub), 2)
         payload = {
             "payment_currencies": ["RUBR"],
             "payment_chains": [],
             "currency": "RUBR",
-            "amount": int(amount_rub),  # Bitbanker expects integer for amount
+            # BB accepts fractional amounts (verified on dev) — kopecks keep the
+            # bank QR exactly equal to the price shown in the app
+            "amount": int(amt) if amt.is_integer() else amt,
             "header": header,
             "description": description or f"Оплата {int(amount_rub)} руб.",
             "language": "ru",

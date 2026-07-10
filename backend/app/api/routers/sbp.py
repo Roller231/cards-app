@@ -17,7 +17,7 @@ import math
 import time as _time
 import uuid as _uuid
 from datetime import datetime, timedelta, timezone as _dt_timezone
-from decimal import Decimal
+from decimal import Decimal, ROUND_FLOOR
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -194,12 +194,19 @@ async def _get_bb_fee_params() -> tuple[float, float]:
     return pct, min_abs
 
 
-def _discounted_invoice_rub(shown_rub: float, pct: float, min_abs: float) -> int:
+def _discounted_invoice_rub(shown_rub: float, pct: float, min_abs: float) -> float:
     """Invert Bitbanker's QR grossing so the user pays exactly `shown_rub`:
-    percent branch: QR = invoice / (1 − pct); flat branch: QR = invoice + min_abs."""
+    percent branch: QR = invoice / (1 − pct); flat branch: QR = invoice + min_abs.
+    Kopeck precision (BB accepts fractional amounts) — floor to 2 decimals so
+    the QR never exceeds the shown amount."""
+    d_shown = Decimal(str(shown_rub))
     if shown_rub * pct >= min_abs:
-        return int(shown_rub * (1 - pct))  # floor → QR never exceeds shown
-    return int(shown_rub - min_abs)
+        inv = (d_shown * (Decimal("1") - Decimal(str(pct)))).quantize(
+            Decimal("0.01"), rounding=ROUND_FLOOR
+        )
+    else:
+        inv = (d_shown - Decimal(str(min_abs))).quantize(Decimal("0.01"))
+    return float(inv)
 
 
 def _min_transfer_rub(pct: float, min_abs: float) -> int:

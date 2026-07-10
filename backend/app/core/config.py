@@ -63,7 +63,10 @@ class Settings(BaseSettings):
     OPLATA_PUBLIC_KEY: str = ""
     OPLATA_CALLBACK_PUBLIC_KEY: str = ""
     OPLATA_TEST_CLIENT_ID: str = "Developer"  # clientId used for fetching card types/offers
-    OPLATA_PARENT_CLIENT_ID: str = "Developer"  # Funded parent client used to transfer funds to per-user clients
+    # Funded parent client used to transfer funds to per-user clients.
+    # Empty default on purpose: falls back to OPLATA_TEST_CLIENT_ID, then "Developer"
+    # (see _parent_client_id) — a non-empty default here silently shadowed the .env value.
+    OPLATA_PARENT_CLIENT_ID: str = ""
     OPLATA_USER_CLIENT_PREFIX: str = "tg_"  # Prefix for per-user O-Plata clientId derived from telegram_user_id
 
     # NeuroVision KYC
