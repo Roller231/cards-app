@@ -259,7 +259,9 @@ async def create_invoice(
 
     # 2) Never let a user create a 3rd consecutive unpaid QR — Bitbanker blocks
     #    the account after 3 unpaid QRs in a row, and unblocking goes through
-    #    their support with compliance questions.
+    #    their support with compliance questions. Intentionally NOT tied to the
+    #    Moscow day: a stale/expired unpaid QR can't be paid anymore, so this
+    #    stays blocking (30-day window) until support/cleanup resolves it.
     last_two_res = await db.execute(
         select(BbInvoice).where(
             BbInvoice.user_id == current_user.id,

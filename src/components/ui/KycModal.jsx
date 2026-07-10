@@ -117,24 +117,29 @@ export default function KycModal({ isOpen, onClose, onSuccess }) {
       setLoading(false)
       setScreen('widget')
       // Load and open NeuroVision widget
-      openNvWidget(creds.schema_id, creds.client_key_encrypted)
+      openNvWidget(creds)
     } catch (e) {
       setLoading(false)
       setError(e.message || 'Ошибка, попробуйте ещё раз')
     }
   }
 
-  const openNvWidget = (schemaId, clientKey) => {
+  const openNvWidget = (creds) => {
     const doOpen = () => {
       if (!window.KYCWidget) {
         setError('Не удалось загрузить виджет верификации')
         setScreen('error')
         return
       }
+      // NeuroVision widget API (июль 2026): schemaId переименован в scenarioId,
+      // добавлен clientUser — идентификатор пользователя на нашей стороне.
       window.KYCWidget.setupKYC({
-        schemaId,
-        clientKey,
+        scenarioId: creds.schema_id,
+        clientKey: creds.client_key_encrypted,
+        clientUser: String(creds.user_id ?? ''),
         theme: 'light',
+        topOffset: 0,
+        bottomOffset: 0,
         closeCb: () => {
           // Only reset to contact form if user closed the widget WITHOUT completing
           // (i.e. screen is still 'widget'). If success/processing — leave it alone.
