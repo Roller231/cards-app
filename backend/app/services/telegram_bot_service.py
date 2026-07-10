@@ -313,7 +313,6 @@ async def notify_card_issued(
             f"<b>{header}</b>\n"
             f"{last4_str}\n"
             f"💵 Баланс карты: <b>${card_amount:.2f}</b>\n"
-            f"💰 Комиссия за выпуск: <b>${fee:.2f}</b>\n"
             f"🕐 {now}"
         )
     else:
