@@ -94,7 +94,9 @@ export function AuthProvider({ children }) {
         setUser(null)
       }
 
-      // Case 3: no initData, no token → auto-login as dev browser user
+      // Case 3: no initData, no token → try dev-browser login.
+      // Disabled in production (backend returns 403) so the app is only
+      // reachable from inside Telegram.
       try {
         setAuthError('')
         await loginWithDevBrowser()
@@ -104,7 +106,9 @@ export function AuthProvider({ children }) {
         console.error('[Auth] Dev browser auth failed:', e.message)
         clearToken()
         setUser(null)
-        setAuthError(`Ошибка dev-авторизации: ${e.message}`)
+        // Forbidden = opened outside Telegram in production: show the clean
+        // "open from Telegram" screen, not a scary error.
+        setAuthError(e.status === 403 ? '' : `Ошибка авторизации: ${e.message}`)
         setLoading(false)
       }
     }

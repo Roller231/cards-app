@@ -61,6 +61,11 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
     summary="Dev-only browser auth: get/create a local dev user without Telegram",
 )
 async def dev_browser_auth(db: AsyncSession = Depends(get_db)):
+    # Hard gate: in production this endpoint is disabled, so the app is only
+    # reachable from inside Telegram (which sends verified initData).
+    if not settings.ALLOW_DEV_BROWSER_LOGIN:
+        raise HTTPException(status_code=403, detail="Доступ только через Telegram")
+
     username = "dev_user"
     default_balance = 1000
 

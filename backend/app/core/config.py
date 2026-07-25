@@ -7,6 +7,9 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080  # 7 days
     DETAILED_DEV_LOGS: bool = False  # Enable verbose development logging
+    # Browser access without Telegram (POST /auth/dev-browser). MUST stay False
+    # in production so the app is reachable only from inside Telegram.
+    ALLOW_DEV_BROWSER_LOGIN: bool = False
     LOCAL_DEV_CLIENT_SUFFIX: str = ""  # Override fallback tg_dev_<suffix> for dev/testing
 
     # Card type availability toggles (admin panel)
