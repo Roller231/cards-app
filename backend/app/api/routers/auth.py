@@ -109,14 +109,17 @@ async def get_config(db: AsyncSession = Depends(get_db)):
     from app.models.admin_setting import AdminSetting
     price_rub = settings.CARD_ISSUANCE_PRICE_RUB
     price_pay_rub = settings.CARD_ISSUANCE_PRICE_PAY_RUB
+    price_univ_rub = settings.CARD_ISSUANCE_PRICE_UNIV_RUB
     try:
-        keys = ["CARD_ISSUANCE_PRICE_RUB", "CARD_ISSUANCE_PRICE_PAY_RUB"]
+        keys = ["CARD_ISSUANCE_PRICE_RUB", "CARD_ISSUANCE_PRICE_PAY_RUB", "CARD_ISSUANCE_PRICE_UNIV_RUB"]
         result = await db.execute(select(AdminSetting).where(AdminSetting.key.in_(keys)))
         rows = {r.key: r.value for r in result.scalars().all()}
         if rows.get("CARD_ISSUANCE_PRICE_RUB"):
             price_rub = float(rows["CARD_ISSUANCE_PRICE_RUB"])
         if rows.get("CARD_ISSUANCE_PRICE_PAY_RUB"):
             price_pay_rub = float(rows["CARD_ISSUANCE_PRICE_PAY_RUB"])
+        if rows.get("CARD_ISSUANCE_PRICE_UNIV_RUB"):
+            price_univ_rub = float(rows["CARD_ISSUANCE_PRICE_UNIV_RUB"])
     except Exception:
         pass
 
@@ -125,14 +128,42 @@ async def get_config(db: AsyncSession = Depends(get_db)):
         "online_topup_markup_percent": settings.ONLINE_TOPUP_MARKUP_PERCENT,
         "online_plus_issue_fee_usd": settings.ONLINE_PLUS_ISSUE_FEE_USD,
         "online_plus_topup_markup_percent": settings.ONLINE_PLUS_TOPUP_MARKUP_PERCENT,
+        "univ_topup_markup_percent": settings.UNIV_TOPUP_MARKUP_PERCENT,
         "issue_apply_topup_markup": settings.ISSUE_APPLY_TOPUP_MARKUP,
         "online_card_validity_text": settings.ONLINE_CARD_VALIDITY_TEXT,
         "online_plus_card_validity_text": settings.ONLINE_PLUS_CARD_VALIDITY_TEXT,
+        "univ_card_validity_text": settings.UNIV_CARD_VALIDITY_TEXT,
         "online_operation_fee_usd": settings.ONLINE_OPERATION_FEE_USD,
         "online_plus_operation_fee_usd": settings.ONLINE_PLUS_OPERATION_FEE_USD,
+        "univ_operation_fee_usd": settings.UNIV_OPERATION_FEE_USD,
         "card_issuance_price_rub": price_rub,
         "card_issuance_price_pay_rub": price_pay_rub,
+        "card_issuance_price_univ_rub": price_univ_rub,
         "card_billing_address": settings.CARD_BILLING_ADDRESS,
+        # Промо-плашки на главной — все поля из админки
+        "cards_promo": {
+            "online": {
+                "title": settings.CARD_ONLINE_PROMO_TITLE,
+                "desc": settings.CARD_ONLINE_PROMO_DESC,
+                "badge": settings.CARD_ONLINE_PROMO_BADGE,
+                "pays": settings.CARD_ONLINE_PROMO_PAYS,
+                "bin": settings.CARD_ONLINE_PROMO_BIN,
+            },
+            "online_plus": {
+                "title": settings.CARD_ONLINE_PLUS_PROMO_TITLE,
+                "desc": settings.CARD_ONLINE_PLUS_PROMO_DESC,
+                "badge": settings.CARD_ONLINE_PLUS_PROMO_BADGE,
+                "pays": settings.CARD_ONLINE_PLUS_PROMO_PAYS,
+                "bin": settings.CARD_ONLINE_PLUS_PROMO_BIN,
+            },
+            "pay": {
+                "title": settings.CARD_PAY_PROMO_TITLE,
+                "desc": settings.CARD_PAY_PROMO_DESC,
+                "badge": settings.CARD_PAY_PROMO_BADGE,
+                "pays": settings.CARD_PAY_PROMO_PAYS,
+                "bin": settings.CARD_PAY_PROMO_BIN,
+            },
+        },
     }
 
 

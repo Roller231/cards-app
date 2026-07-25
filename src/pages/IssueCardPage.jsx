@@ -67,10 +67,13 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
   const selectedCard = cardTypes.find((c) => String(c.id) === String(selectedCardType))
   const selectedCardName = selectedCard?.name || ''
   
-  // Select price based on card type
-  const price = selectedCardName?.trim().toLowerCase().includes('pay')
+  // Select price based on exact card type name
+  const _name = (selectedCardName || '').trim()
+  const price = _name === 'Online+Pay' || _name === 'Online + Pay'
     ? (Number(issuancePrice?.price_pay_rub) || 1999)
-    : (Number(issuancePrice?.price_rub) || 999)
+    : _name === 'Pay'
+      ? (Number(issuancePrice?.price_univ_rub) || 1999)
+      : (Number(issuancePrice?.price_rub) || 999)
   
   const initialBalance = issuancePrice?.initial_balance || 0
   const maxCards = selectedCard?.max_issued_count || 999

@@ -474,12 +474,12 @@ const SETTING_GROUPS = [
   {
     title: '💳 Типы карт',
     desc: 'Какие карты доступны пользователям для выпуска. Выключенная карта скрывается из приложения, оплата по ней блокируется.',
-    keys: ['CARD_ONLINE_ENABLED', 'CARD_ONLINE_PLUS_ENABLED'],
+    keys: ['CARD_ONLINE_ENABLED', 'CARD_ONLINE_PLUS_ENABLED', 'CARD_PAY_ENABLED'],
   },
   {
     title: '₽ Цены выпуска',
     desc: 'Итоговая сумма к оплате через СБП. Должна быть не ниже минимума перевода (~1 210 ₽).',
-    keys: ['CARD_ISSUANCE_PRICE_RUB', 'CARD_ISSUANCE_PRICE_PAY_RUB'],
+    keys: ['CARD_ISSUANCE_PRICE_RUB', 'CARD_ISSUANCE_PRICE_PAY_RUB', 'CARD_ISSUANCE_PRICE_UNIV_RUB'],
   },
   {
     title: '📈 Курс и комиссии СБП',
@@ -490,10 +490,25 @@ const SETTING_GROUPS = [
     title: '🏷 Витрина карт',
     desc: 'Значения, отображаемые в описаниях карт на главной странице приложения.',
     keys: [
-      'ONLINE_TOPUP_MARKUP_PERCENT', 'ONLINE_PLUS_TOPUP_MARKUP_PERCENT',
-      'ONLINE_OPERATION_FEE_USD', 'ONLINE_PLUS_OPERATION_FEE_USD',
-      'ONLINE_CARD_VALIDITY_TEXT', 'ONLINE_PLUS_CARD_VALIDITY_TEXT',
+      'ONLINE_TOPUP_MARKUP_PERCENT', 'ONLINE_PLUS_TOPUP_MARKUP_PERCENT', 'UNIV_TOPUP_MARKUP_PERCENT',
+      'ONLINE_OPERATION_FEE_USD', 'ONLINE_PLUS_OPERATION_FEE_USD', 'UNIV_OPERATION_FEE_USD',
+      'ONLINE_CARD_VALIDITY_TEXT', 'ONLINE_PLUS_CARD_VALIDITY_TEXT', 'UNIV_CARD_VALIDITY_TEXT',
     ],
+  },
+  {
+    title: '🖼 Промо-плашка Online',
+    desc: 'Тексты информационной плашки Online на главной.',
+    keys: ['CARD_ONLINE_PROMO_TITLE', 'CARD_ONLINE_PROMO_DESC', 'CARD_ONLINE_PROMO_BADGE', 'CARD_ONLINE_PROMO_PAYS', 'CARD_ONLINE_PROMO_BIN'],
+  },
+  {
+    title: '🖼 Промо-плашка Online+Pay',
+    desc: 'Тексты информационной плашки Online+Pay на главной.',
+    keys: ['CARD_ONLINE_PLUS_PROMO_TITLE', 'CARD_ONLINE_PLUS_PROMO_DESC', 'CARD_ONLINE_PLUS_PROMO_BADGE', 'CARD_ONLINE_PLUS_PROMO_PAYS', 'CARD_ONLINE_PLUS_PROMO_BIN'],
+  },
+  {
+    title: '🖼 Промо-плашка Pay',
+    desc: 'Тексты информационной плашки Pay (универсальная карта) на главной.',
+    keys: ['CARD_PAY_PROMO_TITLE', 'CARD_PAY_PROMO_DESC', 'CARD_PAY_PROMO_BADGE', 'CARD_PAY_PROMO_PAYS', 'CARD_PAY_PROMO_BIN'],
   },
   {
     title: '⚙️ Прочее',

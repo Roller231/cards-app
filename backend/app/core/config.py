@@ -12,6 +12,13 @@ class Settings(BaseSettings):
     # Card type availability toggles (admin panel)
     CARD_ONLINE_ENABLED: bool = True
     CARD_ONLINE_PLUS_ENABLED: bool = True
+    CARD_PAY_ENABLED: bool = True
+
+    # "Pay" (universal) cards live on a separate O-Plata provider and are issued
+    # under a SEPARATE per-user client (tg_univ_*) with US identity data,
+    # funded from a dedicated parent.
+    OPLATA_UNIV_PARENT_CLIENT_ID: str = "PRONTOPAY_UNIV"
+    OPLATA_UNIV_RAVANA_IDS: str = "RAVANA:RT-8-prod"  # comma-separated providers
 
     # Per-card-type commission settings
     ONLINE_ISSUE_FEE_USD: float = 0.0  # Fixed fee for Online card issuance
@@ -21,6 +28,7 @@ class Settings(BaseSettings):
     # SBP prices users actually pay for issuance (admin panel / DB overrides these)
     CARD_ISSUANCE_PRICE_RUB: float = 999.0
     CARD_ISSUANCE_PRICE_PAY_RUB: float = 1999.0
+    CARD_ISSUANCE_PRICE_UNIV_RUB: float = 1999.0  # "Pay" (universal) card
 
     # App exchange-rate formula: rate = [BB index] × bitbFee × myFee × clarusFee,
     # where each multiplier is (1 + percent/100). Percents are admin-editable.
@@ -43,6 +51,26 @@ class Settings(BaseSettings):
     ONLINE_PLUS_CARD_VALIDITY_TEXT: str = "1 год"
     ONLINE_OPERATION_FEE_USD: float = 0.4
     ONLINE_PLUS_OPERATION_FEE_USD: float = 0.4
+    UNIV_CARD_VALIDITY_TEXT: str = "1 год"
+    UNIV_OPERATION_FEE_USD: float = 0.4
+    UNIV_TOPUP_MARKUP_PERCENT: float = 4.0
+
+    # Promo cards on the home screen — every visible field is admin-editable
+    CARD_ONLINE_PROMO_TITLE: str = "Online"
+    CARD_ONLINE_PROMO_DESC: str = "Для оплаты покупок и сервисов в интернете"
+    CARD_ONLINE_PROMO_BADGE: str = "Бесплатное обслуживание"
+    CARD_ONLINE_PROMO_PAYS: str = "Booking, Airbnb, Zoom, Google One, Spotify, YouTube, покупки в магазинах и пр."
+    CARD_ONLINE_PROMO_BIN: str = "Гонконг"
+    CARD_ONLINE_PLUS_PROMO_TITLE: str = "Online + Pay"
+    CARD_ONLINE_PLUS_PROMO_DESC: str = "Оплата в магазинах через Apple Pay, Google Pay и онлайн-сервисов на сайтах"
+    CARD_ONLINE_PLUS_PROMO_BADGE: str = "Бесплатное обслуживание"
+    CARD_ONLINE_PLUS_PROMO_PAYS: str = "Booking, Airbnb, Zoom, Google One, Spotify, YouTube, покупки в магазинах и пр."
+    CARD_ONLINE_PLUS_PROMO_BIN: str = "США"
+    CARD_PAY_PROMO_TITLE: str = "Pay"
+    CARD_PAY_PROMO_DESC: str = "Универсальная карта для международных оплат и подписок"
+    CARD_PAY_PROMO_BADGE: str = "Бесплатное обслуживание"
+    CARD_PAY_PROMO_PAYS: str = "Booking, Airbnb, Zoom, Google One, Spotify, YouTube, покупки в магазинах и пр."
+    CARD_PAY_PROMO_BIN: str = "США"
     
     ADMIN_EMAIL: str = "exprontopay@gmail.com"
     ADMIN_PASSWORD: str = "exprontoPay2026."

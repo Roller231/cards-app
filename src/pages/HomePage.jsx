@@ -6,13 +6,14 @@ import Badge from '../components/ui/Badge'
 import InfoCard from '../components/ui/InfoCard'
 import { H2, H3, H4, Description } from '../components/ui/Typography'
 import { useDragScroll } from '../hooks/useDragScroll'
+import { useAuth } from '../context/AuthContext'
 import { TxIcon } from './HistoryPage'
 
 const PULL_THRESHOLD = 120
 const PULL_MAX = 180
 const PULL_DEAD_ZONE = 30
 
-function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNavigateToIssueCard, onCardClick, onNavigateToHistory, commissions = {}, cardsLoading = false, transactionsLoading = false, onRefresh, issueLimitReached = false, onlineAvailable = true, onlinePlusAvailable = true }) {
+function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNavigateToIssueCard, onCardClick, onNavigateToHistory, commissions = {}, cardsLoading = false, transactionsLoading = false, onRefresh, issueLimitReached = false, onlineAvailable = true, onlinePlusAvailable = true, payAvailable = true }) {
   const [expandedCard, setExpandedCard] = useState(null)
   const scrollRef = useDragScroll()
   const font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif'
@@ -21,6 +22,50 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
 
   const isOnlineExpanded = expandedCard === 'online'
   const isOnlinePlusExpanded = expandedCard === 'online-plus'
+
+  // Promo cards on the home screen — every field is admin-editable
+  // (backend /auth/config -> cards_promo + commissions)
+  const { appConfig } = useAuth()
+  const promo = appConfig?.cards_promo || {}
+  const pick = (cfg, key, fallback) => (cfg && cfg[key]) || fallback
+  const promoCards = [
+    {
+      key: 'online', available: onlineAvailable, payIcons: false,
+      title: pick(promo.online, 'title', 'Online'),
+      desc: pick(promo.online, 'desc', 'Для оплаты покупок и сервисов в интернете'),
+      badge: pick(promo.online, 'badge', 'Бесплатное обслуживание'),
+      pays: pick(promo.online, 'pays', 'Booking, Airbnb, Zoom, Google One, Spotify, YouTube, покупки в магазинах и пр.'),
+      bin: pick(promo.online, 'bin', 'Гонконг'),
+      validity: commissions.online_validity_text || '1 год',
+      operationFee: commissions.online_operation_fee || 0.4,
+      priceRub: commissions.online_issue_price_rub || 999,
+      topup: commissions.online_topup || 3.8,
+    },
+    {
+      key: 'online-plus', available: onlinePlusAvailable, payIcons: true,
+      title: pick(promo.online_plus, 'title', 'Online + Pay'),
+      desc: pick(promo.online_plus, 'desc', 'Оплата в магазинах через Apple Pay, Google Pay и онлайн-сервисов на сайтах'),
+      badge: pick(promo.online_plus, 'badge', 'Бесплатное обслуживание'),
+      pays: pick(promo.online_plus, 'pays', 'Booking, Airbnb, Zoom, Google One, Spotify, YouTube, покупки в магазинах и пр.'),
+      bin: pick(promo.online_plus, 'bin', 'США'),
+      validity: commissions.online_plus_validity_text || '1 год',
+      operationFee: commissions.online_plus_operation_fee || 0.4,
+      priceRub: commissions.online_plus_issue_price_rub || 1999,
+      topup: commissions.online_plus_topup || 4,
+    },
+    {
+      key: 'pay', available: payAvailable, payIcons: true,
+      title: pick(promo.pay, 'title', 'Pay'),
+      desc: pick(promo.pay, 'desc', 'Универсальная карта для международных оплат и подписок'),
+      badge: pick(promo.pay, 'badge', 'Бесплатное обслуживание'),
+      pays: pick(promo.pay, 'pays', 'Booking, Airbnb, Zoom, Google One, Spotify, YouTube, покупки в магазинах и пр.'),
+      bin: pick(promo.pay, 'bin', 'США'),
+      validity: commissions.univ_validity_text || '1 год',
+      operationFee: commissions.univ_operation_fee || 0.4,
+      priceRub: commissions.univ_issue_price_rub || 1999,
+      topup: commissions.univ_topup || 4,
+    },
+  ]
 
   // Pull-to-refresh state
   const [pull, setPull] = useState(0)
@@ -315,361 +360,121 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
         </Card>
       </Section>
 
-      {userCards.length === 0 && onlineAvailable && (
-        <Section>
-          <Card padding={isOnlineExpanded ? '20px 20px 16px 20px' : '20px'}>
-          <div className="flex items-start justify-between">
-            <div className="flex flex-col gap-2 flex-1">
-              <div className="flex items-center gap-2">
-                <div
-                  className="flex items-center"
-                  onClick={() => setExpandedCard(isOnlineExpanded ? null : 'online')}
-                  style={{
-                    height: 24,
-                    backgroundColor: '#1A1F36',
-                    borderRadius: 8,
-                    paddingLeft: 8,
-                    paddingRight: 8,
-                    cursor: 'pointer',
-                  }}
-                >
-                  <img
-                    src="/images/Mastercard.png"
-                    alt="Mastercard"
-                    style={{ height: 14, width: 'auto' }}
-                  />
+      {userCards.length === 0 && promoCards.filter((pc) => pc.available).map((pc) => {
+        const isExpanded = expandedCard === pc.key
+        return (
+          <Section key={pc.key}>
+            <Card padding={isExpanded ? '20px 20px 16px 20px' : '20px'}>
+              <div className="flex items-start justify-between">
+                <div className="flex flex-col gap-2 flex-1">
+                  <div
+                    className="flex items-center"
+                    onClick={() => setExpandedCard(isExpanded ? null : pc.key)}
+                    style={{ height: 24, backgroundColor: '#1A1F36', borderRadius: 8, paddingLeft: 8, paddingRight: pc.payIcons ? 5 : 8, width: 'fit-content', cursor: 'pointer' }}
+                  >
+                    <img src="/images/Mastercard.png" alt="Mastercard" style={{ height: 14, width: 'auto' }} />
+                    {pc.payIcons ? (
+                      <>
+                        <img src="/images/GooglePay.png" alt="Google Pay" style={{ height: 16, width: 'auto', paddingLeft: 4 }} />
+                        <img src="/images/Apple.png" alt="Apple Pay" style={{ height: 16, width: 'auto', paddingLeft: 4 }} />
+                      </>
+                    ) : (
+                      <span style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, paddingLeft: 4 }}>virtual</span>
+                    )}
+                  </div>
 
-
-                <span
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 400,
-                    color: '#6B7280',
-                    fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-                    paddingLeft: 4,
-                  }}
-                >
-                  virtual
-                </span>
-                                </div>
-              </div>
-
-              <div className="flex-1">
-                <h3
-                  style={{
-                    fontSize: 16,
-                    fontWeight: 600,
-                    color: '#111827',
-                    fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-                    marginBottom: 2,
-                  }}
-                >
-                  Online
-                </h3>
-                <p
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 400,
-                    color: '#6B7280',
-                    fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-                    lineHeight: '16px',
-                  }}
-                >
-                  Для оплаты покупок и сервисов в интернете
-                </p>
-              </div>
-            </div>
-
-<button
-  onClick={() => setExpandedCard(isOnlineExpanded ? null : 'online')}
-  className="flex items-center justify-center transition-transform duration-150 active:scale-95"
-  style={{
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#F3F5F8',
-    border: 'none',
-    cursor: 'pointer',
-    flexShrink: 0,
-  }}
->
-  <svg
-    width="16"
-    height="16"
-    viewBox="0 0 14 14"
-    fill="none"
-    style={{
-      transform: isOnlineExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-      transition: 'transform 0.2s',
-    }}
-  >
-    <path
-      d="M3 5L7 9L11 5"
-      stroke="#111827"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-  </svg>
-</button>
-          </div>
-
-          <div
-            style={{
-              marginTop: 16,
-              overflow: 'hidden',
-              maxHeight: isOnlineExpanded ? 1200 : 0,
-              opacity: isOnlineExpanded ? 1 : 0,
-              transition: 'max-height 300ms ease, opacity 200ms ease',
-            }}
-          >
-            <div style={{ paddingBottom: 0 }}>
-              <div className="flex gap-2" style={{ marginBottom: 16 }}>
-                <div
-                  style={{
-                    padding: '6px 12px',
-                    backgroundColor: '#10B981',
-                    borderRadius: 8,
-                    fontSize: 12,
-                    fontWeight: 400,
-                    color: '#FFFFFF',
-                    fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
-                  }}
-                >
-                  Бесплатное обслуживание
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3" style={{ marginBottom: 16 }}>
-                <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>{commissions.online_validity_text || '1 год'}</div>
-                  <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Срок действия</div>
-                </div>
-                <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>{commissions.online_operation_fee || 0.4} $</div>
-                  <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Комиссия за операцию</div>
-                </div>
-                <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>{Number(commissions.online_issue_price_rub || 999).toLocaleString('ru-RU')} ₽</div>
-                  <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Плата за выпуск</div>
-                </div>
-                <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>{commissions.online_topup || 3.8} %</div>
-                  <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Комиссия за пополнение</div>
-                </div>
-              </div>
-
-              <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px', marginBottom: 16 }}>
-                <h4 style={{ fontSize: 17, fontWeight: 700, color: '#111827', fontFamily: font, marginBottom: 8 }}>Оплачивайте</h4>
-                <p style={{ fontSize: 13, color: '#6B7280', fontFamily: font, lineHeight: '20px' }}>
-                  Booking, Airbnb, Zoom, Google One, Spotify, YouTube, покупки в магазинах и пр.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3" style={{ marginBottom: 16 }}>
-
-                <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <h4 style={{ fontSize: 15, fontWeight: 700, color: '#111827', fontFamily: font, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
-                    Гонконг
-                    <img src="/images/HongKong.svg" alt="Hong Kong" style={{ width: 18, height: 18 }} />
-                  </h4>
-                  <p style={{ fontSize: 13, color: '#6B7280', fontFamily: font }}>Страна BIN</p>
-                </div>
-              </div>
-
-<Button
-  onClick={() => {
-    if (issueLimitReached) return
-    onNavigateToIssueCard('online')
-  }}
-  variant="secondary"
-  disabled={issueLimitReached}
-  fullWidth
-  style={issueLimitReached ? { backgroundColor: '#D1D5DB', cursor: 'not-allowed' } : undefined}
->
-  {issueLimitReached ? 'Достигнут лимит карт' : 'Оформить'}
-</Button>
-            </div>
-          </div>
-          </Card>
-        </Section>
-      )}
-
-      {userCards.length === 0 && onlinePlusAvailable && (
-        <Section>
-        <Card padding={isOnlinePlusExpanded ? '20px 20px 16px 20px' : '20px'}>
-          <div className="flex items-start justify-between">
-            <div className="flex flex-col gap-2 flex-1">
-<div
-  className="flex items-center"
-  onClick={() => setExpandedCard(isOnlinePlusExpanded ? null : 'online-plus')}
-  style={{
-    height: 24,
-    backgroundColor: '#1A1F36',
-    borderRadius: 8,
-    paddingLeft: 8,
-    paddingRight: 5,
-    width: 'fit-content',
-    cursor: 'pointer',
-  }}
->
-                <img
-                  src="/images/Mastercard.png"
-                  alt="Mastercard"
-                  style={{ height: 14, width: 'auto', }}
-                />
-                    <img src="/images/GooglePay.png" alt="Google Pay" style={{ height: 16, width: 'auto', paddingLeft: 4 }} />
-                    <img src="/images/Apple.png" alt="Apple Pay" style={{ height: 16, width: 'auto', paddingLeft: 4 }} />
-
-              </div>
-
-              <div className="flex-1">
-                <h3
-                  style={{
-                    fontSize: 16,
-                    fontWeight: 600,
-                    color: '#111827',
-                    fontFamily: font,
-                    marginBottom: 2,
-                  }}
-                >
-                  Online + Pay
-                </h3>
-                <p
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 400,
-                    color: '#6B7280',
-                    fontFamily: font,
-                    lineHeight: '16px',
-                  }}
-                >
-                  Оплата в магазинах через Apple Pay, Google Pay и онлайн-сервисов на сайтах
-                </p>
-              </div>
-            </div>
-
-<button
-  onClick={() => setExpandedCard(isOnlinePlusExpanded ? null : 'online-plus')}
-  className="flex items-center justify-center transition-transform duration-150 active:scale-95"
-  style={{
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#F3F5F8',
-    border: 'none',
-    cursor: 'pointer',
-    flexShrink: 0,
-  }}
->
-  <svg
-    width="16"
-    height="16"
-    viewBox="0 0 14 14"
-    fill="none"
-    style={{
-      transform: isOnlinePlusExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-      transition: 'transform 0.2s',
-    }}
-  >
-    <path
-      d="M3 5L7 9L11 5"
-      stroke="#111827"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-  </svg>
-</button>
-          </div>
-
-          <div
-            style={{
-              marginTop: 16,
-              overflow: 'hidden',
-              maxHeight: isOnlinePlusExpanded ? 1200 : 0,
-              opacity: isOnlinePlusExpanded ? 1 : 0,
-              transition: 'max-height 300ms ease, opacity 200ms ease',
-            }}
-          >
-            <div style={{ paddingBottom: 0 }}>
-              <div className="flex gap-2" style={{ marginBottom: 16 }}>
-                <div
-                  style={{
-                    padding: '6px 12px',
-                    backgroundColor: '#10B981',
-                    borderRadius: 8,
-                    fontSize: 12,
-                    fontWeight: 400,
-                    color: '#FFFFFF',
-                    fontFamily: font,
-                  }}
-                >
-                  Бесплатное обслуживание
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3" style={{ marginBottom: 16 }}>
-                <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>{commissions.online_plus_validity_text || '1 год'}</div>
-                  <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Срок действия</div>
-                </div>
-                <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>{commissions.online_plus_operation_fee || 0.4} $</div>
-                  <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Комиссия за операцию</div>
-                </div>
-                <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>{Number(commissions.online_plus_issue_price_rub || 1999).toLocaleString('ru-RU')} ₽</div>
-                  <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Плата за выпуск</div>
-                </div>
-                <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>{commissions.online_plus_topup || 4} %</div>
-                  <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Комиссия за пополнение</div>
-                </div>
-              </div>
-
-              <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px', marginBottom: 16 }}>
-                <h4 style={{ fontSize: 17, fontWeight: 700, color: '#111827', fontFamily: font, marginBottom: 8 }}>Оплачивайте</h4>
-                <p style={{ fontSize: 13, color: '#6B7280', fontFamily: font, lineHeight: '20px' }}>
-                  Booking, Airbnb, Zoom, Google One, Spotify, YouTube, покупки в магазинах и пр.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3" style={{ marginBottom: 16 }}>
-                <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <h4 style={{ fontSize: 15, fontWeight: 700, color: '#111827', fontFamily: font, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
-                    Гонконг
-                    <img src="/images/HongKong.svg" alt="Hong Kong" style={{ width: 18, height: 18 }} />
-                  </h4>
-                  <p style={{ fontSize: 13, color: '#6B7280', fontFamily: font }}>Страна BIN</p>
-                </div>
-                <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-                  <h4 style={{ fontSize: 15, fontWeight: 700, color: '#111827', fontFamily: font, marginBottom: 6 }}>Подключение</h4>
-                  <div className="flex gap-2">
-                    <img src="/images/GooglePay.png" alt="Google Pay" style={{ height: 20, width: 'auto' }} />
-                    <img src="/images/Apple.png" alt="Apple Pay" style={{ height: 20, width: 'auto' }} />
+                  <div className="flex-1">
+                    <h3 style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>{pc.title}</h3>
+                    <p style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, lineHeight: '16px' }}>{pc.desc}</p>
                   </div>
                 </div>
 
+                <button
+                  onClick={() => setExpandedCard(isExpanded ? null : pc.key)}
+                  className="flex items-center justify-center transition-transform duration-150 active:scale-95"
+                  style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: '#F3F5F8', border: 'none', cursor: 'pointer', flexShrink: 0 }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 14 14" fill="none" style={{ transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>
+                    <path d="M3 5L7 9L11 5" stroke="#111827" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
               </div>
 
-<Button
-  onClick={() => {
-    if (issueLimitReached) return
-    onNavigateToIssueCard('online-plus')
-  }}
-  variant="secondary"
-  disabled={issueLimitReached}
-  fullWidth
-  style={issueLimitReached ? { backgroundColor: '#D1D5DB', cursor: 'not-allowed' } : undefined}
->
-  {issueLimitReached ? 'Достигнут лимит карт' : 'Оформить'}
-</Button>
-            </div>
-        </div>
-        </Card>
-        </Section>
-      )}
+              <div style={{ marginTop: 16, overflow: 'hidden', maxHeight: isExpanded ? 1200 : 0, opacity: isExpanded ? 1 : 0, transition: 'max-height 300ms ease, opacity 200ms ease' }}>
+                <div style={{ paddingBottom: 0 }}>
+                  {pc.badge && (
+                    <div className="flex gap-2" style={{ marginBottom: 16 }}>
+                      <div style={{ padding: '6px 12px', backgroundColor: '#10B981', borderRadius: 8, fontSize: 12, fontWeight: 400, color: '#FFFFFF', fontFamily: font }}>
+                        {pc.badge}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-3" style={{ marginBottom: 16 }}>
+                    <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
+                      <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>{pc.validity}</div>
+                      <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Срок действия</div>
+                    </div>
+                    <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
+                      <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>{pc.operationFee} $</div>
+                      <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Комиссия за операцию</div>
+                    </div>
+                    <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
+                      <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>{Number(pc.priceRub).toLocaleString('ru-RU')} ₽</div>
+                      <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Плата за выпуск</div>
+                    </div>
+                    <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
+                      <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>{pc.topup} %</div>
+                      <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Комиссия за пополнение</div>
+                    </div>
+                  </div>
+
+                  {pc.pays && (
+                    <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px', marginBottom: 16 }}>
+                      <h4 style={{ fontSize: 17, fontWeight: 700, color: '#111827', fontFamily: font, marginBottom: 8 }}>Оплачивайте</h4>
+                      <p style={{ fontSize: 13, color: '#6B7280', fontFamily: font, lineHeight: '20px' }}>{pc.pays}</p>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-3" style={{ marginBottom: 16 }}>
+                    <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
+                      <h4 style={{ fontSize: 15, fontWeight: 700, color: '#111827', fontFamily: font, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {pc.bin}
+                        {pc.bin === 'Гонконг' && (
+                          <img src="/images/HongKong.svg" alt="" style={{ width: 18, height: 18 }} />
+                        )}
+                      </h4>
+                      <p style={{ fontSize: 13, color: '#6B7280', fontFamily: font }}>Страна BIN</p>
+                    </div>
+                    {pc.payIcons && (
+                      <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
+                        <h4 style={{ fontSize: 15, fontWeight: 700, color: '#111827', fontFamily: font, marginBottom: 6 }}>Подключение</h4>
+                        <div className="flex gap-2">
+                          <img src="/images/GooglePay.png" alt="Google Pay" style={{ height: 20, width: 'auto' }} />
+                          <img src="/images/Apple.png" alt="Apple Pay" style={{ height: 20, width: 'auto' }} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <Button
+                    onClick={() => {
+                      if (issueLimitReached) return
+                      onNavigateToIssueCard(pc.key)
+                    }}
+                    variant="secondary"
+                    disabled={issueLimitReached}
+                    fullWidth
+                    style={issueLimitReached ? { backgroundColor: '#D1D5DB', cursor: 'not-allowed' } : undefined}
+                  >
+                    {issueLimitReached ? 'Достигнут лимит карт' : 'Оформить'}
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          </Section>
+        )
+      })}
 
       <Section>
         <Card padding="20px" style={{ minHeight: 250 }}>

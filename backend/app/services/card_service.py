@@ -63,6 +63,93 @@ def _parent_client_id() -> str:
     ).strip()
 
 
+# ------------------------------------------------------------------
+# "Pay" (universal) cards: separate provider, separate per-user client
+# with US identity, funded from a dedicated parent.
+# ------------------------------------------------------------------
+
+def _univ_ravana_ids() -> set:
+    return {s.strip() for s in (settings.OPLATA_UNIV_RAVANA_IDS or "").split(",") if s.strip()}
+
+
+def _is_univ_ravana(ravana_server_id: Any) -> bool:
+    return str(ravana_server_id or "") in _univ_ravana_ids()
+
+
+def _univ_parent_client_id() -> str:
+    return (settings.OPLATA_UNIV_PARENT_CLIENT_ID or "PRONTOPAY_UNIV").strip()
+
+
+def _univ_client_id(user: User) -> str:
+    """Separate O-Plata client for universal cards (US identity). Users who
+    passed RU KYC can't issue these cards on their main client — O-Plata
+    requires a fresh account."""
+    prefix = (settings.OPLATA_USER_CLIENT_PREFIX or "tg_").strip()
+    tg_id = str(getattr(user, "telegram_user_id", "") or "").strip()
+    if tg_id:
+        return f"{prefix}univ_{tg_id}"
+    suffix = settings.LOCAL_DEV_CLIENT_SUFFIX.strip() or f"dev_{user.id}"
+    return f"{prefix}univ_{suffix}"
+
+
+def _client_id_for_ravana(user: User, ravana_server_id: Any) -> str:
+    return _univ_client_id(user) if _is_univ_ravana(ravana_server_id) else _client_id(user)
+
+
+def _parent_for_ravana(ravana_server_id: Any) -> str:
+    return _univ_parent_client_id() if _is_univ_ravana(ravana_server_id) else _parent_client_id()
+
+
+# Random-but-stable US identity per user (O-Plata: names/phone can be random,
+# no confirmation; phone must be +1 with any area code except 340).
+_US_FIRST_NAMES = [
+    "JOHN", "MICHAEL", "DAVID", "JAMES", "ROBERT", "WILLIAM", "THOMAS", "DANIEL",
+    "MATTHEW", "ANDREW", "RYAN", "BRANDON", "JASON", "JUSTIN", "ERIC", "KEVIN",
+    "MARY", "JENNIFER", "LINDA", "PATRICIA", "ELIZABETH", "SUSAN", "JESSICA",
+    "SARAH", "KAREN", "NANCY", "LISA", "BETTY", "ASHLEY", "EMILY", "MEGAN", "LAUREN",
+]
+_US_LAST_NAMES = [
+    "SMITH", "JOHNSON", "WILLIAMS", "BROWN", "JONES", "GARCIA", "MILLER", "DAVIS",
+    "WILSON", "ANDERSON", "TAYLOR", "THOMAS", "MOORE", "JACKSON", "MARTIN", "LEE",
+    "THOMPSON", "WHITE", "HARRIS", "CLARK", "LEWIS", "ROBINSON", "WALKER", "YOUNG",
+    "ALLEN", "KING", "WRIGHT", "SCOTT", "HILL", "GREEN", "ADAMS", "BAKER",
+]
+# Valid US area codes (340 = Виргинские острова — исключён по требованию O-Plata)
+_US_AREA_CODES = [
+    "212", "213", "305", "312", "404", "415", "469", "512", "602", "614",
+    "646", "702", "713", "718", "720", "786", "813", "917", "919", "972",
+]
+
+
+def _univ_identity(user: User) -> Dict[str, str]:
+    """Deterministic per-user US identity: the same user always gets the same
+    name/phone/document, so repeated KYC calls don't diverge."""
+    import random as _random
+    rnd = _random.Random(f"prontopay-univ-{user.id}")
+    first = rnd.choice(_US_FIRST_NAMES)
+    last = rnd.choice(_US_LAST_NAMES)
+    area = rnd.choice(_US_AREA_CODES)
+    # NXX rules: exchange can't start with 0/1
+    exchange = str(rnd.randint(200, 999))
+    line = f"{rnd.randint(0, 9999):04d}"
+    phone = f"+1{area}{exchange}{line}"
+    document = f"{rnd.randint(100000000, 999999999)}"  # 9-digit US passport style
+    dob = f"{rnd.randint(1975, 1999)}-{rnd.randint(1, 12):02d}-{rnd.randint(1, 28):02d}"
+    gender = rnd.choice(["MALE", "FEMALE"])
+    return {
+        "first_name": first, "last_name": last, "phone": phone,
+        "document": document, "dob": dob, "gender": gender,
+    }
+
+
+ALLOWED_UNIV_EMAIL_DOMAINS = ("gmail.com", "icloud.com")
+
+
+def _is_univ_email_ok(email: str) -> bool:
+    domain = (email or "").rsplit("@", 1)[-1].strip().lower()
+    return domain in ALLOWED_UNIV_EMAIL_DOMAINS
+
+
 def _user_card_tag(user_id: int) -> str:
     """Prefix embedded in O-Plata card name to identify the owning local user."""
     return f"u{user_id}:"
@@ -129,7 +216,15 @@ def _card_is_active(state: Any) -> bool:
 # only for offers not listed here.
 CARD_NAME_BY_OFFER: Dict[str, str] = {
     "RAVANA:RT-prod:faa1988b-a467-4397-85c7-ab380fea7bb4": "Online",
-    "RAVANA:RT-2-prod:9535aec3-3c6a-4130-b9c2-27d887e54041": "Online+Pay",
+    # Online+Pay on the NEW BIN (US identity, separate univ client, PRONTOPAY_UNIV parent)
+    "RAVANA:RT-8-prod:afea2835-80a4-4b57-8f03-b9f323ce9c77": "Online+Pay",
+    # "Pay" (третий вид) — в разработке, оффер появится позже
+}
+
+# Legacy offers hidden from the app entirely (RT-2: issue transport was never
+# enabled for our product; replaced by the RT-8 BIN)
+EXCLUDED_OFFER_IDS = {
+    "RAVANA:RT-2-prod:9535aec3-3c6a-4130-b9c2-27d887e54041",
 }
 
 
@@ -607,6 +702,8 @@ class CardService:
         fixed_fee: float,
         provider_fee_amount: float = 0.0,
         provider_currency: str = "USDT",
+        issue_client_id: Optional[str] = None,
+        parent_client_id: Optional[str] = None,
     ) -> None:
         async with AsyncSessionLocal() as db:
             try:
@@ -625,7 +722,7 @@ class CardService:
                     )
                     return
 
-                client_id = _client_id(user)
+                client_id = issue_client_id or _client_id(user)
                 issue_payment = await self._follow_payment(client_id, payment_uuid, "issue")
                 if issue_payment:
                     logger.info(
@@ -658,7 +755,6 @@ class CardService:
                     # Transfer it back to parent to maintain balance consistency.
                     if issue_state == "REFUNDED" and provider_fee_amount > 0:
                         try:
-                            client_id = _client_id(user)
                             logger.info(
                                 "Issue payment REFUNDED for user_id=%s order_id=%s uuid=%s — returning %s %s to parent",
                                 user.id, order.id, payment_uuid, provider_fee_amount, provider_currency,
@@ -667,6 +763,7 @@ class CardService:
                                 user_client_id=client_id,
                                 currency_code=provider_currency,
                                 amount=Decimal(str(provider_fee_amount)),
+                                parent_client_id=parent_client_id,
                             )
                         except Exception as refund_exc:
                             logger.error(
@@ -753,20 +850,22 @@ class CardService:
             logger.warning("Could not fetch O-Plata card types: %s: %s", exc.__class__.__name__, exc)
             return []
 
-        # Per-user issued card counts by provider. Unregistered client / fetch
-        # error → empty map → counts default to 0 (issue_card still enforces
-        # the real limit at issue time).
+        # Per-user issued card counts by provider (regular + universal clients).
+        # Unregistered client / fetch error → counts default to 0 (issue_card
+        # still enforces the real limit at issue time).
         user_counts: Dict[str, int] = {}
         if user is not None:
-            try:
-                user_providers = await oplata_client.get_virtual_card_list(_client_id(user))
-                for p in user_providers:
-                    rid = str(p.get("ravanaServerId") or p.get("ravanaId") or "")
-                    if rid:
-                        user_counts[rid] = len(p.get("cardsList") or [])
-            except Exception as exc:
-                logger.info("get_offers: could not fetch card list for user_id=%s (%s) — counts default to 0",
-                            user.id, exc)
+            for cid in (_client_id(user), _univ_client_id(user)):
+                is_univ_cid = cid == _univ_client_id(user)
+                try:
+                    user_providers = await oplata_client.get_virtual_card_list(cid)
+                    for p in user_providers:
+                        rid = str(p.get("ravanaServerId") or p.get("ravanaId") or "")
+                        if rid and _is_univ_ravana(rid) == is_univ_cid:
+                            user_counts[rid] = len(p.get("cardsList") or [])
+                except Exception as exc:
+                    logger.info("get_offers: could not fetch card list for %s (%s) — counts default to 0",
+                                cid, exc)
 
         offers = []
         for provider in providers:
@@ -801,6 +900,9 @@ class CardService:
                 raw_name = ct.get("localizedName") or f"{payment_system} Virtual Card"
                 offer_id = f"{ravana_server_id}:{type_uuid}"
 
+                if offer_id in EXCLUDED_OFFER_IDS:
+                    continue
+
                 # 1) Authoritative mapping by offer_id (prod card types).
                 # 2) Fallback heuristic by description text for anything unlisted.
                 if offer_id in CARD_NAME_BY_OFFER:
@@ -820,6 +922,8 @@ class CardService:
                 if name == "Online" and not settings.CARD_ONLINE_ENABLED:
                     continue
                 if name == "Online+Pay" and not settings.CARD_ONLINE_PLUS_ENABLED:
+                    continue
+                if name == "Pay" and not settings.CARD_PAY_ENABLED:
                     continue
                 offers.append({
                     "id": f"{ravana_server_id}:{type_uuid}",
@@ -978,6 +1082,105 @@ class CardService:
 
         return wallet_id
 
+    async def _ensure_univ_client(self, client_id: str, user: "User") -> str:
+        """Register/KYC the separate universal-card client with US identity.
+
+        O-Plata rules for the universal BIN: random US name/phone (no
+        confirmation needed), a working gmail/icloud email (user receives codes
+        there), US country. RU-KYC data must NOT be sent to this client.
+        Identity is deterministic per user (same data on every call)."""
+        if not _is_univ_email_ok(user.email or ""):
+            raise RuntimeError(
+                "Для выпуска карты Pay нужна почта Gmail или iCloud — на неё придёт код подтверждения. "
+                "Укажите её в разделе верификации."
+            )
+        ident = _univ_identity(user)
+        _email = user.email
+
+        try:
+            result = await oplata_client.register_client(client_id)
+            wallet_id = result.get("clientWalletId") or ""
+        except Exception as exc:
+            logger.warning("register_client for %s failed: %s", client_id, exc)
+            wallet_id = ""
+
+        logger.info("Univ client %s identity: %s %s %s", client_id, ident["first_name"], ident["last_name"], ident["phone"])
+
+        try:
+            await oplata_client.kyc_verify_email(client_id, _email)
+        except Exception as exc:
+            logger.warning("univ kyc_verify_email for %s failed: %s", client_id, exc)
+        try:
+            await oplata_client.kyc_verify_person(
+                client_id, ident["first_name"], ident["last_name"], ident["dob"], country="US",
+            )
+        except Exception as exc:
+            logger.warning("univ kyc_verify_person for %s failed: %s", client_id, exc)
+        try:
+            await oplata_client.kyc_verify_country(client_id, "US")
+        except Exception as exc:
+            logger.warning("univ kyc_verify_country for %s failed: %s", client_id, exc)
+        try:
+            await oplata_client.kyc_verify_home(
+                client_id,
+                address="1806", city="Fresno", country_code="US",
+                state="Texas", street="Haversham Ct",
+            )
+        except Exception as exc:
+            logger.warning("univ kyc_verify_home for %s failed: %s", client_id, exc)
+
+        # Wait for HOME_ADDRESS before partner/start (rejected while UPDATING)
+        for _attempt in range(8):
+            try:
+                _kinfo = await oplata_client.kyc_info(client_id)
+                _home = [o.get("orderState") for o in _kinfo.get("orderResponses", [])
+                         if o.get("orderType") == "HOME_ADDRESS"]
+                if any(s == "UPDATING" for s in _home):
+                    await asyncio.sleep(1.5)
+                else:
+                    break
+            except Exception:
+                break
+
+        try:
+            # O-Plata confirmed: the RUSSIAN passport number may be kept for this
+            # BIN — use the user's real KYC passport; name/phone stay random US.
+            document_number = (user.kyc_passport or "").strip() or ident["document"]
+            issue_date = _to_iso_date(user.kyc_passport_issue_date) or "2020-01-15"
+            result = await oplata_client.kyc_verify_partner_start(
+                client_id,
+                first_name=ident["first_name"],
+                last_name=ident["last_name"],
+                middle_name="",
+                date_of_birth=ident["dob"],
+                country="US",
+                email=_email,
+                phone_number=ident["phone"],
+                gender=ident["gender"],
+                document_number=document_number,
+                issue_date=issue_date,
+                valid_until_date="2030-01-15",
+            )
+            logger.info("Univ KYC partner/start for %s: %s", client_id, result)
+        except Exception as exc:
+            logger.warning("univ kyc_verify_partner_start for %s failed: %s", client_id, exc)
+
+        for _attempt in range(12):
+            try:
+                kyc_info = await oplata_client.kyc_info(client_id)
+                _partner = [o.get("orderState") for o in kyc_info.get("orderResponses", [])
+                            if o.get("orderType") == "PARTNER"]
+                if _partner and all(s not in ("UPDATING", "PROCESSING") for s in _partner):
+                    break
+                if _partner:
+                    await asyncio.sleep(2)
+                else:
+                    break
+            except Exception:
+                break
+
+        return wallet_id
+
     # ------------------------------------------------------------------
     # Per-user wallet funding (parent -> user) via O-Plata transfer
     # ------------------------------------------------------------------
@@ -1002,11 +1205,12 @@ class CardService:
         user_client_id: str,
         currency_code: str,
         amount: Decimal,
+        parent_client_id: Optional[str] = None,
     ) -> None:
         """Transfer `amount` of `currency_code` from parent funded client to user's wallet."""
         if amount is None or Decimal(str(amount)) <= 0:
             return
-        parent = _parent_client_id()
+        parent = (parent_client_id or _parent_client_id()).strip()
         if user_client_id == parent:
             return
         wallet_id = await self._resolve_client_wallet_id(user_client_id)
@@ -1080,16 +1284,17 @@ class CardService:
         user_client_id: str,
         currency_code: str,
         amount: Decimal,
+        parent_client_id: Optional[str] = None,
     ) -> None:
         """Transfer `amount` of `currency_code` from user's wallet back to parent (reverse of _fund_user_wallet).
-        
+
         Called when a payment is REFUNDED by O-Plata — the funds returned to user's wallet
         need to be sent back to parent to maintain balance consistency.
         """
         if amount is None or Decimal(str(amount)) <= 0:
             logger.debug("Refund amount is zero or negative, skipping refund to parent")
             return
-        parent = _parent_client_id()
+        parent = (parent_client_id or _parent_client_id()).strip()
         if user_client_id == parent:
             logger.debug("User is parent client, skipping self-refund")
             return
@@ -1353,25 +1558,34 @@ class CardService:
     ) -> Dict[str, Any]:
         """Issue a virtual card via O-Plata for the given user."""
         ravana_server_id, type_uuid = _parse_offer_id(offer_id)
-        client_id = _client_id(user)
+        is_univ = _is_univ_ravana(ravana_server_id)
+        client_id = _client_id_for_ravana(user, ravana_server_id)
+        parent_client = _parent_for_ravana(ravana_server_id)
         if settings.DETAILED_DEV_LOGS:
             logger.info(
-                "[ISSUE] Start | user_id=%s username=%s offer_id=%s client_id=%s",
+                "[ISSUE] Start | user_id=%s username=%s offer_id=%s client_id=%s univ=%s parent=%s",
                 user.id,
                 user.username,
                 offer_id,
                 client_id,
+                is_univ,
+                parent_client,
             )
 
-        # 1. Register client on O-Plata (idempotent) and push MDM data
-        await self._ensure_client(
-            client_id,
-            user=user,
-            email=email,
-            document_number=document_number,
-            holder_first_name=holder_first_name,
-            holder_last_name=holder_last_name,
-        )
+        # 1. Register client on O-Plata (idempotent) and push MDM data.
+        # Universal ("Pay") cards use a SEPARATE client with US identity —
+        # RU KYC data must never touch it.
+        if is_univ:
+            await self._ensure_univ_client(client_id, user)
+        else:
+            await self._ensure_client(
+                client_id,
+                user=user,
+                email=email,
+                document_number=document_number,
+                holder_first_name=holder_first_name,
+                holder_last_name=holder_last_name,
+            )
 
         # 1b. Inspect provider availability and capture funding params (issue fee, balance currency).
         provider_issue_fee_usdt = Decimal("0")
@@ -1385,7 +1599,7 @@ class CardService:
             if not provider:
                 # Fallback: check via parent client to distinguish "not registered yet" from "unavailable".
                 try:
-                    parent_providers = await oplata_client.get_virtual_card_list(_parent_client_id())
+                    parent_providers = await oplata_client.get_virtual_card_list(parent_client)
                     provider = next(
                         (p for p in parent_providers if str(p.get("ravanaServerId") or p.get("ravanaId") or "") == ravana_server_id),
                         None,
@@ -1507,6 +1721,7 @@ class CardService:
                 user_client_id=client_id,
                 currency_code=provider_balance_currency,
                 amount=funding_amount,
+                parent_client_id=parent_client,
             )
 
         # 4. Issue card on O-Plata
@@ -1580,6 +1795,8 @@ class CardService:
                     fixed_fee=float(user_payment - card_amount),
                     provider_fee_amount=float(provider_issue_fee_usdt),
                     provider_currency=provider_balance_currency,
+                    issue_client_id=client_id,
+                    parent_client_id=parent_client,
                 )
             )
             return {"local_order_id": order.id, "partner_order_id": payment_uuid}
@@ -1658,28 +1875,53 @@ class CardService:
             return await self._sync_cards_impl(db, user)
 
     async def _sync_cards_impl(self, db: AsyncSession, user: User) -> List[Card]:
-        client_id = _client_id(user)
-        # Lazily register the user's O-Plata client (idempotent) so listing
-        # endpoints don't return 403 "Access denied for client" on first access.
-        try:
-            await oplata_client.register_client(client_id)
-        except Exception as exc:
-            logger.debug("register_client during sync for %s failed (will continue): %s", client_id, exc)
-        try:
-            providers = await oplata_client.get_virtual_card_list(client_id)
-        except Exception as exc:
-            logger.warning("get_virtual_card_list failed for %s: %s: %s", client_id, exc.__class__.__name__, exc)
+        # A user's cards may live on TWO O-Plata clients: the regular one
+        # (tg_<id>) and the universal one (tg_univ_<id>, "Pay" cards).
+        # Pull both; each provider's cards are taken only from its owning
+        # client (both clients see the same provider structure).
+        regular_client = _client_id(user)
+        univ_client = _univ_client_id(user)
+        cards_raw: List[Dict[str, Any]] = []
+        failed_clients: List[str] = []
+        got_any = False
+
+        for cid in (regular_client, univ_client):
+            is_univ_cid = cid == univ_client
+            if is_univ_cid:
+                # Don't register the univ client during sync — it's created lazily
+                # on first Pay-card issue (with US identity). Listing may 403 until then.
+                pass
+            else:
+                # Lazily register the user's O-Plata client (idempotent) so listing
+                # endpoints don't return 403 "Access denied for client" on first access.
+                try:
+                    await oplata_client.register_client(cid)
+                except Exception as exc:
+                    logger.debug("register_client during sync for %s failed (will continue): %s", cid, exc)
+            try:
+                providers = await oplata_client.get_virtual_card_list(cid)
+                got_any = True
+            except Exception as exc:
+                (logger.debug if is_univ_cid else logger.warning)(
+                    "get_virtual_card_list failed for %s: %s: %s", cid, exc.__class__.__name__, exc
+                )
+                failed_clients.append(cid)
+                continue
+            for provider in providers:
+                provider_ravana_id = str(provider.get("ravanaServerId") or provider.get("ravanaId") or "")
+                # Take each provider's cards only from its owning client type
+                if _is_univ_ravana(provider_ravana_id) != is_univ_cid:
+                    continue
+                for raw_card in provider.get("cardsList") or []:
+                    card_copy = dict(raw_card)
+                    if provider_ravana_id and not card_copy.get("ravanaServerId"):
+                        card_copy["ravanaServerId"] = provider_ravana_id
+                    card_copy["_source_client"] = cid
+                    cards_raw.append(card_copy)
+
+        if not got_any:
             result = await db.execute(select(Card).where(Card.user_id == user.id))
             return list(result.scalars().all())
-
-        cards_raw: List[Dict[str, Any]] = []
-        for provider in providers:
-            provider_ravana_id = str(provider.get("ravanaServerId") or provider.get("ravanaId") or "")
-            for raw_card in provider.get("cardsList") or []:
-                card_copy = dict(raw_card)
-                if provider_ravana_id and not card_copy.get("ravanaServerId"):
-                    card_copy["ravanaServerId"] = provider_ravana_id
-                cards_raw.append(card_copy)
 
         existing_result = await db.execute(select(Card).where(Card.user_id == user.id))
         existing_cards = list(existing_result.scalars().all())
@@ -1700,13 +1942,14 @@ class CardService:
             if tagged_owner_id is not None and tagged_owner_id != user.id:
                 continue
             state = raw.get("state") or ""
+            source_client = str(raw.get("_source_client") or regular_client)
             balance = Decimal("0")
             if card_id and ravana_id and _card_is_active(state):
                 try:
-                    balance_raw = await oplata_client.get_card_funds_balance(client_id, card_id, ravana_id)
+                    balance_raw = await oplata_client.get_card_funds_balance(source_client, card_id, ravana_id)
                     balance = Decimal(str(balance_raw.get("availableBalance") or balance_raw.get("balance") or 0))
                 except Exception as exc:
-                    logger.warning("get_card_funds_balance failed for %s/%s: %s", client_id, card_id, exc)
+                    logger.warning("get_card_funds_balance failed for %s/%s: %s", source_client, card_id, exc)
             expired_at = str(raw.get("expireAtMonth") or "")
             currency = str(raw.get("balanceCurrency") or raw.get("cardCurrency") or raw.get("currency") or "USD")
 
@@ -1805,6 +2048,12 @@ class CardService:
         for existing_card in existing_cards:
             if existing_card.id in synced_local_card_ids:
                 continue
+            # If the owning client's listing failed this round, we can't know the
+            # card's real state — don't treat it as stale.
+            owning_client = _client_id_for_ravana(user, existing_card.offer_id)
+            if owning_client in failed_clients:
+                synced_local_card_ids.add(existing_card.id)
+                continue
             await self._detach_card_from_orders(
                 db,
                 user.id,
@@ -1846,7 +2095,7 @@ class CardService:
 
         user_result = await db.execute(select(User).where(User.id == user_id))
         user = user_result.scalar_one_or_none()
-        client_id = _client_id(user) if user else f"user_{user_id}"
+        client_id = _client_id_for_ravana(user, card.offer_id) if user else f"user_{user_id}"
 
         raw = await oplata_client.get_card_secret(
             client_id=client_id,
@@ -1886,7 +2135,7 @@ class CardService:
 
         user_result = await db.execute(select(User).where(User.id == user_id))
         user = user_result.scalar_one_or_none()
-        client_id = _client_id(user) if user else f"user_{user_id}"
+        client_id = _client_id_for_ravana(user, card.offer_id) if user else f"user_{user_id}"
 
         page_size = limit
         page_number = offset // limit if limit > 0 else 0
@@ -1965,15 +2214,21 @@ class CardService:
                 f"Insufficient balance. Required: {user_total:.2f} USD, available: {user.balance}"
             )
 
-        client_id = _client_id(user)
+        is_univ = _is_univ_ravana(card.offer_id)
+        client_id = _client_id_for_ravana(user, card.offer_id)
+        parent_client = _parent_for_ravana(card.offer_id)
 
         # Ensure user is registered (idempotent) and fund the wallet from parent before top-up.
-        await self._ensure_client(client_id, user)
+        if is_univ:
+            await self._ensure_univ_client(client_id, user)
+        else:
+            await self._ensure_client(client_id, user)
         topup_currency = await self._provider_balance_currency(card.offer_id)
         await self._fund_user_wallet(
             user_client_id=client_id,
             currency_code=topup_currency,
             amount=base_amount,
+            parent_client_id=parent_client,
         )
 
         result = await oplata_client.topup_card(
@@ -2048,6 +2303,7 @@ class CardService:
                         user_client_id=client_id,
                         currency_code=topup_currency,
                         amount=base_amount,
+                        parent_client_id=parent_client,
                     )
                 except Exception as refund_exc:
                     logger.error(
@@ -2073,6 +2329,7 @@ class CardService:
                     fee=float(our_profit),
                     refund_amount=base_amount,
                     refund_currency=topup_currency,
+                    parent_client_id=parent_client,
                 )
             )
 
@@ -2288,6 +2545,7 @@ class CardService:
         fee: float,
         refund_amount: Decimal,
         refund_currency: str,
+        parent_client_id: Optional[str] = None,
     ) -> None:
         """Watch a topup payment that was still in progress when deposit_card
         returned; update the order and notify the user once it reaches a
@@ -2360,6 +2618,7 @@ class CardService:
                     user_client_id=client_id,
                     currency_code=refund_currency,
                     amount=refund_amount,
+                    parent_client_id=parent_client_id,
                 )
             except Exception as refund_exc:
                 logger.error(
@@ -2411,7 +2670,7 @@ class CardService:
                     row.last_error = "user not found"
                     await db.commit()
                     return
-                client_id = _client_id(user)
+                client_id = _client_id_for_ravana(user, row.ravana_server_id)
 
                 card_res = await db.execute(select(Card).where(Card.id == row.card_id))
                 card = card_res.scalar_one_or_none()

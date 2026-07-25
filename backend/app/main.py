@@ -53,6 +53,11 @@ async def _bot_poll_loop() -> None:
     from app.services.telegram_bot_service import poll_once
     while True:
         try:
+            if not (settings.TELEGRAM_BOT_TOKEN or "").strip():
+                # No token (e.g. local dev): poll_once would return instantly and
+                # this loop would busy-spin, starving the event loop entirely.
+                await asyncio.sleep(30)
+                continue
             await poll_once()
         except Exception as exc:
             logger.error("Bot poll loop error: %s", exc)

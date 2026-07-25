@@ -30,16 +30,18 @@ async def get_issuance_price(db: AsyncSession = Depends(get_db), _: User = Depen
     from sqlalchemy import select as _select
     from app.models.admin_setting import AdminSetting
 
-    keys = ["CARD_ISSUANCE_PRICE_RUB", "CARD_ISSUANCE_PRICE_PAY_RUB"]
+    keys = ["CARD_ISSUANCE_PRICE_RUB", "CARD_ISSUANCE_PRICE_PAY_RUB", "CARD_ISSUANCE_PRICE_UNIV_RUB"]
     result = await db.execute(_select(AdminSetting).where(AdminSetting.key.in_(keys)))
     rows = {r.key: r.value for r in result.scalars().all()}
 
     price_rub = float(rows.get("CARD_ISSUANCE_PRICE_RUB") or settings.CARD_ISSUANCE_PRICE_RUB)
     price_pay_rub = float(rows.get("CARD_ISSUANCE_PRICE_PAY_RUB") or settings.CARD_ISSUANCE_PRICE_PAY_RUB)
+    price_univ_rub = float(rows.get("CARD_ISSUANCE_PRICE_UNIV_RUB") or settings.CARD_ISSUANCE_PRICE_UNIV_RUB)
 
     return {
         "price_rub": price_rub,
         "price_pay_rub": price_pay_rub,
+        "price_univ_rub": price_univ_rub,
         "initial_balance": 0.0,
     }
 
@@ -68,12 +70,19 @@ async def issue_card(
         raise HTTPException(status_code=400, detail="offer_id is required")
 
     # Admin toggles: refuse issuing a disabled card type
-    from app.services.card_service import CARD_NAME_BY_OFFER
+    from app.services.card_service import CARD_NAME_BY_OFFER, _is_univ_email_ok, _is_univ_ravana
     _card_name = CARD_NAME_BY_OFFER.get(body.offer_id)
-    if (_card_name == "Online" and not settings.CARD_ONLINE_ENABLED) or (
-        _card_name == "Online+Pay" and not settings.CARD_ONLINE_PLUS_ENABLED
+    if (
+        (_card_name == "Online" and not settings.CARD_ONLINE_ENABLED)
+        or (_card_name == "Online+Pay" and not settings.CARD_ONLINE_PLUS_ENABLED)
+        or (_card_name == "Pay" and not settings.CARD_PAY_ENABLED)
     ):
         raise HTTPException(status_code=400, detail="Выпуск этого типа карты временно недоступен. Попробуйте позже.")
+    if _is_univ_ravana(body.offer_id.rsplit(":", 1)[0]) and not _is_univ_email_ok(current_user.email or ""):
+        raise HTTPException(
+            status_code=400,
+            detail="Для этой карты нужна почта Gmail или iCloud — на неё придёт код подтверждения.",
+        )
     
     # Require KYC verification before card issuance
     if current_user.kyc_status != "success" or not current_user.kyc_first_name or not current_user.kyc_last_name:

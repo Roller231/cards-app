@@ -98,6 +98,11 @@ export default function KycModal({ isOpen, onClose, onSuccess }) {
       setError('Введите email и номер телефона')
       return
     }
+    const emailDomain = email.trim().toLowerCase().split('@').pop()
+    if (emailDomain !== 'gmail.com' && emailDomain !== 'icloud.com') {
+      setError('Используйте почту Gmail (@gmail.com) или iCloud (@icloud.com) — на неё будут приходить коды подтверждения')
+      return
+    }
     if (gender !== 'MALE' && gender !== 'FEMALE') {
       setError('Выберите пол')
       return
@@ -264,12 +269,14 @@ export default function KycModal({ isOpen, onClose, onSuccess }) {
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <label style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Email</label>
+                <label style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>
+                  Email <span style={{ fontWeight: 400, color: '#9CA3AF' }}>(только Gmail или iCloud)</span>
+                </label>
                 <input
                   type="email"
                   value={email}
                   onChange={e => setEmail(e.target.value)}
-                  placeholder="example@mail.ru"
+                  placeholder="example@gmail.com"
                   style={{
                     padding: '12px 14px', borderRadius: 10, border: '1.5px solid #E5E7EB',
                     fontSize: 15, outline: 'none', fontFamily: font,

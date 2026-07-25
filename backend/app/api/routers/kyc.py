@@ -44,6 +44,15 @@ async def update_contact(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # Only gmail/icloud are accepted: the universal ("Pay") card BIN sends
+    # confirmation codes by email and supports only these providers.
+    _domain = (body.email or "").rsplit("@", 1)[-1].strip().lower()
+    if _domain not in ("gmail.com", "icloud.com"):
+        raise HTTPException(
+            status_code=400,
+            detail="Используйте почту Gmail (@gmail.com) или iCloud (@icloud.com) — на неё будут приходить коды подтверждения.",
+        )
+
     values: dict = {"email": body.email, "phone": body.phone}
     if body.gender in ("MALE", "FEMALE"):
         values["gender"] = body.gender

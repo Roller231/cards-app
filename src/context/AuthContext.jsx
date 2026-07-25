@@ -124,6 +124,10 @@ export function AuthProvider({ children }) {
     online_plus_operation_fee_usd = 0.4,
     card_issuance_price_rub = 999,
     card_issuance_price_pay_rub = 1999,
+    univ_topup_markup_percent = 4,
+    univ_operation_fee_usd = 0.4,
+    univ_card_validity_text = '1 год',
+    card_issuance_price_univ_rub = 1999,
   } = appConfig || {}
 
   return (
@@ -145,6 +149,10 @@ export function AuthProvider({ children }) {
         online_plus_operation_fee: online_plus_operation_fee_usd,
         online_issue_price_rub: card_issuance_price_rub,
         online_plus_issue_price_rub: card_issuance_price_pay_rub,
+        univ_topup: univ_topup_markup_percent,
+        univ_operation_fee: univ_operation_fee_usd,
+        univ_validity_text: univ_card_validity_text,
+        univ_issue_price_rub: card_issuance_price_univ_rub,
       },
       fetchMe,
     }}>

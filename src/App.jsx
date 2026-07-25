@@ -248,6 +248,7 @@ function AppInner() {
   const offersLoaded = offers.length > 0
   const onlineAvailable = !offersLoaded || offers.some((o) => o.name === 'Online')
   const onlinePlusAvailable = !offersLoaded || offers.some((o) => o.name === 'Online+Pay')
+  const payAvailable = !offersLoaded || offers.some((o) => o.name === 'Pay')
 
   // Banned screen
   if (banned) {
@@ -303,6 +304,7 @@ function AppInner() {
           issueLimitReached={issueLimitReached}
           onlineAvailable={onlineAvailable}
           onlinePlusAvailable={onlinePlusAvailable}
+          payAvailable={payAvailable}
           onRefresh={async () => {
             const cards = await refreshCards()
             refreshOffers()
