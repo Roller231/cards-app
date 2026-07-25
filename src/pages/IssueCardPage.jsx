@@ -421,15 +421,17 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
             }}
           >
             <div style={{ padding: '0 16px' }}>
-              {/* Card Preview — artwork matches the selected card type */}
+              {/* Card Preview — artwork matches the selected card type.
+                  Fixed to the real bank-card aspect ratio (85.6×54 mm ≈ 1.586)
+                  so the art doesn't read as a wide banner. */}
               <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'center' }}>
-                <div style={{ position: 'relative', width: '66.67%', borderRadius: 16, overflow: 'hidden' }}>
+                <div style={{ position: 'relative', width: '58%', aspectRatio: '1.586', borderRadius: 16, overflow: 'hidden' }}>
                   <img
                     src={cardBackgroundByTypeName(selectedCard?.name)}
                     alt="Card"
-                    style={{ width: '100%', height: 'auto', display: 'block' }}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                   />
-                  <McChip size={18} />
+                  <McChip size={16} right={10} bottom={10} />
                 </div>
               </div>
 
