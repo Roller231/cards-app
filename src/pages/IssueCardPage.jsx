@@ -6,6 +6,7 @@ import PageHeader from '../components/ui/PageHeader'
 import SbpPaymentModal from '../components/ui/SbpPaymentModal'
 import KycModal from '../components/ui/KycModal'
 import { cardBackgroundByTypeName, McChip } from '../utils/cardAssets'
+import PromoCard, { usePromoCards, PROMO_KEY_BY_TYPE } from '../components/PromoCard'
 
 const PAYMENT_METHODS = [
   { id: 'sbp', label: 'СБП', description: 'Моментальный перевод через Систему Быстрых Платежей', iconSrc: '/images/sbp.png' },
@@ -26,6 +27,10 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
   const [showKycModal, setShowKycModal] = useState(false)
   const [kycStatus, setKycStatus] = useState(null)
   const [paymentMethod, setPaymentMethod] = useState(null) // 'sbp' | 'balance'
+  const [promoExpanded, setPromoExpanded] = useState(false)
+
+  // Info card (same as on the home screen) for the selected card type
+  const promoCards = usePromoCards()
 
 
   // Load card offers and issuance price from API
@@ -280,6 +285,19 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
             </div>
           </div>
         )}
+
+        {/* Info card for the selected type — the same promo card as on the home screen */}
+        {selectedCard && (() => {
+          const selectedPromo = promoCards.find((p) => p.key === PROMO_KEY_BY_TYPE[(selectedCard?.name || '').trim()])
+          return selectedPromo ? (
+            <PromoCard
+              pc={selectedPromo}
+              expanded={promoExpanded}
+              onToggle={() => setPromoExpanded((v) => !v)}
+              showIssueButton={false}
+            />
+          ) : null
+        })()}
 
         {/* Card Limit Warning */}
         {selectedCard && limitReached && (

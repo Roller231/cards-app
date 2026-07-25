@@ -221,7 +221,7 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
                   fontFamily:
                     '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
                   letterSpacing: '1.6px',
-                  marginBottom: 15,
+                  marginBottom: 0,
                   marginLeft: -3,
                 }}
               >
