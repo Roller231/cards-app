@@ -31,6 +31,7 @@ class CardRequisitesResponse(BaseModel):
 class CardOfferItem(BaseModel):
     id: str
     name: Optional[str] = None
+    display_name: Optional[str] = None
     currency: Optional[str] = None
     payment_system: Optional[str] = None
     issue_fee: Optional[float] = None

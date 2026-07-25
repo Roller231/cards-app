@@ -27,7 +27,9 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
   // (backend /auth/config -> cards_promo + commissions)
   const { appConfig } = useAuth()
   const promo = appConfig?.cards_promo || {}
-  const pick = (cfg, key, fallback) => (cfg && cfg[key]) || fallback
+  // Respect explicitly-set values: 0 for numbers and '' for texts are valid
+  const pick = (cfg, key, fallback) => (cfg && cfg[key] !== undefined && cfg[key] !== null ? cfg[key] : fallback)
+  const numOr = (v, d) => (v === null || v === undefined || v === '' ? d : Number(v))
   const promoCards = [
     {
       key: 'online', available: onlineAvailable, payIcons: false,
@@ -37,9 +39,9 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
       pays: pick(promo.online, 'pays', 'Booking, Airbnb, Zoom, Google One, Spotify, YouTube, покупки в магазинах и пр.'),
       bin: pick(promo.online, 'bin', 'Гонконг'),
       validity: commissions.online_validity_text || '1 год',
-      operationFee: commissions.online_operation_fee || 0.4,
-      priceRub: commissions.online_issue_price_rub || 999,
-      topup: commissions.online_topup || 3.8,
+      operationFee: numOr(commissions.online_operation_fee, 0.4),
+      priceRub: numOr(commissions.online_issue_price_rub, 999),
+      topup: numOr(commissions.online_topup, 3.8),
     },
     {
       key: 'online-plus', available: onlinePlusAvailable, payIcons: true,
@@ -49,9 +51,9 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
       pays: pick(promo.online_plus, 'pays', 'Booking, Airbnb, Zoom, Google One, Spotify, YouTube, покупки в магазинах и пр.'),
       bin: pick(promo.online_plus, 'bin', 'США'),
       validity: commissions.online_plus_validity_text || '1 год',
-      operationFee: commissions.online_plus_operation_fee || 0.4,
-      priceRub: commissions.online_plus_issue_price_rub || 1999,
-      topup: commissions.online_plus_topup || 4,
+      operationFee: numOr(commissions.online_plus_operation_fee, 0.4),
+      priceRub: numOr(commissions.online_plus_issue_price_rub, 1999),
+      topup: numOr(commissions.online_plus_topup, 4),
     },
     {
       key: 'pay', available: payAvailable, payIcons: true,
@@ -61,9 +63,9 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
       pays: pick(promo.pay, 'pays', 'Booking, Airbnb, Zoom, Google One, Spotify, YouTube, покупки в магазинах и пр.'),
       bin: pick(promo.pay, 'bin', 'США'),
       validity: commissions.univ_validity_text || '1 год',
-      operationFee: commissions.univ_operation_fee || 0.4,
-      priceRub: commissions.univ_issue_price_rub || 1999,
-      topup: commissions.univ_topup || 4,
+      operationFee: numOr(commissions.univ_operation_fee, 0.4),
+      priceRub: numOr(commissions.univ_issue_price_rub, 1999),
+      topup: numOr(commissions.univ_topup, 4),
     },
   ]
 

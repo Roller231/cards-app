@@ -65,10 +65,11 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
 
   const cardTypes = offers
   const selectedCard = cardTypes.find((c) => String(c.id) === String(selectedCardType))
-  const selectedCardName = selectedCard?.name || ''
-  
-  // Select price based on exact card type name
-  const _name = (selectedCardName || '').trim()
+  // What the user sees (admin-editable display name); internal `name` drives pricing
+  const selectedCardName = selectedCard?.display_name || selectedCard?.name || ''
+
+  // Select price based on the INTERNAL card type code (not the display name)
+  const _name = (selectedCard?.name || '').trim()
   const price = _name === 'Online+Pay' || _name === 'Online + Pay'
     ? (Number(issuancePrice?.price_pay_rub) || 1999)
     : _name === 'Pay'
@@ -226,7 +227,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span>{card.name}</span>
+                    <span>{card.display_name || card.name}</span>
                     {card.current_count >= card.max_issued_count && (
                       <span style={{ fontSize: 12, color: '#DC4D35', fontWeight: 500 }}>Лимит</span>
                     )}

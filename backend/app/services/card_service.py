@@ -928,6 +928,13 @@ class CardService:
                 offers.append({
                     "id": f"{ravana_server_id}:{type_uuid}",
                     "name": name,
+                    # Display name shown to users (admin-editable via promo title);
+                    # `name` stays the internal type code for prices/toggles/limits.
+                    "display_name": {
+                        "Online": settings.CARD_ONLINE_PROMO_TITLE,
+                        "Online+Pay": settings.CARD_ONLINE_PLUS_PROMO_TITLE,
+                        "Pay": settings.CARD_PAY_PROMO_TITLE,
+                    }.get(name) or name,
                     "payment_system": payment_system,
                     "currency": provider.get("cardCurrency") or "USD",
                     "issue_fee": issue_fee,
