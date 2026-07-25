@@ -5,6 +5,7 @@ import Button from '../components/ui/Button'
 import PageHeader from '../components/ui/PageHeader'
 import SbpPaymentModal from '../components/ui/SbpPaymentModal'
 import KycModal from '../components/ui/KycModal'
+import { cardBackgroundByTypeName, McChip } from '../utils/cardAssets'
 
 const PAYMENT_METHODS = [
   { id: 'sbp', label: 'СБП', description: 'Моментальный перевод через Систему Быстрых Платежей', iconSrc: '/images/sbp.png' },
@@ -420,17 +421,16 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
             }}
           >
             <div style={{ padding: '0 16px' }}>
-              {/* Card Preview */}
+              {/* Card Preview — artwork matches the selected card type */}
               <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'center' }}>
-                <img
-                  src="/images/CardExample.png"
-                  alt="Card"
-                  style={{
-                    width: '66.67%',
-                    height: 'auto',
-                    borderRadius: 12,
-                  }}
-                />
+                <div style={{ position: 'relative', width: '66.67%', borderRadius: 16, overflow: 'hidden' }}>
+                  <img
+                    src={cardBackgroundByTypeName(selectedCard?.name)}
+                    alt="Card"
+                    style={{ width: '100%', height: 'auto', display: 'block' }}
+                  />
+                  <McChip size={18} />
+                </div>
               </div>
 
               {/* Card Details */}

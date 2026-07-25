@@ -7,6 +7,7 @@ import InfoCard from '../components/ui/InfoCard'
 import { H2, H3, H4, Description } from '../components/ui/Typography'
 import { useDragScroll } from '../hooks/useDragScroll'
 import { useAuth } from '../context/AuthContext'
+import { cardBackgroundByOffer, McChip } from '../utils/cardAssets'
 import { TxIcon } from './HistoryPage'
 
 const PULL_THRESHOLD = 120
@@ -299,7 +300,7 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
                           cursor: 'pointer',
                       position: 'relative',
                       color: '#FFFFFF',
-                      backgroundImage: 'url(/images/CardInBalance.png)',
+                      backgroundImage: `url(${cardBackgroundByOffer(card.offer_id)})`,
                       backgroundSize: 'cover',
                       backgroundPosition: 'center',
                           display: 'flex',
@@ -354,6 +355,7 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
 
                           </div>
                         </div>
+                        <McChip />
                       </div>
                     ))}
                   </div>

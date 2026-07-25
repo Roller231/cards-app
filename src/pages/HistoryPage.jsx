@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import Button from '../components/ui/Button'
+import { cardBackgroundByOffer } from '../utils/cardAssets'
 import Portal from '../components/ui/Portal'
 import PageHeader from '../components/ui/PageHeader'
 
@@ -307,7 +308,7 @@ function CardFilterModal({ isOpen, onClose, cards, selectedCards, onApply }) {
               cursor: 'pointer',
             }}
           >
-            <img src="/images/CardHistory.png" alt="" style={{ width: 72, height: 48, objectFit: 'contain', borderRadius: 8, flexShrink: 0 }} />
+            <img src={cardBackgroundByOffer(card.offer_id)} alt="" style={{ width: 72, height: 48, objectFit: 'cover', borderRadius: 8, flexShrink: 0 }} />
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: '#111827', fontFamily: font }}>
                 {card.title} &nbsp; ···· {card.last4}

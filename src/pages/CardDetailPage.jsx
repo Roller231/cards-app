@@ -7,6 +7,7 @@ import PageHeader from '../components/ui/PageHeader'
 import { useToast } from '../components/ui/ToastProvider'
 import TopUpModal from '../components/ui/TopUpModal'
 import Portal from '../components/ui/Portal'
+import { cardBackgroundByOffer, McChip } from '../utils/cardAssets'
 import { TxIcon } from './HistoryPage'
 
 // Template billing identity shown in the "Данные карты" modal — same for all cards
@@ -186,7 +187,7 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
               padding: 18,
               position: 'relative',
               color: '#FFFFFF',
-              backgroundImage: 'url(/images/CardInBalance.png)',
+              backgroundImage: `url(${cardBackgroundByOffer(card?.offer_id)})`,
               backgroundSize: 'cover',
               backgroundPosition: 'center',
               display: 'flex',
@@ -240,6 +241,7 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
 
               </div>
             </div>
+            <McChip />
           </div>
         </div>
       </Section>
