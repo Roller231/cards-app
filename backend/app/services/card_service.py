@@ -1164,10 +1164,12 @@ class CardService:
                 break
 
         try:
-            # O-Plata confirmed: the RUSSIAN passport number may be kept for this
-            # BIN — use the user's real KYC passport; name/phone stay random US.
-            document_number = (user.kyc_passport or "").strip() or ident["document"]
-            issue_date = _to_iso_date(user.kyc_passport_issue_date) or "2020-01-15"
+            # NOT the real Russian passport: O-Plata explicitly requires a NEW,
+            # non-RU identity for this card type ("Для пользователей, прошедших
+            # KYC с РФ данными, выпуск не работает — нужны новые аккаунты").
+            # Name/phone/document are random and not verified by them.
+            document_number = ident["document"]
+            issue_date = "2020-01-15"
             result = await oplata_client.kyc_verify_partner_start(
                 client_id,
                 first_name=ident["first_name"],
