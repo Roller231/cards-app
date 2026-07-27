@@ -1159,7 +1159,16 @@ class CardService:
                 "KYC verification required. Please complete identity verification before issuing a card."
             )
 
+        # The regular Online client (tg_<tgid>) already registered user.email in
+        # its KYC, and O-Plata enforces email uniqueness across clients — the
+        # univ client would hit EMAIL_DUPLICATED (provider silently cancels the
+        # card during CREATING). Use a plus-addressed variant: Gmail and iCloud
+        # both deliver it to the same inbox, but for O-Plata it's a distinct
+        # address.
         _email = user.email
+        if _email and "@" in _email and "+" not in _email:
+            _local, _domain = _email.split("@", 1)
+            _email = f"{_local}+pp@{_domain}"
         country = "RU"
         kyc_first_name = user.kyc_first_name
         kyc_last_name = user.kyc_last_name
