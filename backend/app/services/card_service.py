@@ -187,6 +187,25 @@ def _parse_offer_id(offer_id: str):
     return offer_id[:last_colon], offer_id[last_colon + 1:]
 
 
+def _order_ravana_id(order: "Order") -> str:
+    """Provider (ravanaServerId) an issue order was created for.
+
+    Issue orders store it in the description as
+    'Card issuance: <ravanaServerId>:<typeUuid>[ sbp_invoice:<id>]'.
+    Returns '' for legacy orders without it.
+    """
+    desc = str(getattr(order, "description", "") or "")
+    marker = "Card issuance: "
+    if marker not in desc:
+        return ""
+    tail = desc.split(marker, 1)[1].split(" ", 1)[0]
+    try:
+        ravana, _uuid_part = _parse_offer_id(tail)
+        return ravana
+    except ValueError:
+        return ""
+
+
 def _card_state_to_status(state: Any) -> str:
     s = str(state or "").upper()
     if s == "ACTIVE":
@@ -330,7 +349,19 @@ class CardService:
                 Order.card_id.is_(None),
             ).order_by(Order.id.asc())
         )
-        pending = pending_result.scalars().first()
+        pending_orders = list(pending_result.scalars().all())
+        # Only link an order to a card of the SAME provider. Otherwise an
+        # Online+Pay order could latch onto an old Online card during sync and
+        # trigger a "card issued" notification with the wrong card's last4.
+        card_ravana = str(card.offer_id or "")
+        pending = next(
+            (o for o in pending_orders if _order_ravana_id(o) == card_ravana),
+            None,
+        )
+        if pending is None:
+            # Legacy orders without a provider in the description: fall back to
+            # the oldest one only if it can't be attributed to another provider.
+            pending = next((o for o in pending_orders if not _order_ravana_id(o)), None)
         if pending:
             pending.card_id = card.id
             pending.status = order_status
@@ -796,10 +827,16 @@ class CardService:
                             ravana_server_id=linked_card.offer_id,
                             amount=Decimal(str(card_amount)),
                         )
-                    # Only notify once per order and only when the card is active.
-                    # NOTE: Card model has no created_at column — comparing it here
-                    # raised AttributeError and silently killed success notifications.
-                    if _card_is_active(linked_card.status) and not order.notified:
+                    # Only notify once per order, when the card is active AND the
+                    # card belongs to the provider this order was created for
+                    # (guards against notifying about an unrelated older card).
+                    # NOTE: Card model has no created_at column — don't compare it.
+                    _order_ravana = _order_ravana_id(order)
+                    if (
+                        _card_is_active(linked_card.status)
+                        and not order.notified
+                        and (not _order_ravana or _order_ravana == str(linked_card.offer_id or ""))
+                    ):
                         try:
                             await notify_card_issued(
                                 db=db, user=user,
@@ -1873,9 +1910,10 @@ class CardService:
         # 8. Notify only when a concrete card record is already available locally
         if order.card_id and not order.notified:
             linked_card = await self._resolve_card(db, user.id, str(order.card_id))
-            # Only notify once per order and only when the card is active.
+            # Only notify when the card is active AND belongs to this order's
+            # provider (an unrelated older card must never trigger this).
             # NOTE: Card model has no created_at column — do not compare it here.
-            if _card_is_active(linked_card.status):
+            if _card_is_active(linked_card.status) and str(linked_card.offer_id or "") == ravana_server_id:
                 try:
                     await notify_card_issued(
                         db=db, user=user,
