@@ -664,10 +664,19 @@ async def _trigger_post_payment(invoice_id: int) -> None:
                     defer_follow_up=False,
                     sbp_invoice_id=invoice_id,
                 )
+                # Persist the issue order and linked card. Without this the
+                # session closes with an implicit rollback and the order is
+                # lost, even though the card was really created on O-Plata
+                # (which also breaks the duplicate-issue guard above).
+                await db.commit()
                 logger.info("[SBP] Auto-issue card completed for user_id=%s", user.id)
 
         except Exception as exc:
             logger.error("[SBP] Post-payment trigger failed for invoice_id=%s: %s", invoice_id, exc)
+            try:
+                await db.rollback()
+            except Exception:
+                pass
 
 
 async def _credit_user_balance(db: AsyncSession, invoice: BbInvoice, bb_payload: Dict[str, Any]) -> None:
