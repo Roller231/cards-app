@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Boolean, Column, DateTime, Numeric, String, Text
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, Integer, Numeric, String, Text
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -34,6 +34,12 @@ class User(Base):
     # "no 3rd consecutive unpaid QR" guard in /sbp/invoice. Set by an admin to
     # unblock a user without touching Bitbanker's own (separate) account state.
     sbp_qr_reset_at = Column(DateTime, nullable=True)
+
+    # Version of the user's O-Plata "univ" client (universal cards). 0 =>
+    # tg_univ_<tgid>, 1 => tg_univ2_<tgid>, ... Bumped when a client's KYC is
+    # poisoned (e.g. wrong phone) — completed KYC can't be updated via the API,
+    # so we register a fresh client instead.
+    univ_client_seq = Column(Integer, nullable=False, default=0, server_default="0")
 
     cards = relationship("Card", back_populates="user", lazy="select")
     orders = relationship("Order", back_populates="user", lazy="select")

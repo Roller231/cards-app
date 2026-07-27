@@ -157,6 +157,7 @@ def check_and_update_schema(conn):
             'kyc_passport_issue_date': 'VARCHAR(20) NULL',
             'kyc_session_id': 'VARCHAR(100) NULL',
             'sbp_qr_reset_at': 'DATETIME NULL',
+            'univ_client_seq': 'INT NOT NULL DEFAULT 0',
         }
         for col_name, col_def in new_user_cols.items():
             if col_name not in user_cols:

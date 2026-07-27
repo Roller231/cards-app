@@ -83,13 +83,20 @@ def _univ_parent_client_id() -> str:
 def _univ_client_id(user: User) -> str:
     """Separate O-Plata client for universal cards (US identity). Users who
     passed RU KYC can't issue these cards on their main client — O-Plata
-    requires a fresh account."""
+    requires a fresh account.
+
+    univ_client_seq lets us re-register a user whose univ KYC is poisoned
+    (completed KYC data can't be updated via the API): bumping the seq
+    switches to a brand-new client id, e.g. tg_univ_123 -> tg_univ2_123.
+    """
     prefix = (settings.OPLATA_USER_CLIENT_PREFIX or "tg_").strip()
+    seq = int(getattr(user, "univ_client_seq", 0) or 0)
+    marker = "univ" if seq <= 0 else f"univ{seq + 1}"
     tg_id = str(getattr(user, "telegram_user_id", "") or "").strip()
     if tg_id:
-        return f"{prefix}univ_{tg_id}"
+        return f"{prefix}{marker}_{tg_id}"
     suffix = settings.LOCAL_DEV_CLIENT_SUFFIX.strip() or f"dev_{user.id}"
-    return f"{prefix}univ_{suffix}"
+    return f"{prefix}{marker}_{suffix}"
 
 
 def _client_id_for_ravana(user: User, ravana_server_id: Any) -> str:
