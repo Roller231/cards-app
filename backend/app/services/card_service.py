@@ -1094,21 +1094,31 @@ class CardService:
     async def _ensure_univ_client(self, client_id: str, user: "User") -> str:
         """Register/KYC the separate universal-card client.
 
-        O-Plata rules for the universal BIN (confirmed with their support):
-          - name/phone may be RANDOM US values (not verified against anything);
-          - the RUSSIAN passport number is kept (real KYC passport);
-          - therefore COUNTRY stays RU — O-Plata rejects country='US' for this
-            product ("Invalid Country");
-          - a working gmail/icloud email (user receives the confirmation code).
-        Identity (name/phone) is deterministic per user (same on every call)."""
+        O-Plata clarification: the American name is only the CARD HOLDER name
+        (embossing). KYC itself must carry the user's REAL Russian identity —
+        real name + real passport + country RU + type CITIZEN_PASSPORT — so the
+        passport check passes (exactly like the regular Online flow). The only
+        univ-specific requirement here is a working gmail/icloud email (the card
+        provider sends a confirmation code there). The American card-holder name
+        is applied later, at issue time."""
         if not _is_univ_email_ok(user.email or ""):
             raise RuntimeError(
-                "Для выпуска карты Pay нужна почта Gmail или iCloud — на неё придёт код подтверждения. "
+                "Для этой карты нужна почта Gmail или iCloud — на неё придёт код подтверждения. "
                 "Укажите её в разделе верификации."
             )
-        ident = _univ_identity(user)
+        # Require real NeuroVision KYC data — same gate as the regular flow.
+        if user.kyc_status != "success" or not user.kyc_first_name or not user.kyc_last_name or not user.kyc_birth_date:
+            raise RuntimeError(
+                "KYC verification required. Please complete identity verification before issuing a card."
+            )
+
         _email = user.email
         country = "RU"
+        kyc_first_name = user.kyc_first_name
+        kyc_last_name = user.kyc_last_name
+        kyc_middle_name = user.kyc_patronymic or ""
+        kyc_dob = _to_iso_date(user.kyc_birth_date)
+        kyc_gender = user.gender if user.gender in ("MALE", "FEMALE") else "FEMALE"
 
         try:
             result = await oplata_client.register_client(client_id)
@@ -1126,8 +1136,8 @@ class CardService:
             except Exception:
                 await asyncio.sleep(1.0)
 
-        logger.info("Univ client %s identity: %s %s %s (country=%s)",
-                    client_id, ident["first_name"], ident["last_name"], ident["phone"], country)
+        logger.info("Univ client %s KYC identity: %s %s (real, country=%s)",
+                    client_id, kyc_first_name, kyc_last_name, country)
 
         try:
             await oplata_client.kyc_verify_email(client_id, _email)
@@ -1135,7 +1145,8 @@ class CardService:
             logger.warning("univ kyc_verify_email for %s failed: %s", client_id, exc)
         try:
             await oplata_client.kyc_verify_person(
-                client_id, ident["first_name"], ident["last_name"], ident["dob"], country=country,
+                client_id, kyc_first_name, kyc_last_name, kyc_dob,
+                middle_name=kyc_middle_name, country=country,
             )
         except Exception as exc:
             logger.warning("univ kyc_verify_person for %s failed: %s", client_id, exc)
@@ -1166,25 +1177,21 @@ class CardService:
                 break
 
         try:
-            # NOT the real Russian passport: O-Plata explicitly requires a NEW,
-            # non-RU identity for this card type ("Для пользователей, прошедших
-            # KYC с РФ данными, выпуск не работает — нужны новые аккаунты").
-            # Name/phone/document are random and not verified by them.
-            document_number = ident["document"]
-            issue_date = "2020-01-15"
+            # REAL Russian passport — this is what passes O-Plata's passport
+            # check. The American identity is only the card-holder name at issue.
+            kyc_passport = (user.kyc_passport or "").strip()
+            kyc_passport_issue_date = _to_iso_date(user.kyc_passport_issue_date) or "2025-01-01"
             result = await oplata_client.kyc_verify_partner_start(
                 client_id,
-                first_name=ident["first_name"],
-                last_name=ident["last_name"],
-                middle_name="",
-                date_of_birth=ident["dob"],
+                first_name=kyc_first_name,
+                last_name=kyc_last_name,
+                middle_name=kyc_middle_name,
+                date_of_birth=kyc_dob,
                 country=country,
                 email=_email,
-                phone_number=ident["phone"],
-                gender=ident["gender"],
-                document_number=document_number,
-                issue_date=issue_date,
-                valid_until_date="2030-01-15",
+                gender=kyc_gender,
+                document_number=kyc_passport,
+                issue_date=kyc_passport_issue_date,
             )
             logger.info("Univ KYC partner/start for %s: %s", client_id, result)
         except Exception as exc:
@@ -1749,8 +1756,15 @@ class CardService:
                 parent_client_id=parent_client,
             )
 
-        # 4. Issue card on O-Plata
-        holder_name = f"{holder_first_name} {holder_last_name}".strip()
+        # 4. Issue card on O-Plata.
+        # For universal cards, the CARD HOLDER name is a random American name
+        # (per O-Plata: "ФИО — это для держателя карты"); KYC used the real
+        # Russian identity. Regular cards keep the caller-provided holder name.
+        if is_univ:
+            _uident = _univ_identity(user)
+            holder_name = f"{_uident['first_name']} {_uident['last_name']}".strip()
+        else:
+            holder_name = f"{holder_first_name} {holder_last_name}".strip()
         tagged_name = f"{_user_card_tag(user.id)}{holder_name or client_id}"
         try:
             result = await oplata_client.issue_virtual_card(
