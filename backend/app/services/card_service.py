@@ -133,7 +133,9 @@ def _univ_identity(user: User) -> Dict[str, str]:
     exchange = str(rnd.randint(200, 999))
     line = f"{rnd.randint(0, 9999):04d}"
     phone = f"+1{area}{exchange}{line}"
-    document = f"{rnd.randint(100000000, 999999999)}"  # 9-digit US passport style
+    # partner/start sends type=CITIZEN_PASSPORT, which requires a 10-digit
+    # Russian-passport-format number (4-digit series + 6-digit number).
+    document = f"{rnd.randint(1000, 9999)}{rnd.randint(0, 999999):06d}"  # 10 digits
     dob = f"{rnd.randint(1975, 1999)}-{rnd.randint(1, 12):02d}-{rnd.randint(1, 28):02d}"
     gender = rnd.choice(["MALE", "FEMALE"])
     return {
