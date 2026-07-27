@@ -266,8 +266,11 @@ def _is_card_type_issuable(card_type: Dict[str, Any]) -> bool:
 
 
 def _validation_status_requires_data(status: Any) -> bool:
+    # Blockers: issuing with them "succeeds" (200 + payment created) but the
+    # provider cancels the card during CREATING and refunds the fee.
+    # EMAIL_DUPLICATED: the email is registered to another O-Plata client.
     s = str(status or "").upper()
-    return "ABSENT" in s or s in {"INVALID", "FAILED"}
+    return "ABSENT" in s or "DUPLICATED" in s or s in {"INVALID", "FAILED"}
 
 
 class CardService:
