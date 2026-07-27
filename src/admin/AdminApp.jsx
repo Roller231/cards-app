@@ -203,9 +203,15 @@ function UserDetailPage({ userId, goBack }) {
   const [cards, setCards] = useState([])
   const [orders, setOrders] = useState([])
   const [topups, setTopups] = useState([])
+  const [limits, setLimits] = useState(null)
+  const [resetting, setResetting] = useState(false)
   const [tab, setTab] = useState('cards')
   const [editMode, setEditMode] = useState(false)
   const [form, setForm] = useState({})
+
+  const loadLimits = useCallback(async () => {
+    try { setLimits(await adminApi.users.limits(userId)) } catch {}
+  }, [userId])
 
   useEffect(() => {
     (async () => {
@@ -220,10 +226,18 @@ function UserDetailPage({ userId, goBack }) {
         setForm({ username: u.username, balance: u.balance, telegram_user_id: u.telegram_user_id || '' })
       } catch {}
     })()
-  }, [userId])
+    loadLimits()
+  }, [userId, loadLimits])
 
   const save = async () => {
     try { await adminApi.users.update(userId, { username: form.username, balance: parseFloat(form.balance) || 0, telegram_user_id: form.telegram_user_id || null }); setEditMode(false); const u = await adminApi.users.get(userId); setUser(u) } catch {}
+  }
+
+  const resetSbpQr = async () => {
+    if (!confirm('Сбросить лимиты по QR-кодам СБП для этого пользователя?')) return
+    setResetting(true)
+    try { await adminApi.users.resetSbpQrLimit(userId); await loadLimits() } catch (e) { alert(e.message) }
+    finally { setResetting(false) }
   }
 
   if (!user) return <p>Загрузка...</p>
@@ -261,6 +275,51 @@ function UserDetailPage({ userId, goBack }) {
                   user.is_active ? await adminApi.users.ban(userId) : await adminApi.users.unban(userId)
                   const u = await adminApi.users.get(userId); setUser(u)
                 }}>{user.is_active ? 'Забанить' : 'Разбанить'}</Btn>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div style={{ background: '#fff', borderRadius: 14, padding: 24, flex: '1 1 340px', boxShadow: '0 1px 3px rgba(0,0,0,.08)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Лимиты СБП (QR-коды)</h3>
+            {limits && (
+              limits.sbp_qr.daily_limit_reached || limits.sbp_qr.consecutive_unpaid_blocked
+                ? badge('Заблокировано', '#ef4444')
+                : badge('Без ограничений', '#22c55e')
+            )}
+          </div>
+          {!limits ? <p style={{ fontSize: 13, color: '#6b7280' }}>Загрузка...</p> : (
+            <div style={{ fontSize: 14, lineHeight: 2 }}>
+              <div>
+                <strong>QR-кодов сегодня:</strong> {limits.sbp_qr.today_qr_count} / {limits.sbp_qr.max_qr_per_day}
+                {limits.sbp_qr.daily_limit_reached && <span style={{ color: '#ef4444', marginLeft: 6 }}>(лимит достигнут)</span>}
+              </div>
+              <div>
+                <strong>2 неоплаченных подряд:</strong>{' '}
+                {limits.sbp_qr.consecutive_unpaid_blocked
+                  ? <span style={{ color: '#ef4444' }}>да — новый QR заблокирован</span>
+                  : <span style={{ color: '#22c55e' }}>нет</span>}
+              </div>
+              {limits.sbp_qr.sbp_qr_reset_at && (
+                <div style={{ fontSize: 12, color: '#9ca3af' }}>
+                  Сброшено админом: {limits.sbp_qr.sbp_qr_reset_at.slice(0, 16).replace('T', ' ')}
+                </div>
+              )}
+              {limits.sbp_qr.last_invoices.length > 0 && (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', marginBottom: 4 }}>Последние счета:</div>
+                  {limits.sbp_qr.last_invoices.map(inv => (
+                    <div key={inv.id} style={{ fontSize: 12, color: '#374151', display: 'flex', gap: 8, alignItems: 'center' }}>
+                      #{inv.id} {badge(inv.status, statusColor[inv.status] || '#6b7280')} {inv.amount_rub}₽ · {inv.created_at?.slice(0, 16).replace('T', ' ')}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{ marginTop: 12 }}>
+                <Btn small variant="danger" disabled={resetting} onClick={resetSbpQr}>
+                  {resetting ? 'Сбрасываем...' : 'Сбросить лимит QR'}
+                </Btn>
               </div>
             </div>
           )}

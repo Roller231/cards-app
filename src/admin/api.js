@@ -45,6 +45,8 @@ const adminApi = {
     cards: (id) => req('GET', `/admin/users/${id}/cards`),
     orders: (id) => req('GET', `/admin/users/${id}/orders`),
     topupRequests: (id) => req('GET', `/admin/users/${id}/topup-requests`),
+    limits: (id) => req('GET', `/admin/users/${id}/limits`),
+    resetSbpQrLimit: (id) => req('POST', `/admin/users/${id}/limits/reset-sbp-qr`),
   },
   cards: {
     list: (search = '', limit = 50, offset = 0) =>

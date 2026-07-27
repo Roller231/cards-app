@@ -289,6 +289,36 @@ async def user_topup_requests(user_id: int, db: AsyncSession = Depends(get_db), 
     return [_topup_dict(t) for t in reqs]
 
 
+@router.get("/users/{user_id}/limits", summary="User's SBP QR-code limits and other rate limits")
+async def user_limits(user_id: int, db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+    """Everything that can currently stop this user from creating an SBP QR code
+    or otherwise hit a rate limit, in one place. Extend this dict (not a new
+    endpoint) when a new per-user limit is added elsewhere in the app."""
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if not user:
+        raise HTTPException(404, "User not found")
+    from app.api.routers.sbp import get_sbp_qr_status
+    sbp_qr = await get_sbp_qr_status(db, user)
+    return {"sbp_qr": sbp_qr}
+
+
+@router.post("/users/{user_id}/limits/reset-sbp-qr", summary="Reset user's SBP QR-code limits")
+async def reset_user_sbp_qr_limit(user_id: int, db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+    """Unblocks a user stuck behind our own 'daily QR cap' / 'no 3rd consecutive
+    unpaid QR' guards (see app/api/routers/sbp.py::get_sbp_qr_status) by making
+    all their invoices created so far invisible to those guards. This is purely
+    local bookkeeping — it does NOT touch any block Bitbanker itself may hold
+    on the account; if Bitbanker has separately blocked the user, contact their
+    support."""
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if not user:
+        raise HTTPException(404, "User not found")
+    user.sbp_qr_reset_at = datetime.utcnow()
+    await db.flush()
+    from app.api.routers.sbp import get_sbp_qr_status
+    return {"ok": True, "sbp_qr": await get_sbp_qr_status(db, user)}
+
+
 # =====================  CARDS  =====================
 
 @router.get("/cards", summary="All local cards")

@@ -59,6 +59,58 @@ def _external_ref(user: User) -> str:
     return f"u{user.id}"
 
 
+async def get_sbp_qr_status(db: AsyncSession, user: User) -> Dict[str, Any]:
+    """Compute this user's QR-code guard status (see the two guards below).
+
+    Shared by the /sbp/invoice guard and the admin panel, so both always agree
+    on what's blocking a user. `user.sbp_qr_reset_at`, when set by an admin,
+    makes invoices created before it invisible to both guards — i.e. it resets
+    both the daily-count and the consecutive-unpaid limit at once.
+    """
+    reset_at = user.sbp_qr_reset_at
+
+    day_start = _msk_day_start_utc()
+    if reset_at and reset_at > day_start:
+        day_start = reset_at
+    today_count_res = await db.execute(
+        select(func.count()).select_from(BbInvoice).where(
+            BbInvoice.user_id == user.id,
+            BbInvoice.created_at >= day_start,
+        )
+    )
+    today_count = today_count_res.scalar() or 0
+
+    window_start = datetime.utcnow() - timedelta(days=30)
+    if reset_at and reset_at > window_start:
+        window_start = reset_at
+    last_two_res = await db.execute(
+        select(BbInvoice).where(
+            BbInvoice.user_id == user.id,
+            BbInvoice.created_at >= window_start,
+        ).order_by(BbInvoice.id.desc()).limit(2)
+    )
+    last_two = list(last_two_res.scalars().all())
+    consecutive_unpaid_blocked = len(last_two) == 2 and all(inv.status not in _PAID_STATUSES for inv in last_two)
+
+    return {
+        "today_qr_count": today_count,
+        "max_qr_per_day": SBP_MAX_QR_PER_DAY,
+        "daily_limit_reached": today_count >= SBP_MAX_QR_PER_DAY,
+        "consecutive_unpaid_blocked": consecutive_unpaid_blocked,
+        "last_invoices": [
+            {
+                "id": inv.id,
+                "status": inv.status,
+                "purpose": inv.purpose,
+                "amount_rub": float(inv.amount_rub),
+                "created_at": inv.created_at.isoformat() if inv.created_at else None,
+            }
+            for inv in last_two
+        ],
+        "sbp_qr_reset_at": reset_at.isoformat() if reset_at else None,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Schemas
 # ---------------------------------------------------------------------------
@@ -262,31 +314,19 @@ async def create_invoice(
     # --- Our own QR guards: keep users well inside Bitbanker's prod limits ---
     # 1) No more than 2 created QR codes per Moscow day (BB allows 2 paid/day;
     #    we cap creation so users can't even approach the block).
-    day_count_res = await db.execute(
-        select(func.count()).select_from(BbInvoice).where(
-            BbInvoice.user_id == current_user.id,
-            BbInvoice.created_at >= _msk_day_start_utc(),
-        )
-    )
-    if (day_count_res.scalar() or 0) >= SBP_MAX_QR_PER_DAY:
-        raise HTTPException(
-            status_code=429,
-            detail="Можно создавать не более 2 QR-кодов в сутки. Лимит обновится в 00:00 по Москве.",
-        )
-
     # 2) Never let a user create a 3rd consecutive unpaid QR — Bitbanker blocks
     #    the account after 3 unpaid QRs in a row, and unblocking goes through
     #    their support with compliance questions. Intentionally NOT tied to the
     #    Moscow day: a stale/expired unpaid QR can't be paid anymore, so this
-    #    stays blocking (30-day window) until support/cleanup resolves it.
-    last_two_res = await db.execute(
-        select(BbInvoice).where(
-            BbInvoice.user_id == current_user.id,
-            BbInvoice.created_at >= datetime.utcnow() - timedelta(days=30),
-        ).order_by(BbInvoice.id.desc()).limit(2)
-    )
-    last_two = list(last_two_res.scalars().all())
-    if len(last_two) == 2 and all(inv.status not in _PAID_STATUSES for inv in last_two):
+    #    stays blocking (30-day window) until support/cleanup resolves it —
+    #    or until an admin resets it (User.sbp_qr_reset_at, see admin panel).
+    qr_status = await get_sbp_qr_status(db, current_user)
+    if qr_status["daily_limit_reached"]:
+        raise HTTPException(
+            status_code=429,
+            detail="Можно создавать не более 2 QR-кодов в сутки. Лимит обновится в 00:00 по Москве.",
+        )
+    if qr_status["consecutive_unpaid_blocked"]:
         raise HTTPException(
             status_code=429,
             detail=(

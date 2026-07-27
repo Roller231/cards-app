@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Boolean, Column, Numeric, String, Text
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, Numeric, String, Text
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -29,6 +29,11 @@ class User(Base):
     kyc_passport = Column(String(20), nullable=True)     # series+number, no spaces
     kyc_passport_issue_date = Column(String(20), nullable=True)  # DD.MM.YYYY
     kyc_session_id = Column(String(100), nullable=True)  # NeuroVision session ID
+
+    # Admin override: invoices created before this timestamp are ignored by the
+    # "no 3rd consecutive unpaid QR" guard in /sbp/invoice. Set by an admin to
+    # unblock a user without touching Bitbanker's own (separate) account state.
+    sbp_qr_reset_at = Column(DateTime, nullable=True)
 
     cards = relationship("Card", back_populates="user", lazy="select")
     orders = relationship("Order", back_populates="user", lazy="select")
