@@ -1218,6 +1218,12 @@ class CardService:
             # check. The American identity is only the card-holder name at issue.
             kyc_passport = (user.kyc_passport or "").strip()
             kyc_passport_issue_date = _to_iso_date(user.kyc_passport_issue_date) or "2025-01-01"
+            # O-Plata rule for this BIN: the phone MUST be American (any but
+            # +1340). The default of kyc_verify_partner_start is a Russian
+            # number — with it RAVANA accepts the issue, then cancels the card
+            # during CREATING and refunds the fee. Use the deterministic US
+            # phone from _univ_identity.
+            _uident_phone = _univ_identity(user)["phone"]
             result = await oplata_client.kyc_verify_partner_start(
                 client_id,
                 first_name=kyc_first_name,
@@ -1226,11 +1232,12 @@ class CardService:
                 date_of_birth=kyc_dob,
                 country=country,
                 email=_email,
+                phone_number=_uident_phone,
                 gender=kyc_gender,
                 document_number=kyc_passport,
                 issue_date=kyc_passport_issue_date,
             )
-            logger.info("Univ KYC partner/start for %s: %s", client_id, result)
+            logger.info("Univ KYC partner/start for %s (phone=%s): %s", client_id, _uident_phone, result)
         except Exception as exc:
             logger.warning("univ kyc_verify_partner_start for %s failed: %s", client_id, exc)
 
