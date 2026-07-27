@@ -1186,21 +1186,31 @@ class CardService:
         logger.info("Univ client %s KYC identity: %s %s (real, country=%s)",
                     client_id, kyc_first_name, kyc_last_name, country)
 
-        try:
-            await oplata_client.kyc_verify_email(client_id, _email)
-        except Exception as exc:
-            logger.warning("univ kyc_verify_email for %s failed: %s", client_id, exc)
-        try:
-            await oplata_client.kyc_verify_person(
-                client_id, kyc_first_name, kyc_last_name, kyc_dob,
-                middle_name=kyc_middle_name, country=country,
-            )
-        except Exception as exc:
-            logger.warning("univ kyc_verify_person for %s failed: %s", client_id, exc)
-        try:
-            await oplata_client.kyc_verify_country(client_id, country)
-        except Exception as exc:
-            logger.warning("univ kyc_verify_country for %s failed: %s", client_id, exc)
+        async def _kyc_step(step_name: str, call):
+            """Run a KYC step, retrying while the fresh client is not yet
+            visible: kyc/verify/* endpoints can 404 'Client not found' even
+            after kyc_info already sees the client (different subsystem).
+            Skipped steps leave e.g. EMAIL unset and the provider cancels the
+            card during CREATING. 'Process is not available to start' (step
+            already COMPLETED) is harmless and not retried."""
+            for _i in range(10):
+                try:
+                    return await call()
+                except Exception as exc:
+                    if "not found" in str(exc).lower():
+                        await asyncio.sleep(1.5)
+                        continue
+                    logger.warning("univ %s for %s failed: %s", step_name, client_id, exc)
+                    return None
+            logger.warning("univ %s for %s failed: client never became visible", step_name, client_id)
+            return None
+
+        await _kyc_step("kyc_verify_email", lambda: oplata_client.kyc_verify_email(client_id, _email))
+        await _kyc_step("kyc_verify_person", lambda: oplata_client.kyc_verify_person(
+            client_id, kyc_first_name, kyc_last_name, kyc_dob,
+            middle_name=kyc_middle_name, country=country,
+        ))
+        await _kyc_step("kyc_verify_country", lambda: oplata_client.kyc_verify_country(client_id, country))
         try:
             await oplata_client.kyc_verify_home(
                 client_id,
