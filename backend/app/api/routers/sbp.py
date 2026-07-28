@@ -636,18 +636,31 @@ async def _trigger_post_payment(invoice_id: int) -> None:
                 if not invoice.offer_id:
                     logger.warning("[SBP] card_issue invoice %s has no offer_id — cannot auto-issue", invoice_id)
                     return
-                # Check if card already issued for this specific invoice (idempotency)
+                # Idempotency: skip only if this invoice already produced a
+                # LIVE issue attempt (order linked to a card, or still in
+                # flight). A failed attempt (provider rejected/deleted the
+                # card — order has no card and status failed) must NOT block a
+                # retry, otherwise support has to delete orders by hand.
                 from app.models.order import Order
                 existing_order_result = await db.execute(
                     select(Order).where(
                         Order.user_id == user.id,
                         Order.type == "issue",
                         Order.description.like(f"%sbp_invoice:{invoice_id}%"),
-                    ).limit(1)
+                    ).order_by(Order.id.desc()).limit(1)
                 )
-                if existing_order_result.scalar_one_or_none():
-                    logger.info("[SBP] Card already issued for invoice_id=%s — skipping duplicate", invoice_id)
+                existing_order = existing_order_result.scalars().first()
+                _in_flight = existing_order is not None and (
+                    existing_order.card_id is not None
+                    or existing_order.status in ("pending", "processing")
+                )
+                if _in_flight:
+                    logger.info("[SBP] Card already issued for invoice_id=%s (order %s, status=%s) — skipping duplicate",
+                                invoice_id, existing_order.id, existing_order.status)
                     return
+                if existing_order:
+                    logger.info("[SBP] Previous issue attempt for invoice_id=%s left no card (order %s, status=%s) — retrying",
+                                invoice_id, existing_order.id, existing_order.status)
                 logger.info("[SBP] Auto-issuing card for user_id=%s offer_id=%s (invoice_id=%s)",
                             user.id, invoice.offer_id, invoice_id)
                 usernameParts = (user.kyc_first_name or user.username or "User").strip().split()
