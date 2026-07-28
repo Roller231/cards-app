@@ -1164,11 +1164,15 @@ class CardService:
         # univ client would hit EMAIL_DUPLICATED (provider silently cancels the
         # card during CREATING). Use a plus-addressed variant: Gmail and iCloud
         # both deliver it to the same inbox, but for O-Plata it's a distinct
-        # address.
+        # address. The tag tracks univ_client_seq so every re-registered client
+        # gets a fresh unique address (+pp, +pp2, +pp3, ...).
         _email = user.email
-        if _email and "@" in _email and "+" not in _email:
+        if _email and "@" in _email:
             _local, _domain = _email.split("@", 1)
-            _email = f"{_local}+pp@{_domain}"
+            _local = _local.split("+", 1)[0]
+            _seq = int(getattr(user, "univ_client_seq", 0) or 0)
+            _tag = "pp" if _seq <= 0 else f"pp{_seq + 1}"
+            _email = f"{_local}+{_tag}@{_domain}"
         country = "RU"
         kyc_first_name = user.kyc_first_name
         kyc_last_name = user.kyc_last_name
@@ -1243,30 +1247,31 @@ class CardService:
                 break
 
         try:
-            # REAL Russian passport — this is what passes O-Plata's passport
-            # check. The American identity is only the card-holder name at issue.
+            # O-Plata tech support (final contract): partner/start firstName/
+            # lastName ARE the card-holder name and must be AMERICAN (e.g. ERIC
+            # GARCIA); the `name` param of card/virtual/issue is just a card
+            # title, not the holder. Document stays the REAL Russian passport
+            # («номер паспорта можно оставить русский»), phone must be a US
+            # number (any but +1340). With a Russian name here RAVANA created
+            # the card and silently deleted it a few minutes later.
             kyc_passport = (user.kyc_passport or "").strip()
             kyc_passport_issue_date = _to_iso_date(user.kyc_passport_issue_date) or "2025-01-01"
-            # O-Plata rule for this BIN: the phone MUST be American (any but
-            # +1340). The default of kyc_verify_partner_start is a Russian
-            # number — with it RAVANA accepts the issue, then cancels the card
-            # during CREATING and refunds the fee. Use the deterministic US
-            # phone from _univ_identity.
-            _uident_phone = _univ_identity(user)["phone"]
+            _uident = _univ_identity(user)
             result = await oplata_client.kyc_verify_partner_start(
                 client_id,
-                first_name=kyc_first_name,
-                last_name=kyc_last_name,
-                middle_name=kyc_middle_name,
+                first_name=_uident["first_name"],
+                last_name=_uident["last_name"],
+                middle_name="",
                 date_of_birth=kyc_dob,
                 country=country,
                 email=_email,
-                phone_number=_uident_phone,
+                phone_number=_uident["phone"],
                 gender=kyc_gender,
                 document_number=kyc_passport,
                 issue_date=kyc_passport_issue_date,
             )
-            logger.info("Univ KYC partner/start for %s (phone=%s): %s", client_id, _uident_phone, result)
+            logger.info("Univ KYC partner/start for %s (holder=%s %s, phone=%s): %s",
+                        client_id, _uident["first_name"], _uident["last_name"], _uident["phone"], result)
         except Exception as exc:
             logger.warning("univ kyc_verify_partner_start for %s failed: %s", client_id, exc)
 
