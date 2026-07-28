@@ -208,6 +208,10 @@ function UserDetailPage({ userId, goBack }) {
   const [tab, setTab] = useState('cards')
   const [editMode, setEditMode] = useState(false)
   const [form, setForm] = useState({})
+  const [issueOffers, setIssueOffers] = useState(null)
+  const [issueOfferId, setIssueOfferId] = useState('')
+  const [issuing, setIssuing] = useState(false)
+  const [issueMsg, setIssueMsg] = useState('')
 
   const loadLimits = useCallback(async () => {
     try { setLimits(await adminApi.users.limits(userId)) } catch {}
@@ -226,7 +230,14 @@ function UserDetailPage({ userId, goBack }) {
         setForm({ username: u.username, balance: u.balance, telegram_user_id: u.telegram_user_id || '' })
       } catch {}
     })()
-    loadLimits()
+    loadLimits();
+    (async () => {
+      try {
+        const d = await adminApi.users.issueOffers(userId)
+        setIssueOffers(d.items)
+        if (d.items.length) setIssueOfferId(d.items[0].offer_id)
+      } catch { setIssueOffers([]) }
+    })()
   }, [userId, loadLimits])
 
   const save = async () => {
@@ -238,6 +249,22 @@ function UserDetailPage({ userId, goBack }) {
     setResetting(true)
     try { await adminApi.users.resetSbpQrLimit(userId); await loadLimits() } catch (e) { alert(e.message) }
     finally { setResetting(false) }
+  }
+
+  const issueCard = async () => {
+    const offer = (issueOffers || []).find(o => o.offer_id === issueOfferId)
+    if (!offer) return
+    if (!confirm(`Выпустить карту «${offer.display_name}» пользователю #${userId} бесплатно?`)) return
+    setIssuing(true); setIssueMsg('')
+    try {
+      const r = await adminApi.users.issueCard(userId, issueOfferId)
+      setIssueMsg(r.message || 'Выпуск запущен')
+    } catch (e) { setIssueMsg(`Ошибка: ${e.message}`) }
+    finally { setIssuing(false) }
+  }
+
+  const refreshCards = async () => {
+    try { setCards(await adminApi.users.cards(userId)) } catch {}
   }
 
   if (!user) return <p>Загрузка...</p>
@@ -323,6 +350,34 @@ function UserDetailPage({ userId, goBack }) {
               </div>
             </div>
           )}
+        </div>
+
+        <div style={{ background: '#fff', borderRadius: 14, padding: 24, flex: '1 1 340px', boxShadow: '0 1px 3px rgba(0,0,0,.08)' }}>
+          <h3 style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 700 }}>Выпуск карты</h3>
+          {issueOffers === null ? <p style={{ fontSize: 13, color: '#6b7280' }}>Загрузка...</p>
+            : issueOffers.length === 0 ? <p style={{ fontSize: 13, color: '#6b7280' }}>Нет доступных типов карт (O-Plata недоступна или все типы выключены)</p>
+            : (
+              <div style={{ fontSize: 14 }}>
+                <select value={issueOfferId} onChange={e => setIssueOfferId(e.target.value)}
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14, marginBottom: 10 }}>
+                  {issueOffers.map(o => (
+                    <option key={o.offer_id} value={o.offer_id} disabled={o.current_count >= o.max_issued_count}>
+                      {o.display_name} ({o.name}) — {o.current_count}/{o.max_issued_count}
+                      {o.current_count >= o.max_issued_count ? ' — лимит' : ''}
+                    </option>
+                  ))}
+                </select>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <Btn small disabled={issuing} onClick={issueCard}>{issuing ? 'Запускаем...' : 'Выпустить бесплатно'}</Btn>
+                  <Btn small variant="ghost" onClick={refreshCards}>Обновить карты</Btn>
+                </div>
+                {issueMsg && <div style={{ marginTop: 10, fontSize: 13, color: issueMsg.startsWith('Ошибка') ? '#ef4444' : '#16a34a' }}>{issueMsg}</div>}
+                <div style={{ marginTop: 8, fontSize: 12, color: '#9ca3af' }}>
+                  Выпуск идёт в фоне 2–5 минут: KYC, перевод с родительского кошелька, создание карты у провайдера.
+                  Результат — во вкладке «Карты» (кнопка «Обновить карты») и в ордерах; юзеру придёт уведомление в Telegram.
+                </div>
+              </div>
+            )}
         </div>
       </div>
 

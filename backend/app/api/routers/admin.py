@@ -289,6 +289,88 @@ async def user_topup_requests(user_id: int, db: AsyncSession = Depends(get_db), 
     return [_topup_dict(t) for t in reqs]
 
 
+class AdminIssueCardRequest(BaseModel):
+    offer_id: str
+
+
+@router.get("/users/{user_id}/issue-offers", summary="Card types available to issue for this user")
+async def user_issue_offers(user_id: int, db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if not user:
+        raise HTTPException(404, "User not found")
+    from app.services.card_service import card_service
+    offers = await card_service.get_offers(user)
+    return {
+        "items": [
+            {
+                "offer_id": o["id"],
+                "name": o["name"],
+                "display_name": o["display_name"],
+                "currency": o["currency"],
+                "current_count": o["current_count"],
+                "max_issued_count": o["max_issued_count"],
+            }
+            for o in offers
+        ]
+    }
+
+
+@router.post("/users/{user_id}/issue-card", summary="Issue a card of the chosen type for a user (admin, free of charge)")
+async def admin_issue_card(user_id: int, body: AdminIssueCardRequest, db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+    """Fire-and-forget: full issuance (KYC/registration, funding from the
+    parent wallet, provider issue, materialization wait, user notification)
+    runs in the background — it can take several minutes. Track progress via
+    the user's issue order and cards list."""
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if not user:
+        raise HTTPException(404, "User not found")
+    offer_id = (body.offer_id or "").strip()
+    if not offer_id:
+        raise HTTPException(400, "offer_id is required")
+
+    # Fail fast on obvious blockers so the admin sees them in the UI instead
+    # of a silently failed background task.
+    from app.services.card_service import card_service, _is_univ_ravana, _is_univ_email_ok
+    ravana_id = offer_id.rsplit(":", 1)[0]
+    if _is_univ_ravana(ravana_id):
+        if not _is_univ_email_ok(user.email or ""):
+            raise HTTPException(400, "У пользователя должна быть почта Gmail/iCloud (раздел верификации)")
+        if user.kyc_status != "success":
+            raise HTTPException(400, "Пользователь не прошёл KYC-верификацию")
+
+    name_parts = (user.kyc_first_name or user.username or "User").strip().split()
+    holder_first = name_parts[0] if name_parts else "User"
+    holder_last = " ".join(name_parts[1:]) if len(name_parts) > 1 else "User"
+
+    import asyncio as _asyncio
+    from app.core.database import AsyncSessionLocal
+
+    async def _run():
+        async with AsyncSessionLocal() as bg_db:
+            try:
+                bg_user = (await bg_db.execute(select(User).where(User.id == user_id))).scalar_one()
+                await card_service.issue_card(
+                    db=bg_db,
+                    user=bg_user,
+                    offer_id=offer_id,
+                    holder_first_name=holder_first,
+                    holder_last_name=holder_last,
+                    email=bg_user.email,
+                    skip_balance_check=True,
+                )
+                await bg_db.commit()
+                logger.info("[ADMIN] Issue card completed for user_id=%s offer=%s", user_id, offer_id)
+            except Exception as exc:
+                logger.error("[ADMIN] Issue card failed for user_id=%s offer=%s: %s", user_id, offer_id, exc)
+                try:
+                    await bg_db.rollback()
+                except Exception:
+                    pass
+
+    _asyncio.create_task(_run())
+    return {"ok": True, "message": "Выпуск запущен в фоне (обычно 2–5 минут). Следите за картами и ордерами пользователя."}
+
+
 @router.get("/users/{user_id}/limits", summary="User's SBP QR-code limits and other rate limits")
 async def user_limits(user_id: int, db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
     """Everything that can currently stop this user from creating an SBP QR code
