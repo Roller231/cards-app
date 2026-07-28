@@ -130,9 +130,17 @@ _US_AREA_CODES = [
 
 def _univ_identity(user: User) -> Dict[str, str]:
     """Deterministic per-user US identity: the same user always gets the same
-    name/phone/document, so repeated KYC calls don't diverge."""
+    name/phone/document, so repeated KYC calls don't diverge.
+
+    The seed includes univ_client_seq: each re-registered client gets a FRESH
+    name/phone. The bank keeps phones of previously registered clients (even
+    deleted ones), so reusing the phone triggers a duplicate-client rejection —
+    the card is silently deleted after CREATING and the fee refunded. seq=0
+    keeps the legacy seed so existing users' identities don't change."""
     import random as _random
-    rnd = _random.Random(f"prontopay-univ-{user.id}")
+    seq = int(getattr(user, "univ_client_seq", 0) or 0)
+    seed = f"prontopay-univ-{user.id}" if seq <= 0 else f"prontopay-univ-{user.id}-{seq}"
+    rnd = _random.Random(seed)
     first = rnd.choice(_US_FIRST_NAMES)
     last = rnd.choice(_US_LAST_NAMES)
     area = rnd.choice(_US_AREA_CODES)
