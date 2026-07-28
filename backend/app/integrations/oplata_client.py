@@ -148,11 +148,10 @@ class OPlataClient:
         Body matches O-Plata doc example exactly. CITIZEN_PASSPORT requires 10-digit Russian
         passport number; middleName must not be null.
         """
-        return await self._post("/product/rest/kyc/verify/partner/start", {
+        body = {
             "clientId": client_id,
             "firstName": first_name,
             "lastName": last_name,
-            "middleName": middle_name,
             "dateOfBirth": date_of_birth,
             "email": email or f"{client_id}@oplata.test",
             "phoneNumber": phone_number,
@@ -163,7 +162,12 @@ class OPlataClient:
             "validUntilDate": valid_until_date,
             "country": country,
             "pep": pep,
-        })
+        }
+        # An empty middleName is rejected with 400 Invalid request (American
+        # holder names have no patronymic) — include the field only when set.
+        if middle_name:
+            body["middleName"] = middle_name
+        return await self._post("/product/rest/kyc/verify/partner/start", body)
 
     async def set_identification_document(self, client_id: str, document_number: str) -> Any:
         """Best-effort submission of identification document for card issuance.
