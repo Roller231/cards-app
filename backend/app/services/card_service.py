@@ -2331,7 +2331,15 @@ class CardService:
             raise ValueError("Card has no ravanaServerId stored")
 
         base_amount = Decimal(str(amount))
-        markup_percent = Decimal(str(settings.ONLINE_TOPUP_MARKUP_PERCENT))
+        # Markup is per card type: univ providers (RT-8 / Online+Pay) carry a
+        # ~5% provider top-up fee (tiered by volume), so their markup setting
+        # must cover it; Online (RT-prod) tops up without a provider fee.
+        _markup_setting = (
+            settings.ONLINE_PLUS_TOPUP_MARKUP_PERCENT
+            if _is_univ_ravana(card.offer_id)
+            else settings.ONLINE_TOPUP_MARKUP_PERCENT
+        )
+        markup_percent = Decimal(str(_markup_setting))
         our_profit = base_amount * markup_percent / Decimal("100")
         user_total = base_amount + our_profit
 
