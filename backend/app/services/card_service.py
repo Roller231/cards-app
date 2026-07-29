@@ -482,7 +482,7 @@ class CardService:
                             exc.__class__.__name__,
                             exc,
                         )
-                if payment_state in {"COMPLETED", "CANCELED", "FAILED", "REFUNDED"}:
+                if payment_state in {"COMPLETED", "CANCELED", "FAILED", "REFUNDED", "DEPOSIT_FAILED", "WITHDRAWAL_FAILED", "EXPIRED"}:
                     return payment_data
             except Exception as exc:
                 logger.warning(
@@ -784,7 +784,7 @@ class CardService:
                         issue_payment.get("currentAction"),
                     )
                 issue_state = str(issue_payment.get("state") or "").upper()
-                if issue_state in {"CANCELED", "FAILED", "REFUNDED"}:
+                if issue_state in {"CANCELED", "FAILED", "REFUNDED", "DEPOSIT_FAILED", "WITHDRAWAL_FAILED", "EXPIRED"}:
                     order.status = "failed"
                     if order.card_id:
                         linked_card = await self._resolve_card(db, user.id, str(order.card_id))
@@ -1937,7 +1937,7 @@ class CardService:
                 issue_payment.get("currentAction"),
             )
         issue_state = str(issue_payment.get("state") or "").upper() if issue_payment else ""
-        if issue_state in {"CANCELED", "FAILED", "REFUNDED"}:
+        if issue_state in {"CANCELED", "FAILED", "REFUNDED", "DEPOSIT_FAILED", "WITHDRAWAL_FAILED", "EXPIRED"}:
             order.status = "failed"
             if order.card_id:
                 linked_card = await self._resolve_card(db, user.id, str(order.card_id))
@@ -2373,10 +2373,24 @@ class CardService:
         )
         payment_uuid = result.get("uuid") or result.get("id") or str(uuid.uuid4())
 
+        # The create response often omits depositTotalAmount — only the
+        # transaction/payment status endpoint reliably returns the gross
+        # (amount + provider fee). Poll it briefly before funding.
+        gross_amount = Decimal("0")
         try:
             gross_amount = Decimal(str(result.get("depositTotalAmount") or 0))
         except Exception:
-            gross_amount = Decimal("0")
+            pass
+        for _attempt in range(5):
+            if gross_amount > 0:
+                break
+            try:
+                _pinfo = await oplata_client.get_transaction_payment(client_id, payment_uuid)
+                gross_amount = Decimal(str(_pinfo.get("depositTotalAmount") or 0))
+            except Exception as exc:
+                logger.debug("Topup gross poll failed for %s: %s", payment_uuid, exc)
+            if gross_amount <= 0:
+                await asyncio.sleep(1.0)
         if gross_amount <= 0:
             gross_amount = base_amount
         wallet_balance = Decimal(str(await self._get_user_currency_balance(client_id, topup_currency)))
@@ -2422,7 +2436,7 @@ class CardService:
             )
         if topup_payment_state == "COMPLETED":
             order.status = "completed"
-        elif topup_payment_state in {"CANCELED", "FAILED", "REFUNDED"}:
+        elif topup_payment_state in {"CANCELED", "FAILED", "REFUNDED", "DEPOSIT_FAILED", "WITHDRAWAL_FAILED", "EXPIRED"}:
             order.status = "failed"
 
         # Only notify on terminal FAILURE states. Successful top-ups are announced
@@ -2432,7 +2446,7 @@ class CardService:
         # is still in progress, not a failure.
         if topup_payment_state == "COMPLETED":
             order.notified = True
-        elif topup_payment_state in {"CANCELED", "FAILED", "REFUNDED"}:
+        elif topup_payment_state in {"CANCELED", "FAILED", "REFUNDED", "DEPOSIT_FAILED", "WITHDRAWAL_FAILED", "EXPIRED"}:
             try:
                 await notify_topup_result(
                     db=db, user=user,
@@ -2714,7 +2728,7 @@ class CardService:
             except Exception as exc:
                 logger.warning("Topup follow-up poll failed for uuid=%s: %s", payment_uuid, exc)
                 continue
-            if state in {"COMPLETED", "CANCELED", "FAILED", "REFUNDED"}:
+            if state in {"COMPLETED", "CANCELED", "FAILED", "REFUNDED", "DEPOSIT_FAILED", "WITHDRAWAL_FAILED", "EXPIRED"}:
                 final_state = state
                 break
 
