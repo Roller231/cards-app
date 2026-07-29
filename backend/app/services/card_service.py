@@ -2350,13 +2350,13 @@ class CardService:
         else:
             await self._ensure_client(client_id, user)
         topup_currency = await self._provider_balance_currency(card.offer_id)
-        await self._fund_user_wallet(
-            user_client_id=client_id,
-            currency_code=topup_currency,
-            amount=base_amount,
-            parent_client_id=parent_client,
-        )
 
+        # Create the top-up payment FIRST: some providers (RT-8) charge a
+        # withdrawal fee on top of the amount, and only the payment response
+        # tells the real gross (depositTotalAmount). Funding the wallet with
+        # the bare amount left the payment stuck in DEPOSIT_SENT until it
+        # expired ($150 topup wanted 157.94 from the wallet). The payment
+        # waits ~30 min for the deposit, so funding after creation is safe.
         result = await oplata_client.topup_card(
             client_id=client_id,
             card_id=card.aifory_card_id,
@@ -2364,6 +2364,27 @@ class CardService:
             amount=float(base_amount),
         )
         payment_uuid = result.get("uuid") or result.get("id") or str(uuid.uuid4())
+
+        try:
+            gross_amount = Decimal(str(result.get("depositTotalAmount") or 0))
+        except Exception:
+            gross_amount = Decimal("0")
+        if gross_amount <= 0:
+            gross_amount = base_amount
+        wallet_balance = Decimal(str(await self._get_user_currency_balance(client_id, topup_currency)))
+        shortfall = gross_amount - wallet_balance
+        logger.info(
+            "Topup funding for %s: amount=%s gross=%s (provider fee %s) wallet=%s shortfall=%s %s",
+            client_id, base_amount, gross_amount, gross_amount - base_amount,
+            wallet_balance, shortfall, topup_currency,
+        )
+        if shortfall > 0:
+            await self._fund_user_wallet(
+                user_client_id=client_id,
+                currency_code=topup_currency,
+                amount=shortfall,
+                parent_client_id=parent_client,
+            )
 
         if not skip_balance_check:
             user.balance = Decimal(str(user.balance)) - user_total
@@ -2428,7 +2449,7 @@ class CardService:
                     await self._refund_to_parent_wallet(
                         user_client_id=client_id,
                         currency_code=topup_currency,
-                        amount=base_amount,
+                        amount=gross_amount,
                         parent_client_id=parent_client,
                     )
                 except Exception as refund_exc:
@@ -2453,7 +2474,7 @@ class CardService:
                     card_last4=card.last4 or "",
                     amount=float(amount),
                     fee=float(our_profit),
-                    refund_amount=base_amount,
+                    refund_amount=gross_amount,
                     refund_currency=topup_currency,
                     parent_client_id=parent_client,
                 )
