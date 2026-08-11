@@ -41,6 +41,10 @@ class User(Base):
     # so we register a fresh client instead.
     univ_client_seq = Column(Integer, nullable=False, default=0, server_default="0")
 
+    # Same mechanism for the REGULAR O-Plata client (tg_<tgid> -> tg2_<tgid>).
+    # Bump only for users without live cards on the current client.
+    client_seq = Column(Integer, nullable=False, default=0, server_default="0")
+
     cards = relationship("Card", back_populates="user", lazy="select")
     orders = relationship("Order", back_populates="user", lazy="select")
     topup_requests = relationship("BalanceTopUpRequest", back_populates="user", lazy="select")

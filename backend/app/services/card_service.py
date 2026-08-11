@@ -42,8 +42,16 @@ def _client_id(user: User) -> str:
     Each Telegram user gets its own O-Plata client (e.g. `tg_<telegram_user_id>`).
     Funds are transferred from the parent funded client (`OPLATA_PARENT_CLIENT_ID`)
     to the user's wallet on demand before issuing/topping up cards.
+
+    client_seq re-registers a user whose client KYC is poisoned (completed
+    KYC data can't be changed via the API): 0 => tg_<tgid>, 1 => tg2_<tgid>...
+    Only bump it for users WITHOUT live cards on the current client — cards
+    stay with the old client id.
     """
     prefix = (settings.OPLATA_USER_CLIENT_PREFIX or "tg_").strip()
+    seq = int(getattr(user, "client_seq", 0) or 0)
+    if seq > 0 and prefix.endswith("_"):
+        prefix = f"{prefix[:-1]}{seq + 1}_"
     tg_id = str(getattr(user, "telegram_user_id", "") or "").strip()
     if tg_id:
         return f"{prefix}{tg_id}"
@@ -52,6 +60,21 @@ def _client_id(user: User) -> str:
     # just like real Telegram users.
     suffix = settings.LOCAL_DEV_CLIENT_SUFFIX.strip() or f"dev_{user.id}"
     return f"{prefix}{suffix}"
+
+
+def _ru_phone(user: User) -> str:
+    """Valid-format Russian mobile for KYC. O-Plata rejects the doc-example
+    default +71234567890 (card issue payments are silently REFUNDED). Prefer
+    the user's real phone; otherwise generate a deterministic +79XXXXXXXXX.
+    The seed includes client_seq — a re-registered client gets a fresh number
+    (the bank remembers phones of previous registrations)."""
+    real = str(getattr(user, "phone", "") or "").strip().replace(" ", "")
+    if real.startswith("+7") and len(real) == 12 and real[1:].isdigit():
+        return real
+    import random as _random
+    seq = int(getattr(user, "client_seq", 0) or 0)
+    rnd = _random.Random(f"prontopay-ru-{user.id}-{seq}")
+    return f"+79{rnd.randint(10, 99)}{rnd.randint(0, 9999999):07d}"
 
 
 def _parent_client_id() -> str:
@@ -1040,6 +1063,13 @@ class CardService:
         kyc_dob = _to_iso_date(user.kyc_birth_date)
         kyc_country = "RU"
         _email = user.email or email or f"{client_id}@oplata.test"
+        # A re-registered client (client_seq > 0) may not reuse the email of
+        # its predecessor — O-Plata enforces uniqueness across clients. Tag it
+        # (+r2, +r3...): Gmail/iCloud deliver to the same inbox.
+        _seq = int(getattr(user, "client_seq", 0) or 0)
+        if _seq > 0 and "@" in _email:
+            _local, _domain = _email.split("@", 1)
+            _email = f"{_local.split('+', 1)[0]}+r{_seq + 1}@{_domain}"
         logger.info("Using real KYC data for O-Plata client %s: %s %s", client_id, kyc_first_name, kyc_last_name)
 
         # A freshly-registered client is not immediately visible to the KYC
@@ -1109,6 +1139,9 @@ class CardService:
             # Use user's selected gender, default to FEMALE if not set
             kyc_gender = user.gender if user.gender in ("MALE", "FEMALE") else "FEMALE"
             
+            # O-Plata rejects the doc-example default phone (+71234567890):
+            # the card issue payment is accepted and then silently REFUNDED.
+            _phone = _ru_phone(user)
             result = await oplata_client.kyc_verify_partner_start(
                 client_id,
                 first_name=kyc_first_name,
@@ -1117,12 +1150,13 @@ class CardService:
                 date_of_birth=kyc_dob,
                 country=kyc_country,
                 email=_email,
+                phone_number=_phone,
                 gender=kyc_gender,
                 document_number=kyc_passport,
                 issue_date=kyc_passport_issue_date,
             )
-            logger.info("KYC partner/start for %s with passport %s gender=%s (already_verified=%s): %s",
-                       client_id, kyc_passport, kyc_gender, _partner_already_verified, result)
+            logger.info("KYC partner/start for %s with passport %s gender=%s phone=%s (already_verified=%s): %s",
+                       client_id, kyc_passport, kyc_gender, _phone, _partner_already_verified, result)
         except Exception as exc:
             logger.warning("kyc_verify_partner_start for %s failed: %s", client_id, exc)
 
