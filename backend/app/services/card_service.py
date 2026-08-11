@@ -64,15 +64,24 @@ def _client_id(user: User) -> str:
 
 def _ru_phone(user: User) -> str:
     """Valid-format Russian mobile for KYC. O-Plata rejects the doc-example
-    default +71234567890 (card issue payments are silently REFUNDED). Prefer
-    the user's real phone; otherwise generate a deterministic +79XXXXXXXXX.
-    The seed includes client_seq — a re-registered client gets a fresh number
-    (the bank remembers phones of previous registrations)."""
-    real = str(getattr(user, "phone", "") or "").strip().replace(" ", "")
-    if real.startswith("+7") and len(real) == 12 and real[1:].isdigit():
-        return real
-    import random as _random
+    default +71234567890 (card issue payments are silently REFUNDED).
+
+    Prefer the user's real phone (entered free-form in /kyc/contact, so
+    normalize 8..., 7..., spaces/dashes/parens). On a RE-registered client
+    (client_seq > 0) never reuse the real phone — the bank keeps it bound to
+    the previous client and rejects the duplicate; use a fresh deterministic
+    +79XXXXXXXXX seeded per seq instead."""
     seq = int(getattr(user, "client_seq", 0) or 0)
+    if seq <= 0:
+        raw = str(getattr(user, "phone", "") or "")
+        digits = "".join(ch for ch in raw if ch.isdigit())
+        if len(digits) == 11 and digits[0] in ("7", "8"):
+            digits = "7" + digits[1:]
+        elif len(digits) == 10 and digits[0] == "9":
+            digits = "7" + digits
+        if len(digits) == 11 and digits.startswith("79"):
+            return f"+{digits}"
+    import random as _random
     rnd = _random.Random(f"prontopay-ru-{user.id}-{seq}")
     return f"+79{rnd.randint(10, 99)}{rnd.randint(0, 9999999):07d}"
 
