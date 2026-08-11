@@ -1042,39 +1042,41 @@ class CardService:
         _email = user.email or email or f"{client_id}@oplata.test"
         logger.info("Using real KYC data for O-Plata client %s: %s %s", client_id, kyc_first_name, kyc_last_name)
 
-        # Complete KYC email verification
-        try:
-            await oplata_client.kyc_verify_email(client_id, _email)
-            logger.info("KYC email set for %s: %s", client_id, _email)
-        except Exception as exc:
-            logger.warning("kyc_verify_email for %s failed: %s", client_id, exc)
+        # A freshly-registered client is not immediately visible to the KYC
+        # subsystem: the first verify calls 404 "Client ... is not found" and
+        # the step is lost silently. Card providers require EMAIL — without it
+        # the issue payment is accepted and then REFUNDED (cards for two fresh
+        # users died exactly this way). Retry each step until the client is
+        # visible, same as the univ flow does.
+        async def _kyc_step(step_name: str, call):
+            for _i in range(10):
+                try:
+                    result = await call()
+                    logger.info("KYC %s ok for %s", step_name, client_id)
+                    return result
+                except Exception as exc:
+                    if "not found" in str(exc).lower():
+                        await asyncio.sleep(1.5)
+                        continue
+                    logger.warning("%s for %s failed: %s", step_name, client_id, exc)
+                    return None
+            logger.warning("%s for %s failed: client never became visible", step_name, client_id)
+            return None
 
-        # Complete basic KYC fields often required by card providers in test environment
-        try:
-            await oplata_client.kyc_verify_person(
-                client_id, kyc_first_name, kyc_last_name, kyc_dob, 
-                middle_name=kyc_middle_name, country=kyc_country,
-            )
-            logger.info("KYC person set for %s: %s %s %s", client_id, kyc_first_name, kyc_last_name, kyc_country)
-        except Exception as exc:
-            logger.warning("kyc_verify_person for %s failed: %s", client_id, exc)
-        try:
-            await oplata_client.kyc_verify_country(client_id, kyc_country)
-            logger.info("KYC country set for %s: %s", client_id, kyc_country)
-        except Exception as exc:
-            logger.warning("kyc_verify_country for %s failed: %s", client_id, exc)
-        try:
-            await oplata_client.kyc_verify_home(
-                client_id,
-                address="1806",
-                city="Moscow",
-                country_code=kyc_country,
-                state="Moscow",
-                street="Tverskaya",
-            )
-            logger.info("KYC home set for %s", client_id)
-        except Exception as exc:
-            logger.warning("kyc_verify_home for %s failed: %s", client_id, exc)
+        await _kyc_step("kyc_verify_email", lambda: oplata_client.kyc_verify_email(client_id, _email))
+        await _kyc_step("kyc_verify_person", lambda: oplata_client.kyc_verify_person(
+            client_id, kyc_first_name, kyc_last_name, kyc_dob,
+            middle_name=kyc_middle_name, country=kyc_country,
+        ))
+        await _kyc_step("kyc_verify_country", lambda: oplata_client.kyc_verify_country(client_id, kyc_country))
+        await _kyc_step("kyc_verify_home", lambda: oplata_client.kyc_verify_home(
+            client_id,
+            address="1806",
+            city="Moscow",
+            country_code=kyc_country,
+            state="Moscow",
+            street="Tverskaya",
+        ))
         # Wait for HOME_ADDRESS to reach COMPLETED before calling partner/start
         # (partner/start is rejected if a prior KYC step is still UPDATING)
         for _attempt in range(8):
