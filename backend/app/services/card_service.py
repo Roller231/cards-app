@@ -234,6 +234,43 @@ def _parse_offer_id(offer_id: str):
     return offer_id[:last_colon], offer_id[last_colon + 1:]
 
 
+def _normalize_card_transaction(tx: Dict[str, Any]) -> Dict[str, Any]:
+    """Add normalized typing to a raw O-Plata card transaction.
+
+    Real payload (RT-prod/RT-8): type = 'top_up' | 'purchase', status =
+    'completed' | 'declined'; `amount`/`currency` are in the MERCHANT currency
+    (38.07 SGD), the actual card debit is `settlementAmount` in
+    `settlementCurrency` (30.50 USD). The frontend used to guess by amount
+    sign, which painted every purchase as a green top-up in the merchant
+    currency. Adds:
+      tx_type          'topup' | 'payment' | 'refund' | 'declined'
+      display_amount   signed value in the card currency (+ in, - out)
+      display_currency settlement currency (falls back to tx currency)
+    Raw fields are preserved for anything else the UI shows.
+    """
+    t = str(tx.get("type") or "").lower()
+    status = str(tx.get("status") or "").lower()
+    try:
+        settlement = float(tx.get("settlementAmount") or tx.get("amount") or 0)
+    except (TypeError, ValueError):
+        settlement = 0.0
+    if "declin" in status or status in ("failed", "canceled", "cancelled"):
+        tx_type = "declined"
+        display = 0.0
+    elif t in ("top_up", "topup", "deposit") or "refund" in t or "reversal" in t:
+        tx_type = "refund" if ("refund" in t or "reversal" in t) else "topup"
+        display = abs(settlement)
+    else:  # purchase / withdrawal / fee / unknown outgoing
+        tx_type = "payment"
+        display = -abs(settlement)
+    return {
+        **tx,
+        "tx_type": tx_type,
+        "display_amount": display,
+        "display_currency": str(tx.get("settlementCurrency") or tx.get("currency") or "USD"),
+    }
+
+
 def _order_ravana_id(order: "Order") -> str:
     """Provider (ravanaServerId) an issue order was created for.
 
@@ -2319,6 +2356,7 @@ class CardService:
             page_size=page_size,
         )
         transactions = response.get("data") or response.get("content") or (response if isinstance(response, list) else [])
+        transactions = [_normalize_card_transaction(t) for t in transactions if isinstance(t, dict)]
 
         # Notify about latest transaction if new
         if transactions and user and user.telegram_user_id:
@@ -2330,8 +2368,9 @@ class CardService:
                     await notify_card_transaction(
                         db=db, user=user,
                         card_last4=card.last4 or "",
-                        amount=float(latest_txn.get("amount") or 0),
-                        currency=str(latest_txn.get("currency") or "USD"),
+                        # Card-currency settlement amount, not the merchant-currency one
+                        amount=float(latest_txn.get("display_amount") or latest_txn.get("amount") or 0),
+                        currency=str(latest_txn.get("display_currency") or latest_txn.get("currency") or "USD"),
                         merchant=str(latest_txn.get("merchantName") or latest_txn.get("description") or ""),
                         date=str(latest_txn.get("transactionAt") or latest_txn.get("createdAt") or ""),
                         status=str(latest_txn.get("status") or ""),

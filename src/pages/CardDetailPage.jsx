@@ -111,11 +111,13 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
 
   // Prefer API-loaded per-card transactions; fallback to global prop
   const mapApiTx = (tx) => {
-    const rawAmount = parseFloat(tx.amount ?? tx.Amount ?? 0)
+    const rawAmount = parseFloat(tx.display_amount ?? tx.amount ?? tx.Amount ?? 0)
     const typeId = tx.type ?? tx.transactionType ?? tx.typeID ?? 0
     const statusId = tx.statusID ?? tx.status_id ?? tx.statusId ?? 0
+    // Prefer the backend-normalized type; sign-based guess is a legacy fallback
     let txType
-    if (statusId === 3 || String(tx.status || '').toLowerCase().includes('declin')) txType = 'declined'
+    if (tx.tx_type) txType = tx.tx_type === 'refund' ? 'topup' : tx.tx_type
+    else if (statusId === 3 || String(tx.status || '').toLowerCase().includes('declin')) txType = 'declined'
     else if (rawAmount > 0 || typeId === 2) txType = 'topup'
     else txType = 'payment'
     return {

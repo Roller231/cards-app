@@ -12,12 +12,17 @@ import WelcomePage from './pages/WelcomePage'
 
 // Map raw Aifory transaction to frontend shape
 function mapAiforyTx(tx, card) {
-  const rawAmount = parseFloat(tx.amount ?? tx.Amount ?? 0)
+  const rawAmount = parseFloat(tx.display_amount ?? tx.amount ?? tx.Amount ?? 0)
   const typeId = tx.type ?? tx.transactionType ?? tx.typeID ?? 0
   const statusId = tx.statusID ?? tx.status_id ?? tx.statusId ?? 0
 
+  // Backend now sends normalized tx_type ('topup'|'payment'|'refund'|'declined')
+  // and display_amount (signed, in the card currency). The sign-based guess
+  // below is only a fallback for legacy payloads.
   let txType
-  if (statusId === 3 || String(tx.status).toLowerCase().includes('declin')) {
+  if (tx.tx_type) {
+    txType = tx.tx_type === 'refund' ? 'topup' : tx.tx_type
+  } else if (statusId === 3 || String(tx.status).toLowerCase().includes('declin')) {
     txType = 'declined'
   } else if (rawAmount > 0 || typeId === 2) {
     txType = 'topup'
