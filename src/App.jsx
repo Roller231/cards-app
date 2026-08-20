@@ -9,6 +9,7 @@ import HistoryPage from './pages/HistoryPage'
 import HomePage from './pages/HomePage'
 import IssueCardPage from './pages/IssueCardPage'
 import WelcomePage from './pages/WelcomePage'
+import { metrikaHit } from './utils/metrika'
 
 // Map raw Aifory transaction to frontend shape
 function mapAiforyTx(tx, card) {
@@ -68,6 +69,12 @@ function AppInner() {
   })
   const [cardTypeToIssue, setCardTypeToIssue] = useState(null)
   const [selectedCard, setSelectedCard] = useState(null)
+
+  // Virtual pageviews: pages here are React state, not URLs, so Metrika needs
+  // an explicit hit on every page switch.
+  useEffect(() => {
+    metrikaHit(currentPage)
+  }, [currentPage])
   const [userCards, setUserCards] = useState([])
   const [offers, setOffers] = useState([])
   const [transactions, setTransactions] = useState([])

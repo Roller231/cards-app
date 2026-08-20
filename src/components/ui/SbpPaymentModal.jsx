@@ -19,6 +19,7 @@ import api from '../../api/client'
 import Button from './Button'
 import Portal from './Portal'
 import KycModal from './KycModal'
+import { metrikaGoal } from '../../utils/metrika'
 
 const POLL_INTERVAL_MS = 5000
 const font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif'
@@ -82,6 +83,7 @@ export default function SbpPaymentModal({
       const res = await api.sbp.createInvoice(rubAmount, purpose, offerId, cardId, amountUsdRequested)
       setInvoice(res)
       setScreen('qr')
+      metrikaGoal('qr_created', { purpose, amount_rub: rubAmount })
     } catch (e) {
       // If 403 KYC error, show KYC screen instead of error
       if (e.message && e.message.toLowerCase().includes('kyc')) {
@@ -131,6 +133,7 @@ export default function SbpPaymentModal({
         const res = await api.sbp.pollInvoice(invoice.local_invoice_id)
         if (res.status && ['captured', 'authorized'].includes(res.status)) {
           clearInterval(pollRef.current)
+          metrikaGoal('payment_success', { purpose, amount_rub: amountRub })
           if (skipSuccessScreen) {
             if (typeof onPaid === 'function') onPaid(res)
           } else {
@@ -139,6 +142,7 @@ export default function SbpPaymentModal({
           }
         } else if (['declined', 'failed', 'cancelled', 'expired'].includes(res.status)) {
           clearInterval(pollRef.current)
+          metrikaGoal('payment_failed', { purpose, status: res.status })
           setError(`Платёж ${res.status}. Попробуйте ещё раз.`)
           setScreen('error')
         }
