@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react'
 import Card from './ui/Card'
 import Button from './ui/Button'
+import api from '../api/client'
 import { useAuth } from '../context/AuthContext'
 
 const font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif'
@@ -19,6 +21,16 @@ const numOr = (v, d) => (v === null || v === undefined || v === '' ? d : Number(
 export function usePromoCards({ onlineAvailable = true, onlinePlusAvailable = true, payAvailable = true } = {}) {
   const { appConfig, commissions } = useAuth()
   const promo = appConfig?.cards_promo || {}
+  // Live SBP exchange rate (RUB per 1 USD), computed by the backend
+  // (Bitbanker index × fee multipliers). One fetch shared by all promo cards.
+  const [sbpRate, setSbpRate] = useState(null)
+  useEffect(() => {
+    let cancelled = false
+    api.sbp.rate()
+      .then((r) => { if (!cancelled && r && r.rate) setSbpRate(Number(r.rate)) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
   return [
     {
       key: 'online', available: onlineAvailable, payIcons: false,
@@ -31,6 +43,7 @@ export function usePromoCards({ onlineAvailable = true, onlinePlusAvailable = tr
       operationFee: numOr(commissions.online_operation_fee, 0.4),
       priceRub: numOr(commissions.online_issue_price_rub, 999),
       topup: numOr(commissions.online_topup, 3.8),
+      sbpRate,
     },
     {
       key: 'online-plus', available: onlinePlusAvailable, payIcons: true,
@@ -43,6 +56,7 @@ export function usePromoCards({ onlineAvailable = true, onlinePlusAvailable = tr
       operationFee: numOr(commissions.online_plus_operation_fee, 0.4),
       priceRub: numOr(commissions.online_plus_issue_price_rub, 1999),
       topup: numOr(commissions.online_plus_topup, 4),
+      sbpRate,
     },
     {
       key: 'pay', available: payAvailable, payIcons: true,
@@ -55,6 +69,7 @@ export function usePromoCards({ onlineAvailable = true, onlinePlusAvailable = tr
       operationFee: numOr(commissions.univ_operation_fee, 0.4),
       priceRub: numOr(commissions.univ_issue_price_rub, 1999),
       topup: numOr(commissions.univ_topup, 4),
+      sbpRate,
     },
   ]
 }
@@ -108,41 +123,39 @@ export default function PromoCard({ pc, expanded, onToggle, issueLimitReached = 
             </div>
           )}
 
+          {/* Tile order is fixed by product: SBP rate, top-up fee, issue price,
+              operation fee, validity, BIN country — then the "pay for" block. */}
           <div className="grid grid-cols-2 gap-3" style={{ marginBottom: 16 }}>
             <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-              <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>{pc.validity}</div>
-              <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Срок действия</div>
+              <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>
+                {pc.sbpRate ? `${Number(pc.sbpRate).toFixed(2)} ₽` : '—'}
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Курс СБП за 1 $</div>
             </div>
             <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-              <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>{pc.operationFee} $</div>
-              <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Комиссия за операцию</div>
+              <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>{pc.topup} %</div>
+              <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Комиссия за пополнение</div>
             </div>
             <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
               <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>{Number(pc.priceRub).toLocaleString('ru-RU')} ₽</div>
               <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Плата за выпуск</div>
             </div>
             <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-              <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>{pc.topup} %</div>
-              <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Комиссия за пополнение</div>
+              <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>{pc.operationFee} $</div>
+              <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Комиссия за операцию</div>
             </div>
-          </div>
-
-          {pc.pays && (
-            <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px', marginBottom: 16 }}>
-              <h4 style={{ fontSize: 17, fontWeight: 700, color: '#111827', fontFamily: font, marginBottom: 8 }}>Оплачивайте</h4>
-              <p style={{ fontSize: 13, color: '#6B7280', fontFamily: font, lineHeight: '20px' }}>{pc.pays}</p>
-            </div>
-          )}
-
-          <div className="grid grid-cols-2 gap-3" style={{ marginBottom: 16 }}>
             <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
-              <h4 style={{ fontSize: 15, fontWeight: 700, color: '#111827', fontFamily: font, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>{pc.validity}</div>
+              <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Срок действия</div>
+            </div>
+            <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
+              <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2, display: 'flex', alignItems: 'center', gap: 8 }}>
                 {pc.bin}
                 {pc.bin === 'Гонконг' && (
                   <img src="/images/HongKong.svg" alt="" style={{ width: 18, height: 18 }} />
                 )}
-              </h4>
-              <p style={{ fontSize: 13, color: '#6B7280', fontFamily: font }}>Страна BIN</p>
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Страна BIN</div>
             </div>
             {pc.payIcons && (
               <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
@@ -154,6 +167,13 @@ export default function PromoCard({ pc, expanded, onToggle, issueLimitReached = 
               </div>
             )}
           </div>
+
+          {pc.pays && (
+            <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px', marginBottom: 16 }}>
+              <h4 style={{ fontSize: 17, fontWeight: 700, color: '#111827', fontFamily: font, marginBottom: 8 }}>Оплачивайте</h4>
+              <p style={{ fontSize: 13, color: '#6B7280', fontFamily: font, lineHeight: '20px' }}>{pc.pays}</p>
+            </div>
+          )}
 
           {showIssueButton && (
             <Button
