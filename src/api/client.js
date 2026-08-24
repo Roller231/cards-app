@@ -83,8 +83,10 @@ export const api = {
     rate: () => req('GET', '/sbp/rate'),
     prediction: () => req('GET', '/sbp/prediction'),
     exchangePrediction: (amountRub) => req('GET', `/sbp/exchange-prediction?amount_rub=${amountRub}`),
-    createInvoice: (amountRub, purpose = 'balance_topup', offerId = null, cardId = null, amountUsdRequested = null) =>
-      req('POST', '/sbp/invoice', { amount_rub: amountRub, purpose, offer_id: offerId, card_id: cardId, amount_usd_requested: amountUsdRequested }),
+    createInvoice: (amountRub, purpose = 'balance_topup', offerId = null, cardId = null, amountUsdRequested = null, promoCode = null) =>
+      req('POST', '/sbp/invoice', { amount_rub: amountRub, purpose, offer_id: offerId, card_id: cardId, amount_usd_requested: amountUsdRequested, promo_code: promoCode }),
+    validatePromo: (code, purpose = 'balance_topup', offerId = null, amountRub = null) =>
+      req('POST', '/sbp/promo/validate', { code, purpose, offer_id: offerId, amount_rub: amountRub }),
     pollInvoice: (localInvoiceId) => req('GET', `/sbp/invoice/${localInvoiceId}`),
     getKycStatus: () => req('GET', '/sbp/kyc-status'),
     createKycSession: () => req('POST', '/sbp/kyc-session'),

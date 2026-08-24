@@ -6,6 +6,12 @@ from app.models.admin_setting import AdminSetting
 from app.models.faq import FAQ
 from app.models.pending_auto_topup import PendingAutoTopup
 from app.models.bb_invoice import BbInvoice
+from app.models.promo import PromoCode, PromoRedemption
+from app.models.broadcast import BroadcastPreset, ScheduledBroadcast
 from app.core.database import Base
 
-__all__ = ["Base", "User", "Card", "Order", "BalanceTopUpRequest", "AdminSetting", "FAQ", "PendingAutoTopup", "BbInvoice"]
+__all__ = [
+    "Base", "User", "Card", "Order", "BalanceTopUpRequest", "AdminSetting", "FAQ",
+    "PendingAutoTopup", "BbInvoice", "PromoCode", "PromoRedemption",
+    "BroadcastPreset", "ScheduledBroadcast",
+]

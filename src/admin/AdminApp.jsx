@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import adminApi, { clearAdminToken, getAdminToken, setAdminToken } from './api'
 
 /* ================================================================
@@ -87,6 +87,7 @@ const NAV = [
   { id: 'payments', icon: '💰', label: 'Платежи' },
   { id: 'analytics', icon: '📈', label: 'Аналитика' },
   { id: 'bot', icon: '🤖', label: 'Telegram Бот' },
+  { id: 'promo', icon: '🎟️', label: 'Промокоды' },
   { id: 'faq', icon: '❓', label: 'FAQ' },
   { id: 'settings', icon: '⚙️', label: 'Настройки' },
 ]
@@ -786,6 +787,216 @@ function ButtonsEditor({ value, onChange }) {
   )
 }
 
+// ─────────── PROMO CODES ───────────
+const PROMO_TYPE_OPTS = [
+  { value: 'rate_discount', label: 'Скидка на курс пополнения (%)' },
+  { value: 'issue_discount', label: 'Скидка на выпуск карты (% или ₽)' },
+  { value: 'no_small_fee', label: 'Без комиссии 210₽ (пополнение < 10 000₽)' },
+]
+const PROMO_STATUS_BADGE = {
+  active: ['Активен', '#22c55e'],
+  scheduled: ['Ожидает старта', '#6366f1'],
+  expired: ['Истёк', '#9ca3af'],
+  exhausted: ['Исчерпан', '#f59e0b'],
+  disabled: ['Выключен', '#ef4444'],
+}
+const EMPTY_PROMO = {
+  code: '', type: 'rate_discount', percent_off: '', fixed_off_rub: '', card_type: '',
+  max_uses: 0, one_per_user: true, valid_from: '', valid_until: '', is_active: true, comment: '',
+}
+
+function PromoPage() {
+  const [items, setItems] = useState([])
+  const [form, setForm] = useState(EMPTY_PROMO)
+  const [editId, setEditId] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [filter, setFilter] = useState('all')
+
+  const load = useCallback(async () => {
+    try { const d = await adminApi.promo.list(); setItems(d.items || []) } catch {}
+  }, [])
+  useEffect(() => { load() }, [load])
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  const startEdit = (p) => {
+    setEditId(p.id)
+    setForm({
+      code: p.code, type: p.type,
+      percent_off: p.percent_off ?? '', fixed_off_rub: p.fixed_off_rub ?? '',
+      card_type: p.card_type || '', max_uses: p.max_uses || 0, one_per_user: p.one_per_user,
+      valid_from: p.valid_from_msk ? p.valid_from_msk.replace(' ', 'T') : '',
+      valid_until: p.valid_until_msk ? p.valid_until_msk.replace(' ', 'T') : '',
+      is_active: p.is_active, comment: p.comment || '',
+    })
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const resetForm = () => { setEditId(null); setForm(EMPTY_PROMO) }
+
+  const save = async () => {
+    if (!form.code.trim()) return alert('Введите код')
+    setSaving(true)
+    try {
+      const payload = {
+        code: form.code.trim().toUpperCase(),
+        type: form.type,
+        percent_off: form.percent_off === '' ? null : parseFloat(form.percent_off),
+        fixed_off_rub: form.fixed_off_rub === '' ? null : parseFloat(form.fixed_off_rub),
+        card_type: form.card_type || null,
+        max_uses: parseInt(form.max_uses) || 0,
+        one_per_user: !!form.one_per_user,
+        valid_from: form.valid_from || null,
+        valid_until: form.valid_until || null,
+        is_active: !!form.is_active,
+        comment: form.comment || null,
+      }
+      if (editId) await adminApi.promo.update(editId, payload)
+      else await adminApi.promo.create(payload)
+      resetForm()
+      load()
+    } catch (e) { alert(e.message) }
+    finally { setSaving(false) }
+  }
+
+  const toggleActive = async (p) => {
+    try {
+      await adminApi.promo.update(p.id, {
+        code: p.code, type: p.type, percent_off: p.percent_off, fixed_off_rub: p.fixed_off_rub,
+        card_type: p.card_type, max_uses: p.max_uses, one_per_user: p.one_per_user,
+        valid_from: p.valid_from_msk ? p.valid_from_msk.replace(' ', 'T') : null,
+        valid_until: p.valid_until_msk ? p.valid_until_msk.replace(' ', 'T') : null,
+        is_active: !p.is_active, comment: p.comment,
+      })
+      load()
+    } catch (e) { alert(e.message) }
+  }
+
+  const remove = async (p) => {
+    if (!confirm(`Удалить промокод ${p.code}? История использований тоже удалится.`)) return
+    try { await adminApi.promo.remove(p.id); load() } catch (e) { alert(e.message) }
+  }
+
+  const shown = items.filter(p => filter === 'all' ? true : p.status === filter)
+  const counts = items.reduce((m, p) => { m[p.status] = (m[p.status] || 0) + 1; return m }, {})
+
+  const inp = { width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 13, boxSizing: 'border-box' }
+  const lbl = { fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4, display: 'block' }
+
+  return (
+    <div>
+      <h2 style={{ margin: '0 0 16px', fontSize: 22, fontWeight: 700 }}>Промокоды</h2>
+
+      <div style={{ background: '#fff', borderRadius: 14, padding: 24, boxShadow: '0 1px 3px rgba(0,0,0,.08)', marginBottom: 24 }}>
+        <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 600 }}>
+          {editId ? `Редактирование #${editId}` : 'Новый промокод'}
+        </h3>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
+          <div>
+            <label style={lbl}>Код</label>
+            <input style={{ ...inp, textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}
+              placeholder="SUMMER25" value={form.code} onChange={e => set('code', e.target.value.toUpperCase())} />
+          </div>
+          <div>
+            <label style={lbl}>Тип</label>
+            <select style={inp} value={form.type} onChange={e => set('type', e.target.value)}>
+              {PROMO_TYPE_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
+          {form.type !== 'no_small_fee' && (
+            <div>
+              <label style={lbl}>Скидка, %</label>
+              <input style={inp} type="number" step="0.1" min="0" max="100" placeholder="10"
+                value={form.percent_off} onChange={e => set('percent_off', e.target.value)} />
+            </div>
+          )}
+          {form.type === 'issue_discount' && (
+            <div>
+              <label style={lbl}>Или фикс. скидка, ₽</label>
+              <input style={inp} type="number" step="1" min="0" placeholder="100"
+                value={form.fixed_off_rub} onChange={e => set('fixed_off_rub', e.target.value)} />
+            </div>
+          )}
+          {form.type === 'issue_discount' && (
+            <div>
+              <label style={lbl}>Тип карты</label>
+              <select style={inp} value={form.card_type} onChange={e => set('card_type', e.target.value)}>
+                <option value="">Любая</option>
+                <option value="Online">Online</option>
+                <option value="Online+Pay">Online+Pay</option>
+                <option value="Pay">Pay</option>
+              </select>
+            </div>
+          )}
+          <div>
+            <label style={lbl}>Лимит вводов (0 = без лимита)</label>
+            <input style={inp} type="number" min="0" value={form.max_uses} onChange={e => set('max_uses', e.target.value)} />
+          </div>
+          <div>
+            <label style={lbl}>Действует с (МСК)</label>
+            <input style={inp} type="datetime-local" value={form.valid_from} onChange={e => set('valid_from', e.target.value)} />
+          </div>
+          <div>
+            <label style={lbl}>Действует до (МСК)</label>
+            <input style={inp} type="datetime-local" value={form.valid_until} onChange={e => set('valid_until', e.target.value)} />
+          </div>
+          <div>
+            <label style={lbl}>Комментарий (для себя)</label>
+            <input style={inp} placeholder="Пост в канале 25.08" value={form.comment} onChange={e => set('comment', e.target.value)} />
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 18, alignItems: 'center', marginTop: 14, flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, cursor: 'pointer' }}>
+            <input type="checkbox" checked={form.one_per_user} onChange={e => set('one_per_user', e.target.checked)} />
+            Один раз на пользователя
+          </label>
+          <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, cursor: 'pointer' }}>
+            <input type="checkbox" checked={form.is_active} onChange={e => set('is_active', e.target.checked)} />
+            Активен
+          </label>
+          <div style={{ flex: 1 }} />
+          {editId && <Btn variant="ghost" onClick={resetForm}>Отмена</Btn>}
+          <Btn onClick={save} disabled={saving}>{saving ? 'Сохранение...' : editId ? 'Сохранить изменения' : '+ Создать промокод'}</Btn>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+        {[['all', `Все (${items.length})`], ...Object.entries(PROMO_STATUS_BADGE).map(([k, [label]]) => [k, `${label} (${counts[k] || 0})`])].map(([k, label]) => (
+          <div key={k} onClick={() => setFilter(k)}
+            style={{ padding: '6px 12px', borderRadius: 16, cursor: 'pointer', fontSize: 12, fontWeight: 600,
+              background: filter === k ? '#111827' : '#e5e7eb', color: filter === k ? '#fff' : '#374151' }}>
+            {label}
+          </div>
+        ))}
+      </div>
+
+      <Table columns={[
+        { key: 'code', label: 'Код', render: p => <span style={{ fontWeight: 700, letterSpacing: '0.03em' }}>{p.code}</span> },
+        { key: 'description', label: 'Скидка', render: p => <span style={{ fontSize: 12 }}>{p.description}</span> },
+        { key: 'status', label: 'Статус', render: p => {
+          const [label, color] = PROMO_STATUS_BADGE[p.status] || [p.status, '#6b7280']
+          return badge(label, color)
+        } },
+        { key: 'used_count', label: 'Вводы', render: p => `${p.used_count}${p.max_uses ? ` / ${p.max_uses}` : ''}` },
+        { key: 'valid', label: 'Срок', render: p => (
+          <span style={{ fontSize: 11, color: '#6b7280' }}>
+            {p.valid_from_msk ? `с ${p.valid_from_msk}` : ''}{p.valid_from_msk && p.valid_until_msk ? <br /> : ''}
+            {p.valid_until_msk ? `до ${p.valid_until_msk}` : (!p.valid_from_msk ? 'бессрочно' : '')}
+          </span>
+        ) },
+        { key: 'comment', label: 'Коммент', render: p => <span style={{ fontSize: 11, color: '#9ca3af' }}>{p.comment || '—'}</span> },
+        { key: 'actions', label: '', render: p => (
+          <div style={{ display: 'flex', gap: 6 }}>
+            <Btn small variant="ghost" onClick={() => startEdit(p)}>✏️</Btn>
+            <Btn small variant={p.is_active ? 'danger' : 'primary'} onClick={() => toggleActive(p)}>{p.is_active ? '⏸' : '▶'}</Btn>
+            <Btn small variant="danger" onClick={() => remove(p)}>🗑</Btn>
+          </div>
+        ) },
+      ]} rows={shown} />
+    </div>
+  )
+}
+
 function BotPage() {
   const [tab, setTab] = useState('welcome')
 
@@ -809,6 +1020,35 @@ function BotPage() {
   const [bcImagePreview, setBcImagePreview] = useState(null)
   const [bcSending, setBcSending] = useState(false)
   const [bcResult, setBcResult] = useState(null)
+  const [bcSegment, setBcSegment] = useState('all')
+  const [bcSegments, setBcSegments] = useState([])
+  const [bcSchedule, setBcSchedule] = useState(false)
+  const [bcScheduleAt, setBcScheduleAt] = useState('')
+  const [bcPresets, setBcPresets] = useState([])
+  const [bcPresetName, setBcPresetName] = useState('')
+  const [bcScheduledList, setBcScheduledList] = useState([])
+  const bcTextRef = useRef(null)
+
+  const loadBcMeta = useCallback(async () => {
+    try { const d = await adminApi.bot.segments(); setBcSegments(d.items || []) } catch {}
+    try { const d = await adminApi.bot.presets.list(); setBcPresets(d.items || []) } catch {}
+    try { const d = await adminApi.bot.scheduled.list(); setBcScheduledList(d.items || []) } catch {}
+  }, [])
+
+  // Wrap the selected text in the broadcast textarea with formatting tags
+  const bcWrap = (openTag, closeTag) => {
+    const el = bcTextRef.current
+    if (!el) return
+    const start = el.selectionStart ?? bcText.length
+    const end = el.selectionEnd ?? bcText.length
+    const selected = bcText.slice(start, end) || 'текст'
+    const next = bcText.slice(0, start) + openTag + selected + closeTag + bcText.slice(end)
+    setBcText(next)
+    requestAnimationFrame(() => {
+      el.focus()
+      el.setSelectionRange(start + openTag.length, start + openTag.length + selected.length)
+    })
+  }
 
   // — notification headers tab state —
   const [notifHeaders, setNotifHeaders] = useState({})
@@ -829,6 +1069,7 @@ function BotPage() {
       setImageUrl(s.image_url ? s.image_url + '?t=' + Date.now() : null)
     }).catch(() => {})
     adminApi.bot.getNotificationSettings().then(s => setNotifHeaders(s || {})).catch(() => {})
+    loadBcMeta()
     adminApi.gmail.status().then(s => {
       setGmailConnected(s.connected)
       setGmailEmail(s.email || '')
@@ -879,15 +1120,53 @@ function BotPage() {
     } catch (e) { alert(e.message) }
   }
 
+  const segLabel = (key) => bcSegments.find(x => x.key === key)?.label || key
+
   const sendBroadcast = async () => {
     if (!bcText.trim()) return alert('Введите текст сообщения')
-    if (!confirm('Отправить рассылку всем пользователям с Telegram ID?')) return
+    if (bcSchedule && !bcScheduleAt) return alert('Укажите дату и время отправки')
+    const segInfo = bcSegments.find(x => x.key === bcSegment)
+    const who = `«${segInfo?.label || bcSegment}» (${segInfo?.count ?? '?'} чел.)`
+    const q = bcSchedule
+      ? `Запланировать рассылку сегменту ${who} на ${bcScheduleAt.replace('T', ' ')} (МСК)?`
+      : `Отправить рассылку сегменту ${who} прямо сейчас?`
+    if (!confirm(q)) return
     setBcSending(true); setBcResult(null)
     try {
-      const r = await adminApi.bot.broadcast(bcText, bcParseMode, bcButtons, bcImageKey)
+      const r = await adminApi.bot.broadcast(
+        bcText, bcParseMode, bcButtons, bcImageKey, bcSegment,
+        bcSchedule ? bcScheduleAt : null,
+      )
       setBcResult(r)
+      if (r.scheduled) loadBcMeta()
     } catch (e) { alert(e.message) }
     finally { setBcSending(false) }
+  }
+
+  const savePreset = async () => {
+    const name = bcPresetName.trim() || prompt('Название пресета:')
+    if (!name) return
+    try {
+      await adminApi.bot.presets.create({ name, text: bcText, parse_mode: bcParseMode, buttons: bcButtons, image_key: bcImageKey, segment: bcSegment })
+      setBcPresetName('')
+      loadBcMeta()
+    } catch (e) { alert(e.message) }
+  }
+
+  const applyPreset = (p) => {
+    setBcText(p.text || ''); setBcParseMode(p.parse_mode || 'HTML')
+    setBcButtons(p.buttons || '[]'); setBcSegment(p.segment || 'all')
+    setBcImageKey(p.image_key || null); setBcImagePreview(null)
+  }
+
+  const deletePreset = async (p) => {
+    if (!confirm(`Удалить пресет «${p.name}»?`)) return
+    try { await adminApi.bot.presets.remove(p.id); loadBcMeta() } catch (e) { alert(e.message) }
+  }
+
+  const cancelScheduled = async (r) => {
+    if (!confirm('Отменить запланированную рассылку?')) return
+    try { await adminApi.bot.scheduled.cancel(r.id); loadBcMeta() } catch (e) { alert(e.message) }
   }
 
   const saveNotifHeaders = async () => {
@@ -1032,18 +1311,52 @@ function BotPage() {
 
       {tab === 'broadcast' && (
         <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-          <div style={{ flex: '1 1 420px', background: '#fff', borderRadius: 14, padding: 24, boxShadow: '0 1px 3px rgba(0,0,0,.08)' }}>
+          <div style={{ flex: '1 1 460px', background: '#fff', borderRadius: 14, padding: 24, boxShadow: '0 1px 3px rgba(0,0,0,.08)' }}>
             <h3 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 600 }}>Сообщение рассылки</h3>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
+
+            {/* Formatting toolbar + parse mode */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, flexWrap: 'wrap', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {[
+                  ['B', '<b>', '</b>', { fontWeight: 800 }],
+                  ['I', '<i>', '</i>', { fontStyle: 'italic' }],
+                  ['U', '<u>', '</u>', { textDecoration: 'underline' }],
+                  ['S', '<s>', '</s>', { textDecoration: 'line-through' }],
+                  ['</>', '<code>', '</code>', { fontFamily: 'monospace' }],
+                ].map(([label, o, c, st]) => (
+                  <button key={label} onClick={() => bcWrap(o, c)} title={`${o}…${c}`}
+                    style={{ width: 34, height: 30, borderRadius: 7, border: '1px solid #d1d5db', background: '#f9fafb', cursor: 'pointer', fontSize: 13, ...st }}>
+                    {label}
+                  </button>
+                ))}
+                <button onClick={() => bcWrap('<a href="https://">', '</a>')} title="ссылка"
+                  style={{ height: 30, padding: '0 10px', borderRadius: 7, border: '1px solid #d1d5db', background: '#f9fafb', cursor: 'pointer', fontSize: 13 }}>
+                  🔗
+                </button>
+              </div>
               <select value={bcParseMode} onChange={e => setBcParseMode(e.target.value)}
                 style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12 }}>
-                <option value="HTML">HTML</option>
+                <option value="HTML">HTML (по умолчанию)</option>
                 <option value="MarkdownV2">MarkdownV2</option>
               </select>
             </div>
-            <textarea value={bcText} onChange={e => setBcText(e.target.value)} rows={10}
-              placeholder="Текст сообщения (поддерживается HTML-форматирование)..."
+
+            <textarea ref={bcTextRef} value={bcText} onChange={e => setBcText(e.target.value)} rows={10}
+              placeholder="Текст сообщения... Выделите текст и нажмите B/I/U в панели — теги подставятся сами."
               style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 13, lineHeight: 1.6, resize: 'vertical', boxSizing: 'border-box', fontFamily: 'monospace' }} />
+
+            <h3 style={{ fontSize: 15, fontWeight: 600, margin: '16px 0 8px' }}>Кому отправить</h3>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {bcSegments.map(sg => (
+                <div key={sg.key} onClick={() => setBcSegment(sg.key)}
+                  style={{ padding: '7px 12px', borderRadius: 20, cursor: 'pointer', fontSize: 13, fontWeight: 600,
+                    border: bcSegment === sg.key ? '1.5px solid #6366f1' : '1px solid #e5e7eb',
+                    background: bcSegment === sg.key ? '#eef2ff' : '#fff',
+                    color: bcSegment === sg.key ? '#4338ca' : '#374151' }}>
+                  {sg.label} <span style={{ opacity: 0.6 }}>({sg.count})</span>
+                </div>
+              ))}
+            </div>
 
             <h3 style={{ fontSize: 15, fontWeight: 600, margin: '16px 0 8px' }}>Кнопки (необязательно)</h3>
             <ButtonsEditor value={bcButtons} onChange={setBcButtons} />
@@ -1062,36 +1375,99 @@ function BotPage() {
               </label>
             )}
 
-            <div style={{ marginTop: 20 }}>
-              <Btn onClick={sendBroadcast} disabled={bcSending} style={{ background: '#dc2626' }}>
-                {bcSending ? '⏳ Отправка...' : '📢 Отправить всем'}
+            <h3 style={{ fontSize: 15, fontWeight: 600, margin: '16px 0 8px' }}>Когда отправить</h3>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+              <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, cursor: 'pointer' }}>
+                <input type="radio" checked={!bcSchedule} onChange={() => setBcSchedule(false)} /> Сейчас
+              </label>
+              <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, cursor: 'pointer' }}>
+                <input type="radio" checked={bcSchedule} onChange={() => setBcSchedule(true)} /> По времени (МСК):
+              </label>
+              {bcSchedule && (
+                <input type="datetime-local" value={bcScheduleAt} onChange={e => setBcScheduleAt(e.target.value)}
+                  style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 13 }} />
+              )}
+            </div>
+
+            <div style={{ marginTop: 20, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              <Btn onClick={sendBroadcast} disabled={bcSending} style={{ background: bcSchedule ? '#6366f1' : '#dc2626' }}>
+                {bcSending ? '⏳ ...' : bcSchedule ? '🕒 Запланировать' : `📢 Отправить (${bcSegments.find(x => x.key === bcSegment)?.count ?? '?'})`}
               </Btn>
+              <input placeholder="Название пресета" value={bcPresetName} onChange={e => setBcPresetName(e.target.value)}
+                style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 13, width: 160 }} />
+              <Btn small variant="ghost" onClick={savePreset}>💾 Сохранить пресет</Btn>
             </div>
 
             {bcResult && (
               <div style={{ marginTop: 16, padding: '12px 16px', borderRadius: 10, background: '#f0fdf4', border: '1px solid #86efac' }}>
-                <strong>✅ Рассылка завершена</strong><br />
-                <span style={{ fontSize: 13 }}>Отправлено: <b>{bcResult.sent}</b> | Ошибок: <b>{bcResult.failed}</b> | Всего с TG: <b>{bcResult.total}</b></span>
+                {bcResult.scheduled ? (
+                  <span><strong>🕒 Запланировано</strong> на {String(bcResult.scheduled_at).replace('T', ' ')} (МСК), сегмент: {segLabel(bcResult.segment)}</span>
+                ) : (
+                  <span><strong>✅ Рассылка завершена</strong><br />
+                    <span style={{ fontSize: 13 }}>Отправлено: <b>{bcResult.sent}</b> | Ошибок: <b>{bcResult.failed}</b> | Всего в сегменте: <b>{bcResult.total}</b></span></span>
+                )}
               </div>
             )}
           </div>
 
-          <div style={{ flex: '0 0 280px', background: '#fff', borderRadius: 14, padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,.08)', fontSize: 13 }}>
-            <h3 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 600 }}>📖 Форматирование</h3>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-              <tbody>
-                {[['<b>текст</b>', 'жирный'], ['<i>текст</i>', 'курсив'], ['<u>текст</u>', 'подчёркнутый'],
-                  ['<s>текст</s>', 'зачёркнутый'], ['<code>текст</code>', 'моноширинный'],
-                  ['<a href="URL">текст</a>', 'ссылка'], ['🔥 😊 ✅', 'эмодзи']].map(([tag, desc]) => (
-                  <tr key={tag}>
-                    <td style={{ padding: '4px 8px 4px 0', fontFamily: 'monospace', color: '#6366f1', whiteSpace: 'nowrap' }}>{tag}</td>
-                    <td style={{ padding: '4px 0', color: '#374151' }}>{desc}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <div style={{ marginTop: 12, padding: 10, background: '#fef9c3', borderRadius: 8, fontSize: 11, lineHeight: 1.6 }}>
-              ⚠️ Рассылка уходит только пользователям, у которых сохранён Telegram ID (те, кто входил через бот).
+          <div style={{ flex: '1 1 300px', display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 380 }}>
+            {/* Presets */}
+            <div style={{ background: '#fff', borderRadius: 14, padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,.08)' }}>
+              <h3 style={{ margin: '0 0 10px', fontSize: 15, fontWeight: 600 }}>📁 Пресеты</h3>
+              {bcPresets.length === 0 && <div style={{ fontSize: 12, color: '#9ca3af' }}>Пока нет сохранённых пресетов</div>}
+              {bcPresets.map(pr => (
+                <div key={pr.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #f3f4f6', gap: 8 }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pr.name}</div>
+                    <div style={{ fontSize: 11, color: '#9ca3af' }}>{segLabel(pr.segment)}</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                    <Btn small variant="ghost" onClick={() => applyPreset(pr)}>Открыть</Btn>
+                    <Btn small variant="danger" onClick={() => deletePreset(pr)}>✕</Btn>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Scheduled */}
+            <div style={{ background: '#fff', borderRadius: 14, padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,.08)' }}>
+              <h3 style={{ margin: '0 0 10px', fontSize: 15, fontWeight: 600 }}>🕒 Запланированные</h3>
+              {bcScheduledList.length === 0 && <div style={{ fontSize: 12, color: '#9ca3af' }}>Нет запланированных рассылок</div>}
+              {bcScheduledList.map(r => (
+                <div key={r.id} style={{ padding: '8px 0', borderBottom: '1px solid #f3f4f6' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+                    <span style={{ fontSize: 12, fontWeight: 600 }}>{r.scheduled_at_msk} МСК</span>
+                    {badge(
+                      { scheduled: 'Ожидает', sending: 'Отправляется', done: `Готово ${r.sent}✓/${r.failed}✕`, canceled: 'Отменена', failed: 'Ошибка' }[r.status] || r.status,
+                      { scheduled: '#6366f1', sending: '#f59e0b', done: '#22c55e', canceled: '#9ca3af', failed: '#ef4444' }[r.status] || '#6b7280',
+                    )}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#6b7280', margin: '4px 0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {segLabel(r.segment)} · {r.text}
+                  </div>
+                  {r.status === 'scheduled' && <Btn small variant="danger" onClick={() => cancelScheduled(r)}>Отменить</Btn>}
+                </div>
+              ))}
+            </div>
+
+            {/* Formatting help */}
+            <div style={{ background: '#fff', borderRadius: 14, padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,.08)', fontSize: 13 }}>
+              <h3 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 600 }}>📖 Форматирование</h3>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <tbody>
+                  {[['<b>текст</b>', 'жирный'], ['<i>текст</i>', 'курсив'], ['<u>текст</u>', 'подчёркнутый'],
+                    ['<s>текст</s>', 'зачёркнутый'], ['<code>текст</code>', 'моноширинный'],
+                    ['<a href="URL">текст</a>', 'ссылка'], ['🔥 😊 ✅', 'эмодзи']].map(([tag, desc]) => (
+                    <tr key={tag}>
+                      <td style={{ padding: '4px 8px 4px 0', fontFamily: 'monospace', color: '#6366f1', whiteSpace: 'nowrap' }}>{tag}</td>
+                      <td style={{ padding: '4px 0', color: '#374151' }}>{desc}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div style={{ marginTop: 12, padding: 10, background: '#fef9c3', borderRadius: 8, fontSize: 11, lineHeight: 1.6 }}>
+                ⚠️ Рассылка уходит только пользователям, у которых сохранён Telegram ID (те, кто входил через бот).
+              </div>
             </div>
           </div>
         </div>
@@ -1318,6 +1694,7 @@ export default function AdminApp() {
     case 'payments': content = <PaymentsPage />; break
     case 'analytics': content = <AnalyticsPage />; break
     case 'bot': content = <BotPage />; break
+    case 'promo': content = <PromoPage />; break
     case 'faq': content = <FAQPage />; break
     case 'settings': content = <SettingsPage />; break
     default: content = <DashboardPage />

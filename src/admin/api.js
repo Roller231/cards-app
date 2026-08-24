@@ -103,10 +103,27 @@ const adminApi = {
       if (!res.ok) throw new Error(await res.text())
       return res.json()
     },
-    broadcast: (text, parse_mode, buttons, image_key) =>
-      req('POST', '/admin/bot/broadcast', { text, parse_mode, buttons, image_key: image_key || null }),
+    broadcast: (text, parse_mode, buttons, image_key, segment = 'all', scheduled_at = null) =>
+      req('POST', '/admin/bot/broadcast', { text, parse_mode, buttons, image_key: image_key || null, segment, scheduled_at }),
+    segments: () => req('GET', '/admin/bot/segments'),
+    presets: {
+      list: () => req('GET', '/admin/bot/presets'),
+      create: (data) => req('POST', '/admin/bot/presets', data),
+      update: (id, data) => req('PUT', `/admin/bot/presets/${id}`, data),
+      remove: (id) => req('DELETE', `/admin/bot/presets/${id}`),
+    },
+    scheduled: {
+      list: () => req('GET', '/admin/bot/scheduled'),
+      cancel: (id) => req('DELETE', `/admin/bot/scheduled/${id}`),
+    },
     getNotificationSettings: () => req('GET', '/admin/bot/notification-settings'),
     updateNotificationSettings: (data) => req('PUT', '/admin/bot/notification-settings', data),
+  },
+  promo: {
+    list: () => req('GET', '/admin/promo-codes'),
+    create: (data) => req('POST', '/admin/promo-codes', data),
+    update: (id, data) => req('PUT', `/admin/promo-codes/${id}`, data),
+    remove: (id) => req('DELETE', `/admin/promo-codes/${id}`),
   },
   gmail: {
     status: () => req('GET', '/admin/gmail/status'),

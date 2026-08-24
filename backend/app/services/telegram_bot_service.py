@@ -182,17 +182,65 @@ async def send_welcome(chat_id: int, db: AsyncSession) -> None:
 
 # ─── broadcast ─────────────────────────────────────────────────────────────
 
+# ---------------------------------------------------------------------------
+# Broadcast segments: named user filters for targeted broadcasts
+# ---------------------------------------------------------------------------
+
+BROADCAST_SEGMENTS = {
+    "all": "Все пользователи",
+    "with_cards": "С картами",
+    "without_cards": "Без карт",
+    "kyc_passed": "Прошли верификацию",
+    "kyc_not_passed": "Без верификации",
+    "paid": "Оплачивали хотя бы раз",
+    "never_paid": "Ни разу не платили",
+}
+
+
+def _segment_query(segment: str):
+    """select(User) for a named segment (only active users with a Telegram id)."""
+    from sqlalchemy import exists, and_
+    from app.models.card import Card
+    from app.models.bb_invoice import BbInvoice
+
+    q = select(User).where(User.telegram_user_id.isnot(None), User.is_active == True)
+    has_card = exists().where(Card.user_id == User.id)
+    has_paid = exists().where(and_(BbInvoice.user_id == User.id, BbInvoice.status.in_(("captured", "authorized"))))
+    if segment == "with_cards":
+        return q.where(has_card)
+    if segment == "without_cards":
+        return q.where(~has_card)
+    if segment == "kyc_passed":
+        return q.where(User.kyc_status == "success")
+    if segment == "kyc_not_passed":
+        return q.where((User.kyc_status.is_(None)) | (User.kyc_status != "success"))
+    if segment == "paid":
+        return q.where(has_paid)
+    if segment == "never_paid":
+        return q.where(~has_paid)
+    return q  # 'all' and anything unknown
+
+
+async def segment_counts(db: AsyncSession) -> dict:
+    """User count per segment for the admin UI."""
+    from sqlalchemy import func as _f
+    out = {}
+    for key in BROADCAST_SEGMENTS:
+        subq = _segment_query(key).subquery()
+        out[key] = (await db.execute(select(_f.count()).select_from(subq))).scalar() or 0
+    return out
+
+
 async def broadcast_message(
     db: AsyncSession,
     text: str,
     parse_mode: str = "HTML",
     buttons: Optional[List[Dict]] = None,
     image_path: Optional[Path] = None,
+    segment: str = "all",
 ) -> dict:
-    """Send a message to all active users who have a Telegram ID."""
-    res = await db.execute(
-        select(User).where(User.telegram_user_id.isnot(None), User.is_active == True)
-    )
+    """Send a message to the segment's active users who have a Telegram ID."""
+    res = await db.execute(_segment_query(segment))
     users = res.scalars().all()
 
     markup = _build_markup(buttons or [])

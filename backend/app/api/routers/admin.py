@@ -1076,11 +1076,48 @@ class BroadcastRequest(BaseModel):
     parse_mode: str = "HTML"
     buttons: str = "[]"
     image_key: Optional[str] = None
+    segment: str = "all"
+    scheduled_at: Optional[str] = None  # ISO datetime in MSK; when set, queue instead of sending
 
 
-@router.post("/bot/broadcast", summary="Broadcast message to all users with Telegram IDs")
+@router.get("/bot/segments", summary="Broadcast segments with user counts")
+async def broadcast_segments(db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+    from app.services.telegram_bot_service import BROADCAST_SEGMENTS, segment_counts
+    counts = await segment_counts(db)
+    return {"items": [
+        {"key": k, "label": label, "count": counts.get(k, 0)}
+        for k, label in BROADCAST_SEGMENTS.items()
+    ]}
+
+
+def _parse_msk(dt_str: str) -> datetime:
+    """Admin enters Moscow time; DB stores naive UTC."""
+    dt = datetime.fromisoformat(dt_str.replace("Z", ""))
+    return dt - timedelta(hours=3)
+
+
+@router.post("/bot/broadcast", summary="Broadcast now or schedule for later (segment-aware)")
 async def send_broadcast(body: BroadcastRequest, db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
-    from app.services.telegram_bot_service import broadcast_message
+    from app.models.broadcast import ScheduledBroadcast
+    from app.services.telegram_bot_service import BROADCAST_SEGMENTS, broadcast_message
+
+    if body.segment not in BROADCAST_SEGMENTS:
+        raise HTTPException(400, f"Unknown segment: {body.segment}")
+
+    if body.scheduled_at:
+        try:
+            when_utc = _parse_msk(body.scheduled_at)
+        except ValueError:
+            raise HTTPException(400, "scheduled_at: invalid datetime")
+        if when_utc <= datetime.utcnow():
+            raise HTTPException(400, "Время отправки уже прошло")
+        row = ScheduledBroadcast(
+            text=body.text, parse_mode=body.parse_mode, buttons=body.buttons,
+            image_key=body.image_key, segment=body.segment, scheduled_at=when_utc,
+        )
+        db.add(row)
+        await db.flush()
+        return {"scheduled": True, "id": row.id, "scheduled_at": body.scheduled_at, "segment": body.segment}
 
     try:
         buttons = json.loads(body.buttons)
@@ -1093,7 +1130,7 @@ async def send_broadcast(body: BroadcastRequest, db: AsyncSession = Depends(get_
         if candidate.exists():
             image_path = candidate
 
-    result = await broadcast_message(db, body.text, body.parse_mode, buttons, image_path)
+    result = await broadcast_message(db, body.text, body.parse_mode, buttons, image_path, segment=body.segment)
 
     if image_path and image_path.exists():
         try:
@@ -1102,6 +1139,198 @@ async def send_broadcast(body: BroadcastRequest, db: AsyncSession = Depends(get_
             pass
 
     return result
+
+
+# =====================  BROADCAST PRESETS & SCHEDULE  =====================
+
+class BroadcastPresetRequest(BaseModel):
+    name: str
+    text: str = ""
+    parse_mode: str = "HTML"
+    buttons: str = "[]"
+    image_key: Optional[str] = None
+    segment: str = "all"
+
+
+def _preset_dict(p) -> dict:
+    return {"id": p.id, "name": p.name, "text": p.text, "parse_mode": p.parse_mode,
+            "buttons": p.buttons, "image_key": p.image_key, "segment": p.segment,
+            "updated_at": p.updated_at.isoformat() if p.updated_at else None}
+
+
+@router.get("/bot/presets", summary="List broadcast presets")
+async def list_presets(db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+    from app.models.broadcast import BroadcastPreset
+    rows = (await db.execute(select(BroadcastPreset).order_by(BroadcastPreset.updated_at.desc()))).scalars().all()
+    return {"items": [_preset_dict(p) for p in rows]}
+
+
+@router.post("/bot/presets", summary="Create broadcast preset")
+async def create_preset(body: BroadcastPresetRequest, db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+    from app.models.broadcast import BroadcastPreset
+    if not body.name.strip():
+        raise HTTPException(400, "Название пресета обязательно")
+    row = BroadcastPreset(name=body.name.strip(), text=body.text, parse_mode=body.parse_mode,
+                          buttons=body.buttons, image_key=body.image_key, segment=body.segment)
+    db.add(row)
+    await db.flush()
+    return _preset_dict(row)
+
+
+@router.put("/bot/presets/{preset_id}", summary="Update broadcast preset")
+async def update_preset(preset_id: int, body: BroadcastPresetRequest, db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+    from app.models.broadcast import BroadcastPreset
+    row = (await db.execute(select(BroadcastPreset).where(BroadcastPreset.id == preset_id))).scalar_one_or_none()
+    if not row:
+        raise HTTPException(404, "Preset not found")
+    row.name = body.name.strip() or row.name
+    row.text = body.text
+    row.parse_mode = body.parse_mode
+    row.buttons = body.buttons
+    row.image_key = body.image_key
+    row.segment = body.segment
+    await db.flush()
+    return _preset_dict(row)
+
+
+@router.delete("/bot/presets/{preset_id}", summary="Delete broadcast preset")
+async def delete_preset(preset_id: int, db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+    from app.models.broadcast import BroadcastPreset
+    row = (await db.execute(select(BroadcastPreset).where(BroadcastPreset.id == preset_id))).scalar_one_or_none()
+    if not row:
+        raise HTTPException(404, "Preset not found")
+    await db.delete(row)
+    return {"ok": True}
+
+
+@router.get("/bot/scheduled", summary="List scheduled broadcasts")
+async def list_scheduled(db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+    from app.models.broadcast import ScheduledBroadcast
+    rows = (await db.execute(
+        select(ScheduledBroadcast).order_by(ScheduledBroadcast.scheduled_at.desc()).limit(50)
+    )).scalars().all()
+    return {"items": [
+        {"id": r.id, "text": r.text[:200], "segment": r.segment, "status": r.status,
+         "sent": r.sent, "failed": r.failed,
+         "scheduled_at_msk": (r.scheduled_at + timedelta(hours=3)).strftime("%Y-%m-%d %H:%M") if r.scheduled_at else None}
+        for r in rows
+    ]}
+
+
+@router.delete("/bot/scheduled/{sb_id}", summary="Cancel a scheduled broadcast")
+async def cancel_scheduled(sb_id: int, db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+    from app.models.broadcast import ScheduledBroadcast
+    row = (await db.execute(select(ScheduledBroadcast).where(ScheduledBroadcast.id == sb_id))).scalar_one_or_none()
+    if not row:
+        raise HTTPException(404, "Not found")
+    if row.status != "scheduled":
+        raise HTTPException(400, f"Рассылка уже в статусе {row.status}")
+    row.status = "canceled"
+    await db.flush()
+    return {"ok": True}
+
+
+# =====================  PROMO CODES  =====================
+
+class PromoCodeRequest(BaseModel):
+    code: str
+    type: str                       # rate_discount | issue_discount | no_small_fee
+    percent_off: Optional[float] = None
+    fixed_off_rub: Optional[float] = None
+    card_type: Optional[str] = None  # Online | Online+Pay | Pay (issue_discount only)
+    max_uses: int = 0
+    one_per_user: bool = True
+    valid_from: Optional[str] = None   # ISO, MSK
+    valid_until: Optional[str] = None  # ISO, MSK
+    is_active: bool = True
+    comment: Optional[str] = None
+
+
+def _promo_dict(p) -> dict:
+    from app.services.promo_service import TYPE_LABELS, describe_discount, promo_status
+    return {
+        "id": p.id, "code": p.code, "type": p.type,
+        "type_label": TYPE_LABELS.get(p.type, p.type),
+        "description": describe_discount(p),
+        "percent_off": p.percent_off, "fixed_off_rub": p.fixed_off_rub,
+        "card_type": p.card_type, "max_uses": p.max_uses, "used_count": p.used_count,
+        "one_per_user": p.one_per_user, "is_active": p.is_active,
+        "status": promo_status(p), "comment": p.comment,
+        "valid_from_msk": (p.valid_from + timedelta(hours=3)).strftime("%Y-%m-%d %H:%M") if p.valid_from else None,
+        "valid_until_msk": (p.valid_until + timedelta(hours=3)).strftime("%Y-%m-%d %H:%M") if p.valid_until else None,
+        "created_at": p.created_at.isoformat() if p.created_at else None,
+    }
+
+
+def _apply_promo_body(row, body: PromoCodeRequest):
+    from app.services.promo_service import PROMO_TYPES
+    if body.type not in PROMO_TYPES:
+        raise HTTPException(400, f"type must be one of {PROMO_TYPES}")
+    if body.type == "rate_discount" and not body.percent_off:
+        raise HTTPException(400, "Для скидки на курс укажите процент")
+    if body.type == "issue_discount" and not body.percent_off and not body.fixed_off_rub:
+        raise HTTPException(400, "Для скидки на выпуск укажите процент или фиксированную сумму")
+    row.code = body.code.strip().upper()
+    row.type = body.type
+    row.percent_off = body.percent_off
+    row.fixed_off_rub = body.fixed_off_rub
+    row.card_type = body.card_type or None
+    row.max_uses = max(0, int(body.max_uses or 0))
+    row.one_per_user = bool(body.one_per_user)
+    row.is_active = bool(body.is_active)
+    row.comment = (body.comment or "").strip() or None
+    row.valid_from = _parse_msk(body.valid_from) if body.valid_from else None
+    row.valid_until = _parse_msk(body.valid_until) if body.valid_until else None
+    if not row.code:
+        raise HTTPException(400, "Код обязателен")
+
+
+@router.get("/promo-codes", summary="List promo codes with status and usage")
+async def list_promo_codes(db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+    from app.models.promo import PromoCode
+    rows = (await db.execute(select(PromoCode).order_by(PromoCode.id.desc()))).scalars().all()
+    return {"items": [_promo_dict(p) for p in rows]}
+
+
+@router.post("/promo-codes", summary="Create promo code")
+async def create_promo_code(body: PromoCodeRequest, db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+    from app.models.promo import PromoCode
+    dup = (await db.execute(select(PromoCode).where(PromoCode.code == body.code.strip().upper()))).scalar_one_or_none()
+    if dup:
+        raise HTTPException(400, "Такой код уже существует")
+    row = PromoCode(code="", type="rate_discount")
+    _apply_promo_body(row, body)
+    db.add(row)
+    await db.flush()
+    return _promo_dict(row)
+
+
+@router.put("/promo-codes/{promo_id}", summary="Update promo code")
+async def update_promo_code(promo_id: int, body: PromoCodeRequest, db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+    from app.models.promo import PromoCode
+    row = (await db.execute(select(PromoCode).where(PromoCode.id == promo_id))).scalar_one_or_none()
+    if not row:
+        raise HTTPException(404, "Промокод не найден")
+    dup = (await db.execute(select(PromoCode).where(
+        PromoCode.code == body.code.strip().upper(), PromoCode.id != promo_id
+    ))).scalar_one_or_none()
+    if dup:
+        raise HTTPException(400, "Такой код уже существует")
+    _apply_promo_body(row, body)
+    await db.flush()
+    return _promo_dict(row)
+
+
+@router.delete("/promo-codes/{promo_id}", summary="Delete promo code")
+async def delete_promo_code(promo_id: int, db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+    from app.models.promo import PromoCode, PromoRedemption
+    row = (await db.execute(select(PromoCode).where(PromoCode.id == promo_id))).scalar_one_or_none()
+    if not row:
+        raise HTTPException(404, "Промокод не найден")
+    for r in (await db.execute(select(PromoRedemption).where(PromoRedemption.promo_id == promo_id))).scalars().all():
+        await db.delete(r)
+    await db.delete(row)
+    return {"ok": True}
 
 
 # =====================  BOT NOTIFICATION SETTINGS  =====================

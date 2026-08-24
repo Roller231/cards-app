@@ -64,6 +64,59 @@ async def _bot_poll_loop() -> None:
             await asyncio.sleep(5)
 
 
+async def _scheduled_broadcast_loop() -> None:
+    """Send due scheduled broadcasts (admin-queued, stored in DB)."""
+    from datetime import datetime as _dt
+    from pathlib import Path as _Path
+    from sqlalchemy import select as _sel
+    from app.core.database import AsyncSessionLocal
+    from app.models.broadcast import ScheduledBroadcast
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                due = (await db.execute(
+                    _sel(ScheduledBroadcast).where(
+                        ScheduledBroadcast.status == "scheduled",
+                        ScheduledBroadcast.scheduled_at <= _dt.utcnow(),
+                    ).order_by(ScheduledBroadcast.id.asc()).limit(3)
+                )).scalars().all()
+                for row in due:
+                    row.status = "sending"
+                    await db.commit()
+                    try:
+                        import json as _json
+                        from app.services.telegram_bot_service import broadcast_message
+                        try:
+                            buttons = _json.loads(row.buttons or "[]")
+                        except Exception:
+                            buttons = []
+                        image_path = None
+                        if row.image_key:
+                            cand = _UPLOADS_DIR / row.image_key
+                            if cand.exists():
+                                image_path = cand
+                        result = await broadcast_message(
+                            db, row.text, row.parse_mode, buttons, image_path, segment=row.segment,
+                        )
+                        row.sent = int(result.get("sent") or 0)
+                        row.failed = int(result.get("failed") or 0)
+                        row.status = "done"
+                        if image_path and image_path.exists():
+                            try:
+                                image_path.unlink()
+                            except Exception:
+                                pass
+                    except Exception as exc:
+                        logger.error("Scheduled broadcast %s failed: %s", row.id, exc)
+                        row.status = "failed"
+                    await db.commit()
+                    logger.info("Scheduled broadcast %s finished: status=%s sent=%s failed=%s",
+                                row.id, row.status, row.sent, row.failed)
+        except Exception as exc:
+            logger.error("Scheduled broadcast loop error: %s", exc)
+        await asyncio.sleep(30)
+
+
 async def _gmail_poll_loop() -> None:
     """Poll Gmail for Apple Pay verification code emails."""
     from app.services.gmail_service import check_gmail_once
@@ -210,6 +263,7 @@ async def startup_db_client():
     # Telegram bot long-polling (/start handler) and Gmail Apple Pay code polling
     asyncio.create_task(_bot_poll_loop())
     asyncio.create_task(_gmail_poll_loop())
+    asyncio.create_task(_scheduled_broadcast_loop())
     logger.info("Database tables created (if not existed) and schema updated")
 
 

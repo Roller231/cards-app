@@ -75,15 +75,53 @@ export default function SbpPaymentModal({
     ? amountUsdRequested
     : null
 
+  // Promo code state. promoInfo is the /sbp/promo/validate response; the
+  // server recomputes and applies the discount again at invoice creation.
+  const [promoCode, setPromoCode] = useState('')
+  const [promoInfo, setPromoInfo] = useState(null)
+  const [promoError, setPromoError] = useState('')
+  const [promoChecking, setPromoChecking] = useState(false)
+
+  const effectiveAmountRub = promoInfo?.valid && promoInfo.final_amount_rub != null
+    ? promoInfo.final_amount_rub
+    : amountRub
+
+  const applyPromo = async () => {
+    const code = promoCode.trim()
+    if (!code) return
+    setPromoChecking(true)
+    setPromoError('')
+    try {
+      const res = await api.sbp.validatePromo(code, purpose, offerId, Math.ceil(amountRub))
+      if (res.valid) {
+        setPromoInfo(res)
+        if (!res.discount_rub) setPromoError('Промокод действует, но на эту сумму скидка не распространяется')
+      } else {
+        setPromoInfo(null)
+        setPromoError(res.error || 'Промокод не подошёл')
+      }
+    } catch (e) {
+      setPromoInfo(null)
+      setPromoError(e.message || 'Не удалось проверить промокод')
+    } finally {
+      setPromoChecking(false)
+    }
+  }
+
+  const clearPromo = () => { setPromoCode(''); setPromoInfo(null); setPromoError('') }
+
   const createInvoiceFlow = async (rubAmount) => {
     try {
       setScreen('loading')
       // The invoice is created for exactly this amount — the app rate formula
       // already includes all fees, the user pays exactly what was shown.
-      const res = await api.sbp.createInvoice(rubAmount, purpose, offerId, cardId, amountUsdRequested)
+      const res = await api.sbp.createInvoice(
+        rubAmount, purpose, offerId, cardId, amountUsdRequested,
+        promoInfo?.valid ? promoInfo.code : null,
+      )
       setInvoice(res)
       setScreen('qr')
-      metrikaGoal('qr_created', { purpose, amount_rub: rubAmount })
+      metrikaGoal('qr_created', { purpose, amount_rub: res.amount_rub ?? rubAmount, promo: promoInfo?.code || undefined })
     } catch (e) {
       // If 403 KYC error, show KYC screen instead of error
       if (e.message && e.message.toLowerCase().includes('kyc')) {
@@ -220,10 +258,21 @@ export default function SbpPaymentModal({
               <div style={{ background: '#F3F5F8', borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                   <span style={{ fontSize: 14, color: '#6B7280' }}>К оплате через СБП</span>
-                  <span style={{ fontSize: 20, fontWeight: 700, color: '#111827' }}>
-                    {Math.ceil(amountRub).toLocaleString('ru-RU')} ₽
+                  <span style={{ fontSize: 20, fontWeight: 700, color: '#111827', display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                    {promoInfo?.valid && promoInfo.discount_rub > 0 && (
+                      <span style={{ fontSize: 14, fontWeight: 500, color: '#9CA3AF', textDecoration: 'line-through' }}>
+                        {Math.ceil(amountRub).toLocaleString('ru-RU')} ₽
+                      </span>
+                    )}
+                    {Math.ceil(effectiveAmountRub).toLocaleString('ru-RU')} ₽
                   </span>
                 </div>
+                {promoInfo?.valid && promoInfo.discount_rub > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#10B981', borderTop: '1px solid #E5E7EB', paddingTop: 12 }}>
+                    <span>Промокод {promoInfo.code}</span>
+                    <span style={{ fontWeight: 600 }}>−{promoInfo.discount_rub.toLocaleString('ru-RU')} ₽</span>
+                  </div>
+                )}
                 {requestedUsd > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#6B7280', borderTop: '1px solid #E5E7EB', paddingTop: 12 }}>
                     <span>Вы получите</span>
@@ -247,6 +296,45 @@ export default function SbpPaymentModal({
                       </div>
                     )}
                   </div>
+                )}
+              </div>
+
+              {/* Promo code */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    type="text"
+                    value={promoCode}
+                    onChange={(e) => { setPromoCode(e.target.value.toUpperCase()); if (promoInfo) { setPromoInfo(null); setPromoError('') } }}
+                    placeholder="Промокод (если есть)"
+                    autoCapitalize="characters"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    style={{
+                      flex: 1, padding: '12px 14px', borderRadius: 12, fontSize: 14,
+                      border: promoInfo?.valid ? '1.5px solid #10B981' : promoError ? '1.5px solid #EF4444' : '1px solid #E5E7EB',
+                      outline: 'none', fontWeight: 600, letterSpacing: '0.05em', color: '#111827', background: '#fff',
+                    }}
+                  />
+                  {promoInfo?.valid ? (
+                    <button onClick={clearPromo} style={{ border: 'none', background: '#F3F5F8', borderRadius: 12, padding: '0 16px', fontSize: 13, fontWeight: 600, color: '#6B7280', cursor: 'pointer' }}>
+                      Убрать
+                    </button>
+                  ) : (
+                    <button
+                      onClick={applyPromo}
+                      disabled={promoChecking || !promoCode.trim()}
+                      style={{ border: 'none', background: promoCode.trim() ? '#111827' : '#E5E7EB', color: promoCode.trim() ? '#fff' : '#9CA3AF', borderRadius: 12, padding: '0 16px', fontSize: 13, fontWeight: 600, cursor: promoCode.trim() ? 'pointer' : 'default' }}
+                    >
+                      {promoChecking ? '…' : 'Применить'}
+                    </button>
+                  )}
+                </div>
+                {promoInfo?.valid && !promoError && (
+                  <div style={{ fontSize: 12, color: '#10B981', fontWeight: 500 }}>✓ {promoInfo.description}</div>
+                )}
+                {promoError && (
+                  <div style={{ fontSize: 12, color: '#EF4444' }}>{promoError}</div>
                 )}
               </div>
 

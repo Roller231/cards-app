@@ -125,6 +125,7 @@ class InvoiceCreateRequest(BaseModel):
     offer_id: Optional[str] = None  # required when purpose=card_issue
     card_id: Optional[str] = None   # required when purpose=balance_topup (local card UUID)
     amount_usd_requested: Optional[float] = None  # exact USD amount user wants deposited to card
+    promo_code: Optional[str] = None  # optional promo code; discount is applied server-side
 
 
 # ---------------------------------------------------------------------------
@@ -272,6 +273,25 @@ async def create_invoice(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # Promo code (if any) is validated and applied FIRST: every check and the
+    # Bitbanker invoice below run on the discounted amount the user really pays.
+    promo_row = None
+    promo_discount = 0.0
+    promo_amount_before = float(body.amount_rub)
+    if (body.promo_code or "").strip():
+        from app.services.card_service import CARD_NAME_BY_OFFER as _CN
+        from app.services.promo_service import PromoError, compute_discount_rub, get_valid_promo
+        _ct = _CN.get(body.offer_id) if body.offer_id else None
+        try:
+            promo_row = await get_valid_promo(db, body.promo_code, current_user, body.purpose, _ct)
+        except PromoError as _pe:
+            raise HTTPException(status_code=400, detail=str(_pe))
+        promo_discount = compute_discount_rub(promo_row, body.purpose, body.amount_rub)
+        if promo_discount > 0:
+            body.amount_rub = round(float(body.amount_rub) - promo_discount, 2)
+            logger.info("[SBP] Promo %s applied for user_id=%s: %s -> %s (-%s ₽)",
+                        promo_row.code, current_user.id, promo_amount_before, body.amount_rub, promo_discount)
+
     # Bitbanker charges max(pct × QR, min_abs) ON TOP of the invoice. We create
     # the invoice discounted so the QR the user pays equals exactly the amount
     # shown in the app.
@@ -433,6 +453,13 @@ async def create_invoice(
     )
     db.add(invoice)
     await db.flush()
+    if promo_row is not None:
+        from app.models.promo import PromoRedemption
+        db.add(PromoRedemption(
+            promo_id=promo_row.id, user_id=current_user.id,
+            invoice_id=invoice.id, discount_rub=promo_discount, status="pending",
+        ))
+        await db.flush()
     await db.commit()
 
     if settings.DETAILED_DEV_LOGS:
@@ -446,6 +473,10 @@ async def create_invoice(
         "payment_url": payment_url,
         "qr_base64": qr_b64,
         "amount_rub": body.amount_rub,
+        "promo": (
+            {"code": promo_row.code, "discount_rub": promo_discount, "amount_before_rub": promo_amount_before}
+            if promo_row is not None and promo_discount > 0 else None
+        ),
         "expires_at": result.get("dt_expiration") or sbp_info.get("dt_expiration"),
     }
 
@@ -479,6 +510,13 @@ async def get_invoice_status(
                 old_status = invoice.status
                 invoice.status = live_status
                 invoice.raw_response = json.dumps(live, ensure_ascii=False)[:4000]
+                # Release the promo use if the payment died (webhook may never come)
+                if live_status in ("declined", "failed", "cancelled", "expired"):
+                    try:
+                        from app.services.promo_service import settle_redemption
+                        await settle_redemption(db, invoice.id, paid=False)
+                    except Exception as _pr:
+                        logger.warning("[SBP] Promo settle (poll) failed for invoice_id=%s: %s", invoice.id, _pr)
                 await db.commit()
                 # Failure statuses may never arrive via webhook (e.g. expired) —
                 # notify the user here on the first transition detected by polling.
@@ -551,6 +589,15 @@ async def bitbanker_webhook(request: Request):
         amount_rub = float(invoice.amount_rub)
         user_result = await db.execute(select(User).where(User.id == invoice.user_id))
         user = user_result.scalar_one_or_none()
+        # Promo bookkeeping: count the use on first capture, release on failure.
+        try:
+            from app.services.promo_service import settle_redemption
+            if is_captured and not already_processed:
+                await settle_redemption(db, invoice.id, paid=True)
+            elif status in failed_statuses and old_status != status:
+                await settle_redemption(db, invoice.id, paid=False)
+        except Exception as _pr:
+            logger.warning("[SBP] Promo settle failed for invoice_id=%s: %s", invoice.id, _pr)
         await db.commit()
 
         # Notify user about the payment outcome (only on the first transition,
@@ -717,3 +764,44 @@ async def _credit_user_balance(db: AsyncSession, invoice: BbInvoice, bb_payload:
         user.balance = Decimal(str(user.balance or 0)) + usd_received
         invoice.amount_usd = usd_received
         logger.info("[SBP] Credited user_id=%s +%s USD (invoice_id=%s)", user.id, usd_received, invoice.id)
+
+
+# =====================  PROMO CODES (user side)  =====================
+
+class PromoValidateRequest(BaseModel):
+    code: str
+    purpose: str = "balance_topup"      # balance_topup | card_issue
+    offer_id: Optional[str] = None      # for card_issue: resolves the card type
+    amount_rub: Optional[float] = None  # undiscounted amount for a live preview
+
+
+@router.post("/promo/validate", summary="Validate a promo code and preview the discount")
+async def validate_promo(
+    body: PromoValidateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.card_service import CARD_NAME_BY_OFFER as _CN
+    from app.services.promo_service import (
+        PromoError, TYPE_LABELS, compute_discount_rub, describe_discount, get_valid_promo,
+    )
+    if body.purpose not in ("balance_topup", "card_issue"):
+        raise HTTPException(status_code=400, detail="purpose must be balance_topup or card_issue")
+    _ct = _CN.get(body.offer_id) if body.offer_id else None
+    try:
+        promo = await get_valid_promo(db, body.code, current_user, body.purpose, _ct)
+    except PromoError as exc:
+        return {"valid": False, "error": str(exc)}
+
+    out = {
+        "valid": True,
+        "code": promo.code,
+        "type": promo.type,
+        "label": TYPE_LABELS.get(promo.type, "Промокод"),
+        "description": describe_discount(promo),
+    }
+    if body.amount_rub and body.amount_rub > 0:
+        discount = compute_discount_rub(promo, body.purpose, float(body.amount_rub))
+        out["discount_rub"] = discount
+        out["final_amount_rub"] = round(float(body.amount_rub) - discount, 2)
+    return out
