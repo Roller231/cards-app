@@ -136,6 +136,13 @@ export default function KycModal({ isOpen, onClose, onSuccess }) {
         setScreen('error')
         return
       }
+      // If a previous widget was closed abnormally (accidental close, webview
+      // hiccup), its root div stays in <body> and the lib refuses to mount a
+      // new instance ("orphaned React roots") — the user then sees our waiting
+      // screen with nothing on top. Remove stale roots before every mount.
+      try {
+        document.querySelectorAll('[id^="kyc-widget-root-"]').forEach((el) => el.remove())
+      } catch { /* cleanup is best-effort */ }
       // NeuroVision widget API (июль 2026): schemaId переименован в scenarioId,
       // добавлен clientUser — идентификатор пользователя на нашей стороне.
       window.KYCWidget.setupKYC({
@@ -356,6 +363,29 @@ export default function KycModal({ isOpen, onClose, onSuccess }) {
               <div style={{ fontSize: 32, marginBottom: 12 }}>📷</div>
               <div style={{ fontWeight: 600, color: '#111827', marginBottom: 8 }}>Откройте виджет</div>
               <div style={{ fontSize: 14 }}>Виджет верификации запущен. Следуйте инструкциям на экране.</div>
+              {/* Escape hatch: if the widget closed without firing closeCb (or
+                  failed to mount), this screen used to be a dead end. */}
+              <div style={{ marginTop: 20 }}>
+                <Button
+                  fullWidth
+                  disabled={loading}
+                  onClick={async () => {
+                    setLoading(true)
+                    setError('')
+                    try {
+                      const creds = await api.kyc.start()
+                      setLoading(false)
+                      openNvWidget(creds)
+                    } catch (e) {
+                      setLoading(false)
+                      setError(e.message || 'Ошибка, попробуйте ещё раз')
+                      setScreen('error')
+                    }
+                  }}
+                >
+                  Виджет не открылся? Открыть заново
+                </Button>
+              </div>
             </div>
           )}
 
