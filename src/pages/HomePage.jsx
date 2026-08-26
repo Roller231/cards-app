@@ -1,4 +1,5 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
+import api from '../api/client'
 import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
 import Section from '../components/ui/Section'
@@ -27,6 +28,16 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
 
   // Promo cards on the home screen — shared with the issue page
   const promoCards = usePromoCards({ onlineAvailable, onlinePlusAvailable, payAvailable })
+
+  // Live SBP exchange rate for the bottom widget (rate + day-over-day change)
+  const [rateInfo, setRateInfo] = useState(null)
+  useEffect(() => {
+    let cancelled = false
+    api.sbp.rate()
+      .then((r) => { if (!cancelled && r?.rate) setRateInfo(r) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
 
   // Pull-to-refresh state
   const [pull, setPull] = useState(0)
@@ -442,6 +453,53 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
           )}
         </Card>
       </Section>
+
+      {/* Exchange rate widget: current app rate + day-over-day change badge */}
+      {rateInfo?.rate && (
+        <Section>
+          <Card padding="18px 20px">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              <div style={{
+                width: 46, height: 46, borderRadius: 23, flexShrink: 0,
+                background: 'linear-gradient(135deg, #1A1F36 0%, #3B4371 100%)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <span style={{ fontSize: 18, fontWeight: 700, color: '#FFFFFF', fontFamily: font }}>$</span>
+              </div>
+
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 600, color: '#111827', fontFamily: font }}>
+                  Курс доллара
+                </div>
+                <div style={{ fontSize: 12, color: '#6B7280', fontFamily: font, marginTop: 1 }}>
+                  Пополнение по СБП, все комиссии включены
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+                <div style={{ fontSize: 19, fontWeight: 700, color: '#111827', fontFamily: font }}>
+                  {Number(rateInfo.rate).toFixed(2)} ₽
+                </div>
+                {typeof rateInfo.change_pct === 'number' ? (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 3,
+                    padding: '3px 8px', borderRadius: 8,
+                    background: rateInfo.change_pct > 0 ? '#FEF2F2' : '#ECFDF5',
+                    color: rateInfo.change_pct > 0 ? '#DC2626' : '#059669',
+                    fontSize: 12, fontWeight: 700, fontFamily: font,
+                  }}>
+                    <span style={{ fontSize: 10 }}>{rateInfo.change_pct > 0 ? '▲' : '▼'}</span>
+                    {rateInfo.change_pct > 0 ? '+' : ''}{rateInfo.change_pct.toFixed(2)}%
+                    <span style={{ fontWeight: 400, opacity: 0.75 }}>за день</span>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: font }}>сегодня</div>
+                )}
+              </div>
+            </div>
+          </Card>
+        </Section>
+      )}
       </div>
     </div>
   )

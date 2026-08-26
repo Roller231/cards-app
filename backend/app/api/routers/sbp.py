@@ -139,7 +139,7 @@ async def get_usd_to_rub_rate(_: User = Depends(get_current_user)):
 
 
 @router.get("/rate", summary="App exchange rate: BB index × bitbFee × myFee × clarusFee")
-async def get_sbp_rate(_: User = Depends(get_current_user)):
+async def get_sbp_rate(db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)):
     """Rate formula (always applies): [Bitbanker index] × three admin-configured
     multipliers. Also returns the fixed fee applied to payments below threshold."""
     try:
@@ -157,9 +157,35 @@ async def get_sbp_rate(_: User = Depends(get_current_user)):
         * (1 + settings.SBP_CLARUS_FEE_PERCENT / 100)
     )
     bb_fee, bb_fee_min = await _get_bb_fee_params()
+
+    # Day-over-day change: lazily snapshot the first rate seen each MSK day,
+    # then compare the live rate with the most recent previous day's snapshot.
+    prev_rate = None
+    change_pct = None
+    try:
+        from app.models.rate_snapshot import RateSnapshot
+        _msk_today = datetime.now(_dt_timezone(timedelta(hours=3))).date()
+        today_row = (await db.execute(
+            select(RateSnapshot).where(RateSnapshot.day == _msk_today)
+        )).scalar_one_or_none()
+        if not today_row:
+            db.add(RateSnapshot(day=_msk_today, rate=round(rate, 4)))
+            await db.commit()
+        prev_row = (await db.execute(
+            select(RateSnapshot).where(RateSnapshot.day < _msk_today)
+            .order_by(RateSnapshot.day.desc()).limit(1)
+        )).scalars().first()
+        if prev_row and prev_row.rate:
+            prev_rate = round(float(prev_row.rate), 4)
+            change_pct = round((rate - prev_rate) / prev_rate * 100, 2)
+    except Exception as exc:
+        logger.warning("[SBP] rate snapshot failed: %s", str(exc)[:200])
+
     return {
         "index": round(index, 4),
         "rate": round(rate, 4),
+        "prev_rate": prev_rate,
+        "change_pct": change_pct,
         "small_payment_fee_rub": settings.SBP_SMALL_PAYMENT_FEE_RUB,
         "small_payment_threshold_rub": settings.SBP_SMALL_PAYMENT_THRESHOLD_RUB,
         "min_transfer_rub": _min_transfer_rub(bb_fee, bb_fee_min),
