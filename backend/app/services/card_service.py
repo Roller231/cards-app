@@ -2484,6 +2484,20 @@ class CardService:
             client_id, base_amount, gross_amount, gross_amount - base_amount,
             wallet_balance, shortfall, topup_currency,
         )
+        # Confirm the payment BEFORE funding: unconfirmed payments expire in
+        # ~90s, while a confirmed one (DEPOSIT_SENT) waits for the deposit for
+        # ~30 min. The parent->user EON transfer can take up to 5 minutes, so
+        # confirming after funding lost the race and the top-up EXPIRED.
+        try:
+            confirm_result = await oplata_client.confirm_payment(client_id, payment_uuid)
+            logger.info("Topup payment early-confirmed for %s: uuid=%s state=%s",
+                        client_id, payment_uuid,
+                        (confirm_result or {}).get("state") if isinstance(confirm_result, dict) else confirm_result)
+        except Exception as _c:
+            # 404 "No such reference" = confirmation not required; anything else
+            # is retried by _follow_payment below.
+            logger.info("Topup early confirm for %s uuid=%s: %s", client_id, payment_uuid, str(_c)[:160])
+
         if shortfall > 0:
             await self._fund_user_wallet(
                 user_client_id=client_id,
