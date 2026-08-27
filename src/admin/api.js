@@ -49,6 +49,11 @@ const adminApi = {
     resetSbpQrLimit: (id) => req('POST', `/admin/users/${id}/limits/reset-sbp-qr`),
     issueOffers: (id) => req('GET', `/admin/users/${id}/issue-offers`),
     issueCard: (id, offerId) => req('POST', `/admin/users/${id}/issue-card`, { offer_id: offerId }),
+    depositCard: (id, cardId, amount) => req('POST', `/admin/users/${id}/deposit-card`, { card_id: cardId, amount }),
+    invoices: (id) => req('GET', `/admin/users/${id}/invoices`),
+  },
+  invoices: {
+    retryDeposit: (invoiceId) => req('POST', `/admin/invoices/${invoiceId}/retry-deposit`),
   },
   cards: {
     list: (search = '', limit = 50, offset = 0) =>

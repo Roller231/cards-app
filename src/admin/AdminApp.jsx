@@ -213,6 +213,16 @@ function UserDetailPage({ userId, goBack }) {
   const [issueOfferId, setIssueOfferId] = useState('')
   const [issuing, setIssuing] = useState(false)
   const [issueMsg, setIssueMsg] = useState('')
+  const [depCardId, setDepCardId] = useState('')
+  const [depAmount, setDepAmount] = useState('')
+  const [depositing, setDepositing] = useState(false)
+  const [depMsg, setDepMsg] = useState('')
+  const [invoices, setInvoices] = useState([])
+  const [retryingInv, setRetryingInv] = useState(null)
+
+  const loadInvoices = useCallback(async () => {
+    try { const d = await adminApi.users.invoices(userId); setInvoices(d.items || []) } catch {}
+  }, [userId])
 
   const loadLimits = useCallback(async () => {
     try { setLimits(await adminApi.users.limits(userId)) } catch {}
@@ -228,10 +238,12 @@ function UserDetailPage({ userId, goBack }) {
           adminApi.users.topupRequests(userId),
         ])
         setUser(u); setCards(c); setOrders(o); setTopups(t)
+        if (c.length && !depCardId) setDepCardId(String(c[0].id))
         setForm({ username: u.username, balance: u.balance, telegram_user_id: u.telegram_user_id || '' })
       } catch {}
     })()
     loadLimits();
+    loadInvoices();
     (async () => {
       try {
         const d = await adminApi.users.issueOffers(userId)
@@ -239,7 +251,7 @@ function UserDetailPage({ userId, goBack }) {
         if (d.items.length) setIssueOfferId(d.items[0].offer_id)
       } catch { setIssueOffers([]) }
     })()
-  }, [userId, loadLimits])
+  }, [userId, loadLimits, loadInvoices])
 
   const save = async () => {
     try { await adminApi.users.update(userId, { username: form.username, balance: parseFloat(form.balance) || 0, telegram_user_id: form.telegram_user_id || null }); setEditMode(false); const u = await adminApi.users.get(userId); setUser(u) } catch {}
@@ -268,11 +280,39 @@ function UserDetailPage({ userId, goBack }) {
     try { setCards(await adminApi.users.cards(userId)) } catch {}
   }
 
+  const depositCard = async () => {
+    const amount = parseFloat(depAmount)
+    const card = cards.find(c => String(c.id) === depCardId)
+    if (!card) return alert('Выберите карту')
+    if (!amount || amount <= 0) return alert('Введите сумму')
+    if (!confirm(`Пополнить карту ...${card.last4} на $${amount.toFixed(2)} за счёт родительского кошелька?`)) return
+    setDepositing(true); setDepMsg('')
+    try {
+      const r = await adminApi.users.depositCard(userId, depCardId, amount)
+      setDepMsg(r.message || 'Пополнение запущено')
+      setDepAmount('')
+    } catch (e) { setDepMsg(`Ошибка: ${e.message}`) }
+    finally { setDepositing(false) }
+  }
+
+  const retryDeposit = async (inv) => {
+    if (!confirm(`Довести пополнение $${inv.amount_usd_requested} по инвойсу #${inv.id} (карта ...${inv.card_last4})?`)) return
+    setRetryingInv(inv.id)
+    try {
+      const r = await adminApi.invoices.retryDeposit(inv.id)
+      alert(r.message || 'Запущено')
+      setTimeout(loadInvoices, 4000)
+    } catch (e) { alert(e.message) }
+    finally { setRetryingInv(null) }
+  }
+
   if (!user) return <p>Загрузка...</p>
 
+  const stuckCount = invoices.filter(i => i.deposit_delivered === false).length
   const tabs = [
     { id: 'cards', label: `Карты (${cards.length})` },
     { id: 'orders', label: `Ордера (${orders.length})` },
+    { id: 'invoices', label: `СБП-платежи (${invoices.length})${stuckCount ? ` ⚠️${stuckCount}` : ''}` },
     { id: 'topups', label: `Пополнения (${topups.length})` },
   ]
 
@@ -377,6 +417,30 @@ function UserDetailPage({ userId, goBack }) {
                   Выпуск идёт в фоне 2–5 минут: KYC, перевод с родительского кошелька, создание карты у провайдера.
                   Результат — во вкладке «Карты» (кнопка «Обновить карты») и в ордерах; юзеру придёт уведомление в Telegram.
                 </div>
+
+                <div style={{ borderTop: '1px solid #f3f4f6', marginTop: 14, paddingTop: 14 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Пополнить карту вручную</div>
+                  {cards.filter(c => c.aifory_card_id).length === 0 ? (
+                    <div style={{ fontSize: 12, color: '#9ca3af' }}>У пользователя нет активных карт</div>
+                  ) : (
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <select value={depCardId} onChange={e => setDepCardId(e.target.value)}
+                        style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 13 }}>
+                        {cards.filter(c => c.aifory_card_id).map(c => (
+                          <option key={c.id} value={c.id}>...{c.last4} ({c.status})</option>
+                        ))}
+                      </select>
+                      <input type="number" min="1" step="0.01" placeholder="Сумма $" value={depAmount}
+                        onChange={e => setDepAmount(e.target.value)}
+                        style={{ width: 100, padding: '8px 10px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 13 }} />
+                      <Btn small disabled={depositing} onClick={depositCard}>{depositing ? '...' : 'Пополнить'}</Btn>
+                    </div>
+                  )}
+                  {depMsg && <div style={{ marginTop: 8, fontSize: 12, color: depMsg.startsWith('Ошибка') ? '#ef4444' : '#16a34a' }}>{depMsg}</div>}
+                  <div style={{ marginTop: 6, fontSize: 11, color: '#9ca3af' }}>
+                    Деньги берутся с родительского кошелька (PRONTOPAY / PRONTOPAY_UNIV). Комиссия провайдера учитывается автоматически.
+                  </div>
+                </div>
               </div>
             )}
         </div>
@@ -403,6 +467,28 @@ function UserDetailPage({ userId, goBack }) {
         { key: 'status', label: 'Статус', render: r => badge(r.status, statusColor[r.status] || '#6b7280') },
         { key: 'created_at', label: 'Дата', render: r => r.created_at?.slice(0, 16).replace('T', ' ') },
       ]} rows={orders} />}
+
+      {tab === 'invoices' && <Table columns={[
+        { key: 'id', label: 'ID' },
+        { key: 'purpose', label: 'Назначение', render: r => badge(r.purpose === 'card_issue' ? 'Выпуск' : 'Пополнение', r.purpose === 'card_issue' ? '#6366f1' : '#0ea5e9') },
+        { key: 'amount_rub', label: '₽', render: r => `${Number(r.amount_rub).toLocaleString('ru-RU')} ₽` },
+        { key: 'amount_usd_requested', label: '$', render: r => r.amount_usd_requested ? `$${r.amount_usd_requested}` : '—' },
+        { key: 'card_last4', label: 'Карта', render: r => r.card_last4 ? `...${r.card_last4}` : '—' },
+        { key: 'status', label: 'Оплата', render: r => badge(r.status, statusColor[r.status] || '#6b7280') },
+        { key: 'deposit_delivered', label: 'Зачисление', render: r => (
+          r.deposit_delivered === null ? <span style={{ color: '#9ca3af', fontSize: 12 }}>—</span>
+          : r.deposit_delivered ? badge('Дошло', '#22c55e')
+          : (
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              {badge('Не дошло', '#ef4444')}
+              <Btn small disabled={retryingInv === r.id} onClick={() => retryDeposit(r)}>
+                {retryingInv === r.id ? '...' : 'Довести'}
+              </Btn>
+            </div>
+          )
+        ) },
+        { key: 'created_at', label: 'Дата', render: r => r.created_at?.slice(0, 16).replace('T', ' ') },
+      ]} rows={invoices} />}
 
       {tab === 'topups' && <Table columns={[
         { key: 'id', label: 'ID' }, { key: 'amount', label: 'Сумма', render: r => `$${fmt(r.amount)}` },

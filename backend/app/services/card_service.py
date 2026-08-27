@@ -2443,12 +2443,33 @@ class CardService:
             await self._ensure_client(client_id, user)
         topup_currency = await self._provider_balance_currency(card.offer_id)
 
-        # Create the top-up payment FIRST: some providers (RT-8) charge a
-        # withdrawal fee on top of the amount, and only the payment response
-        # tells the real gross (depositTotalAmount). Funding the wallet with
-        # the bare amount left the payment stuck in DEPOSIT_SENT until it
-        # expired ($150 topup wanted 157.94 from the wallet). The payment
-        # waits ~30 min for the deposit, so funding after creation is safe.
+        # O-Plata processes a confirmed top-up immediately and fails it with
+        # DEPOSIT_FAILED when the wallet balance is short at that moment, while
+        # an UNconfirmed payment expires in ~90s — both faster than the
+        # parent->user transfer (up to 5 min). And the exact gross (amount +
+        # provider fee) is only known from a created payment. So:
+        #   1. create a PROBE payment just to learn the gross, cancel it;
+        #   2. fund the wallet with the shortfall and wait for arrival;
+        #   3. create the REAL payment with funds already in place and confirm
+        #      it right away.
+        async def _gross_of(create_result: Dict[str, Any], p_uuid: str) -> Decimal:
+            g = Decimal("0")
+            try:
+                g = Decimal(str(create_result.get("depositTotalAmount") or 0))
+            except Exception:
+                pass
+            for _attempt in range(5):
+                if g > 0:
+                    break
+                try:
+                    _pinfo = await oplata_client.get_transaction_payment(client_id, p_uuid)
+                    g = Decimal(str(_pinfo.get("depositTotalAmount") or 0))
+                except Exception as exc:
+                    logger.debug("Topup gross poll failed for %s: %s", p_uuid, exc)
+                if g <= 0:
+                    await asyncio.sleep(1.0)
+            return g if g > 0 else base_amount
+
         result = await oplata_client.topup_card(
             client_id=client_id,
             card_id=card.aifory_card_id,
@@ -2456,27 +2477,7 @@ class CardService:
             amount=float(base_amount),
         )
         payment_uuid = result.get("uuid") or result.get("id") or str(uuid.uuid4())
-
-        # The create response often omits depositTotalAmount — only the
-        # transaction/payment status endpoint reliably returns the gross
-        # (amount + provider fee). Poll it briefly before funding.
-        gross_amount = Decimal("0")
-        try:
-            gross_amount = Decimal(str(result.get("depositTotalAmount") or 0))
-        except Exception:
-            pass
-        for _attempt in range(5):
-            if gross_amount > 0:
-                break
-            try:
-                _pinfo = await oplata_client.get_transaction_payment(client_id, payment_uuid)
-                gross_amount = Decimal(str(_pinfo.get("depositTotalAmount") or 0))
-            except Exception as exc:
-                logger.debug("Topup gross poll failed for %s: %s", payment_uuid, exc)
-            if gross_amount <= 0:
-                await asyncio.sleep(1.0)
-        if gross_amount <= 0:
-            gross_amount = base_amount
+        gross_amount = await _gross_of(result, payment_uuid)
         wallet_balance = Decimal(str(await self._get_user_currency_balance(client_id, topup_currency)))
         shortfall = gross_amount - wallet_balance
         logger.info(
@@ -2484,27 +2485,44 @@ class CardService:
             client_id, base_amount, gross_amount, gross_amount - base_amount,
             wallet_balance, shortfall, topup_currency,
         )
-        # Confirm the payment BEFORE funding: unconfirmed payments expire in
-        # ~90s, while a confirmed one (DEPOSIT_SENT) waits for the deposit for
-        # ~30 min. The parent->user EON transfer can take up to 5 minutes, so
-        # confirming after funding lost the race and the top-up EXPIRED.
-        try:
-            confirm_result = await oplata_client.confirm_payment(client_id, payment_uuid)
-            logger.info("Topup payment early-confirmed for %s: uuid=%s state=%s",
-                        client_id, payment_uuid,
-                        (confirm_result or {}).get("state") if isinstance(confirm_result, dict) else confirm_result)
-        except Exception as _c:
-            # 404 "No such reference" = confirmation not required; anything else
-            # is retried by _follow_payment below.
-            logger.info("Topup early confirm for %s uuid=%s: %s", client_id, payment_uuid, str(_c)[:160])
 
         if shortfall > 0:
+            # The probe must not stay around competing for the funds we are
+            # about to transfer — cancel it (an uncanceled one would just
+            # expire, but explicit is safer).
+            try:
+                await oplata_client.cancel_payment(client_id, payment_uuid)
+                logger.info("Topup probe payment canceled for %s: uuid=%s", client_id, payment_uuid)
+            except Exception as _c:
+                logger.info("Topup probe cancel for %s uuid=%s: %s", client_id, payment_uuid, str(_c)[:160])
+
             await self._fund_user_wallet(
                 user_client_id=client_id,
                 currency_code=topup_currency,
                 amount=shortfall,
                 parent_client_id=parent_client,
             )
+
+            result = await oplata_client.topup_card(
+                client_id=client_id,
+                card_id=card.aifory_card_id,
+                ravana_server_id=card.offer_id,
+                amount=float(base_amount),
+            )
+            payment_uuid = result.get("uuid") or result.get("id") or str(uuid.uuid4())
+            gross_amount = await _gross_of(result, payment_uuid)
+            logger.info("Topup real payment created after funding for %s: uuid=%s gross=%s",
+                        client_id, payment_uuid, gross_amount)
+
+        # Funds are in place — confirm immediately so the payment can't expire
+        # unconfirmed. 404 "No such reference" = confirmation not required.
+        try:
+            confirm_result = await oplata_client.confirm_payment(client_id, payment_uuid)
+            logger.info("Topup payment confirmed for %s: uuid=%s state=%s",
+                        client_id, payment_uuid,
+                        (confirm_result or {}).get("state") if isinstance(confirm_result, dict) else confirm_result)
+        except Exception as _c:
+            logger.info("Topup confirm for %s uuid=%s: %s", client_id, payment_uuid, str(_c)[:160])
 
         if not skip_balance_check:
             user.balance = Decimal(str(user.balance)) - user_total

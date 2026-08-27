@@ -371,6 +371,104 @@ async def admin_issue_card(user_id: int, body: AdminIssueCardRequest, db: AsyncS
     return {"ok": True, "message": "Выпуск запущен в фоне (обычно 2–5 минут). Следите за картами и ордерами пользователя."}
 
 
+class AdminDepositCardRequest(BaseModel):
+    card_id: str      # local card id or aifory card id
+    amount: float
+
+
+@router.post("/users/{user_id}/deposit-card", summary="Manually top up a user's card (admin, funded from parent)")
+async def admin_deposit_card(user_id: int, body: AdminDepositCardRequest, db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+    """Runs the full deposit flow in the background (funding from the parent
+    wallet + provider top-up + user notification), free of charge for the user."""
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if not user:
+        raise HTTPException(404, "User not found")
+    if body.amount <= 0:
+        raise HTTPException(400, "Сумма должна быть больше нуля")
+    from app.services.card_service import card_service
+    card = None
+    for c in (await db.execute(select(Card).where(Card.user_id == user_id))).scalars().all():
+        if str(c.id) == body.card_id or c.aifory_card_id == body.card_id:
+            card = c
+    if not card or not card.aifory_card_id:
+        raise HTTPException(404, "Карта не найдена или не материализована")
+    card_service.schedule_deposit_in_background(
+        user_id=user_id, card_id=card.aifory_card_id,
+        amount=float(body.amount), skip_balance_check=True,
+    )
+    return {"ok": True, "message": f"Пополнение ${body.amount:.2f} карты ...{card.last4} запущено в фоне (1–3 минуты)."}
+
+
+@router.get("/users/{user_id}/invoices", summary="User's SBP invoices with deposit-delivery status")
+async def user_invoices(user_id: int, db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+    """Recent Bitbanker invoices. For captured balance_topup invoices also says
+    whether the card deposit actually went through (a completed topup order
+    created at/after the invoice), so the admin can see and retry stuck ones."""
+    from app.models.bb_invoice import BbInvoice
+    invoices = (await db.execute(
+        select(BbInvoice).where(BbInvoice.user_id == user_id).order_by(BbInvoice.id.desc()).limit(30)
+    )).scalars().all()
+    orders = (await db.execute(
+        select(Order).where(Order.user_id == user_id, Order.type == "topup").order_by(Order.id.desc()).limit(100)
+    )).scalars().all()
+    cards_by_aifory = {c.aifory_card_id: c for c in (await db.execute(select(Card).where(Card.user_id == user_id))).scalars().all()}
+
+    def _delivered(inv) -> Optional[bool]:
+        if inv.purpose != "balance_topup" or inv.status not in ("captured", "authorized"):
+            return None
+        tail = (inv.card_id or "")[-8:]
+        for o in orders:
+            if o.created_at and inv.created_at and o.created_at >= inv.created_at and tail and tail in (o.description or ""):
+                if o.status == "completed":
+                    return True
+        return False
+
+    out = []
+    for inv in invoices:
+        card = cards_by_aifory.get(inv.card_id)
+        out.append({
+            "id": inv.id, "purpose": inv.purpose, "status": inv.status,
+            "amount_rub": float(inv.amount_rub),
+            "amount_usd_requested": float(inv.amount_usd_requested) if inv.amount_usd_requested else None,
+            "card_last4": card.last4 if card else None,
+            "created_at": inv.created_at.isoformat() if inv.created_at else None,
+            "deposit_delivered": _delivered(inv),
+        })
+    return {"items": out}
+
+
+@router.post("/invoices/{invoice_id}/retry-deposit", summary="Re-run the card deposit for a paid top-up invoice")
+async def retry_invoice_deposit(invoice_id: int, db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+    """For a captured balance_topup invoice whose card deposit failed/expired:
+    re-runs the deposit in the background. Funds already sitting on the user's
+    O-Plata wallet from previous attempts are reused (shortfall accounting)."""
+    from app.models.bb_invoice import BbInvoice
+    from app.services.card_service import card_service
+    inv = (await db.execute(select(BbInvoice).where(BbInvoice.id == invoice_id))).scalar_one_or_none()
+    if not inv:
+        raise HTTPException(404, "Инвойс не найден")
+    if inv.purpose != "balance_topup":
+        raise HTTPException(400, "Это не инвойс пополнения карты")
+    if inv.status not in ("captured", "authorized"):
+        raise HTTPException(400, f"Инвойс не оплачен (статус {inv.status})")
+    if not inv.card_id:
+        raise HTTPException(400, "У инвойса нет карты")
+    amount = float(inv.amount_usd_requested or 0)
+    if amount <= 0:
+        raise HTTPException(400, "У инвойса нет суммы депозита")
+    # Free stuck pending/failed topup orders for this card so retry isn't blocked
+    tail = (inv.card_id or "")[-8:]
+    for o in (await db.execute(select(Order).where(Order.user_id == inv.user_id, Order.type == "topup", Order.status.in_(("pending", "processing"))))).scalars().all():
+        if tail and tail in (o.description or ""):
+            o.status = "failed"
+    await db.flush()
+    card_service.schedule_deposit_in_background(
+        user_id=inv.user_id, card_id=inv.card_id,
+        amount=amount, skip_balance_check=True,
+    )
+    return {"ok": True, "message": f"Доведение пополнения ${amount:.2f} запущено в фоне (1–3 минуты)."}
+
+
 @router.get("/users/{user_id}/limits", summary="User's SBP QR-code limits and other rate limits")
 async def user_limits(user_id: int, db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
     """Everything that can currently stop this user from creating an SBP QR code
