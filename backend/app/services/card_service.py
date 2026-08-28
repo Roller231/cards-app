@@ -2067,6 +2067,98 @@ class CardService:
             )
         return {"local_order_id": order.id, "partner_order_id": payment_uuid}
 
+    async def close_card_and_sweep(
+        self,
+        user_id: int,
+        local_card_id: int,
+        sweep_to_parent: bool = False,
+    ) -> None:
+        """Admin flow, runs in the background with its own session:
+        cash out the card balance to the user's O-Plata wallet, close the card
+        at the provider, delete the local record; optionally sweep the user's
+        wallet balance back to the parent client. Simply deleting the local row
+        is pointless — sync re-adopts the live provider card on the user's next
+        visit, so the card must actually die upstream.
+        """
+        from app.core.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as db:
+            user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+            card = (await db.execute(select(Card).where(Card.id == local_card_id, Card.user_id == user_id))).scalar_one_or_none()
+            if not user or not card or not card.aifory_card_id or not card.offer_id:
+                logger.error("[ADMIN] close_card: card %s / user %s not found or not materialized", local_card_id, user_id)
+                return
+            client_id = _client_id_for_ravana(user, card.offer_id)
+            parent_client = _parent_for_ravana(card.offer_id)
+            currency = await self._provider_balance_currency(card.offer_id)
+            try:
+                # 1. Cash out whatever is on the card to the user's wallet
+                bal_raw = await oplata_client.get_card_funds_balance(client_id, card.aifory_card_id, card.offer_id)
+                card_balance = Decimal(str(bal_raw.get("availableBalance") or 0))
+                logger.info("[ADMIN] close_card %s (...%s): balance=%s %s client=%s",
+                            local_card_id, card.last4, card_balance, currency, client_id)
+                if card_balance > 0:
+                    res = await oplata_client.cashout_card(
+                        client_id, card.aifory_card_id, card.offer_id, float(card_balance),
+                    )
+                    cashout_uuid = (res or {}).get("uuid") if isinstance(res, dict) else None
+                    if cashout_uuid:
+                        await self._follow_payment(client_id, cashout_uuid, "cashout")
+                    # Wait for the funds to land on the wallet before closing
+                    await self._wait_for_user_balance(
+                        user_client_id=client_id, currency_code=currency,
+                        min_balance=card_balance * Decimal("0.9"), timeout_seconds=180,
+                    )
+
+                # 2. Close the card at the provider
+                await oplata_client.close_virtual_card(client_id, card.aifory_card_id, card.offer_id)
+                logger.info("[ADMIN] close_card %s: closed at provider", local_card_id)
+
+                # 3. Optionally sweep the user's wallet to the parent
+                if sweep_to_parent:
+                    wallet_balance = Decimal(str(await self._get_user_currency_balance(client_id, currency)))
+                    if wallet_balance > 0:
+                        await self._refund_to_parent_wallet(
+                            user_client_id=client_id, currency_code=currency,
+                            amount=wallet_balance, parent_client_id=parent_client,
+                        )
+                        logger.info("[ADMIN] close_card %s: swept %s %s from %s to %s",
+                                    local_card_id, wallet_balance, currency, client_id, parent_client)
+
+                # 4. Remove the local record (unlink orders first)
+                for o in (await db.execute(select(Order).where(Order.card_id == card.id))).scalars().all():
+                    o.card_id = None
+                await db.delete(card)
+                await db.commit()
+                logger.info("[ADMIN] close_card %s: done", local_card_id)
+            except Exception as exc:
+                logger.error("[ADMIN] close_card %s failed: %s", local_card_id, exc)
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+
+    async def sync_all_users(self) -> Dict[str, int]:
+        """Admin: refresh cards from O-Plata for every Telegram user. Runs
+        sequentially in its own sessions; returns counters."""
+        from app.core.database import AsyncSessionLocal
+        ok = failed = 0
+        async with AsyncSessionLocal() as db:
+            user_ids = [u.id for u in (await db.execute(
+                select(User).where(User.telegram_user_id.isnot(None), User.is_active == True)
+            )).scalars().all()]
+        for uid in user_ids:
+            try:
+                async with AsyncSessionLocal() as db:
+                    user = (await db.execute(select(User).where(User.id == uid))).scalar_one()
+                    await self._sync_cards_impl(db, user)
+                    await db.commit()
+                ok += 1
+            except Exception as exc:
+                failed += 1
+                logger.warning("[ADMIN] sync_all: user %s failed: %s", uid, str(exc)[:120])
+        logger.info("[ADMIN] sync_all done: ok=%s failed=%s", ok, failed)
+        return {"ok": ok, "failed": failed}
+
     # ------------------------------------------------------------------
     # Sync cards from O-Plata into local DB
     # ------------------------------------------------------------------

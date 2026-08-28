@@ -62,6 +62,8 @@ const adminApi = {
     assign: (userId, aiforyCardId) =>
       req('POST', '/admin/cards/assign', { user_id: userId, aifory_card_id: aiforyCardId }),
     remove: (id) => req('DELETE', `/admin/cards/${id}`),
+    close: (id, sweepToParent = false) => req('POST', `/admin/cards/${id}/close`, { sweep_to_parent: sweepToParent }),
+    syncAll: () => req('POST', '/admin/cards/sync-all'),
     update: (id, data) => req('PUT', `/admin/cards/${id}`, data),
     transactions: (cardId) => req('GET', `/admin/cards/${cardId}/transactions`),
   },

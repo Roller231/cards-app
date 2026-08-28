@@ -509,6 +509,7 @@ function CardsPage() {
   const [assignUserId, setAssignUserId] = useState('')
   const [assignCardId, setAssignCardId] = useState('')
   const [aiforyLoading, setAiforyLoading] = useState(false)
+  const [syncingAll, setSyncingAll] = useState(false)
 
   const load = useCallback(async () => {
     try { const d = await adminApi.cards.list(search); setCards(d.items); setTotal(d.total) } catch {}
@@ -524,16 +525,35 @@ function CardsPage() {
     if (!assignUserId || !assignCardId) return
     try { await adminApi.cards.assign(parseInt(assignUserId), assignCardId); setShowAssign(false); setAssignUserId(''); setAssignCardId(''); load() } catch (e) { alert(e.message) }
   }
-  const doDelete = async (id) => {
-    if (!confirm('Удалить привязку карты?')) return
-    try { await adminApi.cards.remove(id); load() } catch {}
+  const doClose = async (r) => {
+    const sweep = confirm(
+      `Закрыть карту ...${r.last4} (юзер ${r.username})?\n\n` +
+      `Остаток $${fmt(r.balance)} будет выведен на O-Plata-кошелёк юзера, карта закроется у провайдера, запись удалится.\n\n` +
+      `ОК — остаток вернуть на РОДИТЕЛЬСКИЙ кошелёк.\nОтмена — спросить ещё раз без возврата.`
+    )
+    if (!sweep && !confirm(`Закрыть карту ...${r.last4}, остаток оставить на кошельке юзера?`)) return
+    try {
+      const res = await adminApi.cards.close(r.id, sweep)
+      alert(res.message || 'Запущено')
+      setTimeout(load, 5000)
+    } catch (e) { alert(e.message) }
+  }
+
+  const doSyncAll = async () => {
+    if (!confirm('Синхронизировать карты из O-Plata по ВСЕМ пользователям? Займёт до нескольких минут.')) return
+    setSyncingAll(true)
+    try { const r = await adminApi.cards.syncAll(); alert(r.message || 'Запущено'); setTimeout(() => { load(); setSyncingAll(false) }, 15000) }
+    catch (e) { alert(e.message); setSyncingAll(false) }
   }
 
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>Карты <span style={{ color: '#9ca3af', fontWeight: 400, fontSize: 16 }}>({total})</span></h2>
-        <Btn small onClick={openAssign}>+ Назначить карту</Btn>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Btn small variant="ghost" disabled={syncingAll} onClick={doSyncAll}>{syncingAll ? '⏳ Синк...' : '🔄 Синк O-Plata (все юзеры)'}</Btn>
+          <Btn small onClick={openAssign}>+ Назначить карту</Btn>
+        </div>
       </div>
 
       {showAssign && (
@@ -576,7 +596,11 @@ function CardsPage() {
           { key: 'currency', label: 'Валюта' },
           { key: 'balance', label: 'Баланс', render: r => `$${fmt(r.balance)}` },
           { key: 'status', label: 'Статус', render: r => badge(r.status || '?', statusColor[r.status] || '#6b7280') },
-          { key: '_actions', label: '', render: r => <Btn small variant="danger" onClick={(e) => { e.stopPropagation(); doDelete(r.id) }}>Удалить</Btn> },
+          { key: '_actions', label: '', render: r => (
+            <Btn small variant="danger" onClick={(e) => { e.stopPropagation(); doClose(r) }}>
+              {r.aifory_card_id ? 'Закрыть' : 'Удалить'}
+            </Btn>
+          ) },
         ]}
         rows={cards}
       />

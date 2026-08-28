@@ -600,6 +600,41 @@ async def update_card(card_id: int, body: CardUpdateRequest, db: AsyncSession = 
     return _card_dict(card)
 
 
+class CloseCardRequest(BaseModel):
+    sweep_to_parent: bool = False
+
+
+@router.post("/cards/{card_id}/close", summary="Close card at O-Plata (cashout balance, close, delete local)")
+async def admin_close_card(card_id: int, body: CloseCardRequest, db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+    """Background: cashout card balance to the user's wallet, close the card at
+    the provider, delete the local row. With sweep_to_parent also returns the
+    wallet balance to the parent client. Deleting only the local row is useless:
+    sync re-adopts the live provider card on the user's next visit."""
+    card = (await db.execute(select(Card).where(Card.id == card_id))).scalar_one_or_none()
+    if not card:
+        raise HTTPException(404, "Card not found")
+    if not card.aifory_card_id:
+        # Placeholder with no provider card — plain local delete is enough
+        await db.delete(card)
+        return {"ok": True, "message": "Локальный плейсхолдер удалён (у провайдера карты не было)."}
+    from app.services.card_service import card_service
+    import asyncio as _asyncio
+    _asyncio.create_task(card_service.close_card_and_sweep(
+        user_id=card.user_id, local_card_id=card.id, sweep_to_parent=body.sweep_to_parent,
+    ))
+    return {"ok": True, "message": "Закрытие запущено в фоне (1–3 минуты): вывод остатка"
+            + (", возврат на родительский кошелёк" if body.sweep_to_parent else "")
+            + ", закрытие у провайдера, удаление записи."}
+
+
+@router.post("/cards/sync-all", summary="Sync cards from O-Plata for all users")
+async def admin_sync_all_cards(_=Depends(get_admin)):
+    from app.services.card_service import card_service
+    import asyncio as _asyncio
+    _asyncio.create_task(card_service.sync_all_users())
+    return {"ok": True, "message": "Синхронизация всех пользователей запущена в фоне (по числу юзеров, до нескольких минут). Обновите список позже."}
+
+
 @router.delete("/cards/{card_id}", summary="Delete card assignment")
 async def delete_card(card_id: int, db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
     card = (await db.execute(select(Card).where(Card.id == card_id))).scalar_one_or_none()
