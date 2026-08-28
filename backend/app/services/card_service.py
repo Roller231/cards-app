@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import uuid
-from decimal import Decimal
+from decimal import Decimal, ROUND_FLOOR
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -2097,9 +2097,27 @@ class CardService:
                 logger.info("[ADMIN] close_card %s (...%s): balance=%s %s client=%s",
                             local_card_id, card.last4, card_balance, currency, client_id)
                 if card_balance > 0:
-                    res = await oplata_client.cashout_card(
-                        client_id, card.aifory_card_id, card.offer_id, float(card_balance),
-                    )
+                    # The provider may hold part of the balance (fee reserve):
+                    # 'Not enough card balance: 54.00 < 55'. On that error retry
+                    # with the withdrawable amount it reported.
+                    try:
+                        res = await oplata_client.cashout_card(
+                            client_id, card.aifory_card_id, card.offer_id, float(card_balance),
+                        )
+                    except Exception as exc:
+                        import re as _re
+                        m = _re.search(r"Not enough card balance:\s*([\d.]+)", str(exc))
+                        if not m:
+                            raise
+                        card_balance = Decimal(m.group(1)).quantize(Decimal("0.01"), rounding=ROUND_FLOOR)
+                        logger.info("[ADMIN] close_card %s: retrying cashout with withdrawable %s %s",
+                                    local_card_id, card_balance, currency)
+                        if card_balance <= 0:
+                            res = None
+                        else:
+                            res = await oplata_client.cashout_card(
+                                client_id, card.aifory_card_id, card.offer_id, float(card_balance),
+                            )
                     cashout_uuid = (res or {}).get("uuid") if isinstance(res, dict) else None
                     if cashout_uuid:
                         await self._follow_payment(client_id, cashout_uuid, "cashout")
