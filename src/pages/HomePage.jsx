@@ -401,7 +401,7 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
             </>
           ) : (
             <div style={{ marginTop: 16 }}>
-              {transactions.slice(0, 6).map((tx, idx) => {
+              {transactions.slice(0, 3).map((tx, idx) => {
                 const isPositive = tx.amount > 0
                 const absAmount = Math.abs(tx.amount)
                 const formatted = absAmount.toLocaleString('en-US', {
