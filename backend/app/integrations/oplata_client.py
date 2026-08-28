@@ -60,7 +60,14 @@ class OPlataClient:
                     )
                 if not response.content:
                     return {}
-                return response.json()
+                try:
+                    return response.json()
+                except ValueError:
+                    # Some endpoints (e.g. funds/cashout) return 200 with a
+                    # non-JSON body — treat it as success, keep the raw text.
+                    logger.info("O-Plata POST %s -> %s non-JSON body: %r",
+                                url, response.status_code, response.text[:200])
+                    return {"raw": response.text[:500]}
         except httpx.HTTPError as exc:
             logger.error("O-Plata request failed %s | %s: %s", url, exc.__class__.__name__, exc)
             raise
