@@ -469,10 +469,10 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
 
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 15, fontWeight: 600, color: '#111827', fontFamily: font }}>
-                  Курс доллара
+                  Доллар США
                 </div>
                 <div style={{ fontSize: 12, color: '#6B7280', fontFamily: font, marginTop: 1 }}>
-                  Пополнение по СБП, все комиссии включены
+                  Итоговый курс пополнения по СБП
                 </div>
               </div>
 

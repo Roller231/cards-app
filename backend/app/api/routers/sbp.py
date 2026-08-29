@@ -209,6 +209,43 @@ async def create_kyc_session(current_user: User = Depends(get_current_user)):
         raise HTTPException(status_code=502, detail=f"Bitbanker KYC error: {exc}")
 
 
+class PhoneUpdateRequest(BaseModel):
+    phone: str
+
+
+@router.post("/phone", summary="Change the payer phone for SBP (Bitbanker re-checks name+phone match)")
+async def update_sbp_phone(
+    body: PhoneUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Bitbanker allows updating ONLY the phone of an existing partner client
+    via the API; after the update they re-run the name↔phone ownership check.
+    Also persists the phone locally so the payment screen shows it."""
+    digits = "".join(ch for ch in (body.phone or "") if ch.isdigit())
+    if len(digits) == 11 and digits[0] in ("7", "8"):
+        digits = "7" + digits[1:]
+    elif len(digits) == 10 and digits[0] == "9":
+        digits = "7" + digits
+    if len(digits) != 11 or not digits.startswith("79"):
+        raise HTTPException(status_code=400, detail="Укажите российский мобильный номер в формате +7 9XX XXX-XX-XX")
+    phone = f"+{digits}"
+
+    ext_ref = _external_ref(current_user)
+    try:
+        result = await bitbanker_client.register_partner_client(ext_ref, phone=phone)
+    except Exception as exc:
+        logger.warning("[SBP] Phone update failed for %s: %s", ext_ref, str(exc)[:300])
+        raise HTTPException(status_code=502, detail=humanize_bb_error(exc))
+
+    current_user.phone = phone
+    await db.flush()
+    await db.commit()
+    logger.info("[SBP] Payer phone updated for user_id=%s -> %s (bb: %s)",
+                current_user.id, phone, str(result)[:120])
+    return {"ok": True, "phone": phone}
+
+
 @router.get("/kyc-status", summary="Check KYC verification status")
 async def get_kyc_status(current_user: User = Depends(get_current_user)):
     """Check if user is verified for SBP payments."""

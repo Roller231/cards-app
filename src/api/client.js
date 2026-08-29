@@ -87,6 +87,7 @@ export const api = {
       req('POST', '/sbp/invoice', { amount_rub: amountRub, purpose, offer_id: offerId, card_id: cardId, amount_usd_requested: amountUsdRequested, promo_code: promoCode }),
     validatePromo: (code, purpose = 'balance_topup', offerId = null, amountRub = null) =>
       req('POST', '/sbp/promo/validate', { code, purpose, offer_id: offerId, amount_rub: amountRub }),
+    updatePhone: (phone) => req('POST', '/sbp/phone', { phone }),
     pollInvoice: (localInvoiceId) => req('GET', `/sbp/invoice/${localInvoiceId}`),
     getKycStatus: () => req('GET', '/sbp/kyc-status'),
     createKycSession: () => req('POST', '/sbp/kyc-session'),

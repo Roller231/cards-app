@@ -212,9 +212,17 @@ class BitbankerClient:
             return resp.json()
 
     async def register_partner_client(self, client_id: str, **kyc_data) -> Dict[str, Any]:
-        """POST /api/v2/partner-clients — register/update a partner client with KYC data."""
+        """POST /api/v2/partner-clients — register/update a partner client.
+
+        The Idempotency-Key must be unique per logical call: Bitbanker caches
+        responses for 24h and rejects the SAME key with a DIFFERENT payload
+        (IdempotencyKeyConflict) — a static per-client key broke phone updates.
+        """
         payload = {"client_id": client_id, **kyc_data}
-        return await self._post("/api/v2/partner-clients", payload, idempotency_key=f"pc-{client_id}")
+        return await self._post(
+            "/api/v2/partner-clients", payload,
+            idempotency_key=f"pc-{client_id}-{_uuid.uuid4().hex[:12]}",
+        )
 
     async def get_partner_client(self, client_id: str) -> Dict[str, Any]:
         """GET /api/v2/partner-clients?client_id=... — check is_verified_for_sbp (requires signing)."""
