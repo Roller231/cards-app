@@ -39,6 +39,54 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
     return () => { cancelled = true }
   }, [])
 
+  // Payer phone widget: shows the SBP payer phone, lets the user change it
+  // (POST /sbp/phone pushes it to Bitbanker, which re-checks name+phone match)
+  const [payerPhone, setPayerPhone] = useState('')
+  const [phoneEditing, setPhoneEditing] = useState(false)
+  const [phoneDraft, setPhoneDraft] = useState('')
+  const [phoneSaving, setPhoneSaving] = useState(false)
+  const [phoneError, setPhoneError] = useState('')
+  const [phoneSaved, setPhoneSaved] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    api.kyc.status()
+      .then((s) => { if (!cancelled && s?.phone) setPayerPhone(s.phone) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
+  const formatPhone = (value) => {
+    const digits = value.replace(/\D/g, '')
+    const norm = digits.startsWith('8') ? '7' + digits.slice(1) : (digits.startsWith('7') ? digits : '7' + digits)
+    const d = norm.slice(0, 11)
+    if (d.length <= 1) return '+7'
+    if (d.length <= 4) return `+7 (${d.slice(1)}`
+    if (d.length <= 7) return `+7 (${d.slice(1, 4)}) ${d.slice(4)}`
+    if (d.length <= 9) return `+7 (${d.slice(1, 4)}) ${d.slice(4, 7)}-${d.slice(7)}`
+    return `+7 (${d.slice(1, 4)}) ${d.slice(4, 7)}-${d.slice(7, 9)}-${d.slice(9, 11)}`
+  }
+
+  const savePayerPhone = async () => {
+    const clean = phoneDraft.replace(/[\s()\-]/g, '')
+    if (!/^\+7\d{10}$/.test(clean)) {
+      setPhoneError('Введите номер полностью: +7 (9XX) XXX-XX-XX')
+      return
+    }
+    setPhoneSaving(true)
+    setPhoneError('')
+    try {
+      const res = await api.sbp.updatePhone(clean)
+      setPayerPhone(res.phone)
+      setPhoneEditing(false)
+      setPhoneSaved(true)
+      setTimeout(() => setPhoneSaved(false), 4000)
+    } catch (e) {
+      setPhoneError(e.message || 'Не удалось сохранить номер')
+    } finally {
+      setPhoneSaving(false)
+    }
+  }
+
   // Pull-to-refresh state
   const [pull, setPull] = useState(0)
   const [refreshing, setRefreshing] = useState(false)
@@ -497,6 +545,87 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
                 )}
               </div>
             </div>
+          </Card>
+        </Section>
+      )}
+
+      {/* SBP payer phone: shown when known; editable — the new number goes to
+          Bitbanker, which re-runs the name+phone ownership check */}
+      {payerPhone && (
+        <Section>
+          <Card padding="18px 20px">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              <div style={{
+                width: 46, height: 46, borderRadius: 23, flexShrink: 0,
+                background: 'linear-gradient(135deg, #DC4D35 0%, #E8785F 100%)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z" fill="#FFFFFF"/>
+                </svg>
+              </div>
+
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 600, color: '#111827', fontFamily: font }}>
+                  Телефон для оплат по СБП
+                </div>
+                {!phoneEditing && (
+                  <div style={{ fontSize: 12, color: phoneSaved ? '#10B981' : '#6B7280', fontFamily: font, marginTop: 1 }}>
+                    {phoneSaved ? '✓ Сохранено — данные обновлены' : formatPhone(payerPhone)}
+                  </div>
+                )}
+              </div>
+
+              {!phoneEditing && (
+                <button
+                  onClick={() => { setPhoneDraft(formatPhone(payerPhone)); setPhoneError(''); setPhoneEditing(true) }}
+                  style={{
+                    border: 'none', background: '#F3F5F8', color: '#DC4D35', borderRadius: 10,
+                    padding: '9px 14px', fontSize: 13, fontWeight: 600, fontFamily: font,
+                    cursor: 'pointer', flexShrink: 0,
+                  }}
+                >
+                  Изменить
+                </button>
+              )}
+            </div>
+
+            {phoneEditing && (
+              <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    type="tel"
+                    value={phoneDraft}
+                    onChange={(e) => setPhoneDraft(formatPhone(e.target.value))}
+                    placeholder="+7 (9XX) XXX-XX-XX"
+                    autoFocus
+                    style={{
+                      flex: 1, padding: '12px 14px', borderRadius: 12, fontSize: 15, fontWeight: 600,
+                      fontFamily: font, border: phoneError ? '1.5px solid #EF4444' : '1.5px solid #DC4D35',
+                      outline: 'none', color: '#111827', background: '#FFFFFF', minWidth: 0,
+                    }}
+                  />
+                  <button
+                    onClick={savePayerPhone}
+                    disabled={phoneSaving}
+                    style={{ border: 'none', background: '#DC4D35', color: '#fff', borderRadius: 12, padding: '0 16px', fontSize: 13, fontWeight: 600, fontFamily: font, cursor: 'pointer' }}
+                  >
+                    {phoneSaving ? '…' : 'Сохранить'}
+                  </button>
+                  <button
+                    onClick={() => { setPhoneEditing(false); setPhoneError('') }}
+                    style={{ border: 'none', background: '#F3F5F8', color: '#6B7280', borderRadius: 12, padding: '0 13px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+                  >
+                    ✕
+                  </button>
+                </div>
+                {phoneError && <div style={{ fontSize: 12, color: '#EF4444', fontFamily: font }}>{phoneError}</div>}
+                <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: font, lineHeight: 1.5 }}>
+                  Укажите номер, привязанный к банковскому счёту, с которого платите по СБП.
+                  После сохранения проверка соответствия ФИО и номера пройдёт заново.
+                </div>
+              </div>
+            )}
           </Card>
         </Section>
       )}
