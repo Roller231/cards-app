@@ -64,6 +64,17 @@ async def _bot_poll_loop() -> None:
             await asyncio.sleep(5)
 
 
+async def _auto_recover_loop() -> None:
+    """Re-trigger paid invoices whose card issue / deposit never landed."""
+    from app.services.recovery_service import scan_and_recover
+    while True:
+        try:
+            await scan_and_recover()
+        except Exception as exc:
+            logger.error("Auto-recover loop error: %s", exc)
+        await asyncio.sleep(120)
+
+
 async def _scheduled_broadcast_loop() -> None:
     """Send due scheduled broadcasts (admin-queued, stored in DB)."""
     from datetime import datetime as _dt
@@ -235,6 +246,10 @@ def check_and_update_schema(conn):
             conn.execute(text("ALTER TABLE bb_invoices ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP;"))
             # Backdate existing invoices so they don't count against today's QR limit
             conn.execute(text("UPDATE bb_invoices SET created_at = DATE_SUB(NOW(), INTERVAL 2 DAY);"))
+        if 'recover_attempts' not in inv_cols:
+            logger.info("Adding auto-recovery columns to 'bb_invoices' table")
+            conn.execute(text("ALTER TABLE bb_invoices ADD COLUMN recover_attempts INT NOT NULL DEFAULT 0;"))
+            conn.execute(text("ALTER TABLE bb_invoices ADD COLUMN last_recover_at DATETIME NULL;"))
 
     if 'orders' in inspector.get_table_names():
         ord_cols = [col['name'] for col in inspector.get_columns('orders')]
@@ -264,6 +279,7 @@ async def startup_db_client():
     asyncio.create_task(_bot_poll_loop())
     asyncio.create_task(_gmail_poll_loop())
     asyncio.create_task(_scheduled_broadcast_loop())
+    asyncio.create_task(_auto_recover_loop())
     logger.info("Database tables created (if not existed) and schema updated")
 
 

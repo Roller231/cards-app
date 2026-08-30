@@ -31,5 +31,9 @@ class BbInvoice(Base):
     qr_base64 = Column(Text, nullable=True)                           # sbp_qr base64 image
     raw_response = Column(Text, nullable=True)                        # last raw JSON from BB
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    # Auto-recovery bookkeeping: how many times the worker re-triggered the
+    # post-payment flow for this paid invoice, and when it last did.
+    recover_attempts = Column(Numeric(4, 0), nullable=False, default=0)
+    last_recover_at = Column(DateTime, nullable=True)
 
     user = relationship("User", foreign_keys=[user_id])

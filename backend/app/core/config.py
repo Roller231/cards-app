@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     SBP_CLARUS_FEE_PERCENT: float = 2.8
     # Fixed Bitbanker commission passed on to the user for small top-ups
     SBP_SMALL_PAYMENT_FEE_RUB: float = 210.0
+
+    # Auto-recovery of paid invoices whose card issue / deposit failed
+    # (provider 500s, timeouts, deploy restarts): retry up to 3 times.
+    AUTO_RECOVER_ENABLED: bool = True
+    # Telegram chat_id for admin alerts (auto-recovery attempts/failures).
+    ADMIN_ALERT_CHAT_ID: str = ""
     SBP_SMALL_PAYMENT_THRESHOLD_RUB: float = 10000.0
 
     # Billing address shown in card info (O-Plata API does not provide one —
