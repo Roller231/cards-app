@@ -1476,7 +1476,10 @@ class CardService:
             user_client_id=user_client_id,
             currency_code=currency_code,
             min_balance=Decimal(str(prev_balance)) + Decimal(str(amount)),
-            timeout_seconds=120,
+            # O-Plata's own expectedDuration for EON transfers is 5 minutes —
+            # a 120s window kept aborting issues/top-ups on their slow days
+            # while the money was still in transit.
+            timeout_seconds=420,
         )
 
     async def _refund_to_parent_wallet(
