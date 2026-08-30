@@ -68,7 +68,7 @@ SETTINGS_KEYS: Dict[str, Dict[str, Any]] = {
     "SBP_BB_MIN_FEE_RUB": {"desc": "Мин. комиссия Битбанкера за QR (₽) — фолбэк, если их API недоступен (сейчас 21, будет 210)", "type": float},
     "CARD_BILLING_ADDRESS": {"desc": "Биллинговый адрес карт (блок «Информация по карте»)", "type": str},
     "AUTO_RECOVER_ENABLED": {"desc": "Авто-дожим оплаченных инвойсов (повтор выпуска/пополнения при сбоях)", "type": bool},
-    "ADMIN_ALERT_CHAT_ID": {"desc": "Telegram chat_id для алертов админу (авто-дожим и сбои)", "type": str},
+    "ADMIN_ALERT_CHAT_ID": {"desc": "Telegram chat_id для алертов (несколько — через запятую: 123,456)", "type": str},
     "ONLINE_CARD_VALIDITY_TEXT": {"desc": "Online card validity text", "type": str},
     "ONLINE_PLUS_CARD_VALIDITY_TEXT": {"desc": "Online+ card validity text", "type": str},
     "ONLINE_OPERATION_FEE_USD": {"desc": "Online card operation fee (USD)", "type": float},

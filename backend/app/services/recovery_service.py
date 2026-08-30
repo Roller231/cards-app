@@ -38,14 +38,17 @@ RECOVER_MAX_AGE_H = 48
 
 
 async def _alert(text: str) -> None:
-    chat_id = (settings.ADMIN_ALERT_CHAT_ID or "").strip()
-    if not chat_id:
+    """Send to every admin chat: ADMIN_ALERT_CHAT_ID holds one or more
+    comma-separated chat ids ('123, 456')."""
+    raw = (settings.ADMIN_ALERT_CHAT_ID or "").strip()
+    if not raw:
         return
-    try:
-        from app.services.telegram_bot_service import send_notification
-        await send_notification(chat_id, text)
-    except Exception as exc:
-        logger.warning("[RECOVER] admin alert failed: %s", exc)
+    from app.services.telegram_bot_service import send_notification
+    for chat_id in [p.strip() for p in raw.split(",") if p.strip()]:
+        try:
+            await send_notification(chat_id, text)
+        except Exception as exc:
+            logger.warning("[RECOVER] admin alert to %s failed: %s", chat_id, exc)
 
 
 async def _issue_outcome(db, inv: BbInvoice) -> Optional[str]:
