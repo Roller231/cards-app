@@ -271,6 +271,47 @@ def _normalize_card_transaction(tx: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _expand_transaction_fees(transactions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Emit the provider's per-transaction fee as its own history row.
+
+    The card is charged a fee on top of each operation (tariff: $0.8 for a
+    successful one, $0.5 for a zero-amount or declined one) — it arrives in
+    feeAmount/feeCurrency of the same transaction and used to be invisible in
+    the app, so balances didn't add up for users. Each fee becomes a synthetic
+    'fee' entry right after its parent transaction.
+    """
+    out: List[Dict[str, Any]] = []
+    for tx in transactions:
+        out.append(tx)
+        try:
+            fee = float(tx.get("feeAmount") or 0)
+        except (TypeError, ValueError):
+            fee = 0.0
+        if fee <= 0 or str(tx.get("type") or "").lower() in ("top_up", "topup", "deposit"):
+            continue
+        if tx.get("tx_type") == "declined":
+            label = "Комиссия за отклонённую операцию"
+        elif abs(float(tx.get("display_amount") or 0)) == 0:
+            label = "Комиссия за нулевую операцию"
+        else:
+            label = "Комиссия за операцию"
+        out.append({
+            "id": f"{tx.get('id')}-fee",
+            "parent_tx_id": tx.get("id"),
+            "type": "fee",
+            "tx_type": "fee",
+            "status": "completed",
+            "display_amount": -abs(fee),
+            "display_currency": str(tx.get("feeCurrency") or "USD"),
+            "amount": fee,
+            "currency": str(tx.get("feeCurrency") or "USD"),
+            "merchantName": label,
+            "createdAt": tx.get("createdAt"),
+            "transactionAt": tx.get("transactionAt") or tx.get("createdAt"),
+        })
+    return out
+
+
 def _order_ravana_id(order: "Order") -> str:
     """Provider (ravanaServerId) an issue order was created for.
 
@@ -2470,6 +2511,7 @@ class CardService:
         )
         transactions = response.get("data") or response.get("content") or (response if isinstance(response, list) else [])
         transactions = [_normalize_card_transaction(t) for t in transactions if isinstance(t, dict)]
+        transactions = _expand_transaction_fees(transactions)
 
         # Notify about latest transaction if new
         if transactions and user and user.telegram_user_id:

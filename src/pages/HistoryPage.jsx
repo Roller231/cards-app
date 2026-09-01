@@ -107,6 +107,9 @@ export function TxIcon({ type, size = 44, iconSize = 20, radius = 14 }) {
     declined: {
       iconSrc: '/images/HistoryIcons/red-krest.png',
     },
+    fee: {
+      iconSrc: '/images/HistoryIcons/arrow-circle-up.png',
+    },
   }
   const cfg = iconMap[type] || iconMap.payment
   return (

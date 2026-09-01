@@ -124,7 +124,7 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
       id: String(tx.id ?? tx.transactionID ?? tx.transactionId ?? Math.random()),
       type: txType,
       title: txType === 'topup' ? `*** ${card.last4 || ''}` : (tx.merchant || tx.merchantName || tx.description || 'Покупка'),
-      subtitle: txType === 'topup' ? 'Пополнение' : txType === 'declined' ? 'Операция отклонена' : 'Оплата',
+      subtitle: txType === 'topup' ? 'Пополнение' : txType === 'declined' ? 'Операция отклонена' : txType === 'fee' ? 'Комиссия' : 'Оплата',
       cardTitle: 'Виртуальная карта',
       cardLast4: card.last4 || '',
       amount: txType === 'topup' ? Math.abs(rawAmount) : -Math.abs(rawAmount),

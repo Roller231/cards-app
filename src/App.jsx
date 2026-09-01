@@ -46,7 +46,9 @@ function mapAiforyTx(tx, card) {
         ? 'Пополнение'
         : txType === 'declined'
           ? 'Операция отклонена'
-          : 'Оплата',
+          : txType === 'fee'
+            ? 'Комиссия'
+            : 'Оплата',
     cardTitle: card.title || 'Виртуальная карта',
     cardLast4: card.last4 || '',
     amount: txType === 'topup' ? Math.abs(rawAmount) : -Math.abs(rawAmount),
