@@ -706,11 +706,30 @@ async def _credit_and_trigger(invoice_id: int, bb_payload: Dict[str, Any]) -> No
     await _trigger_post_payment(invoice_id)
 
 
+# Invoice ids whose post-payment flow is running RIGHT NOW in this process.
+# The DB idempotency guard only sees the issue order, which is created minutes
+# into the flow (after KYC + funding) — in that window the auto-recovery
+# worker used to see "no trace" and start a second parallel issue, producing
+# two cards for one payment. This marker covers the whole flow.
+_POST_PAYMENT_IN_FLIGHT: set = set()
+
+
 async def _trigger_post_payment(invoice_id: int) -> None:
     """Background task: runs after SBP payment captured.
     - For balance_topup: call deposit_card directly on O-Plata (skip user.balance).
     - For card_issue: auto-issue the card using the stored offer_id.
     """
+    if invoice_id in _POST_PAYMENT_IN_FLIGHT:
+        logger.warning("[SBP] Post-payment for invoice_id=%s is already in flight — skipping duplicate run", invoice_id)
+        return
+    _POST_PAYMENT_IN_FLIGHT.add(invoice_id)
+    try:
+        await _trigger_post_payment_inner(invoice_id)
+    finally:
+        _POST_PAYMENT_IN_FLIGHT.discard(invoice_id)
+
+
+async def _trigger_post_payment_inner(invoice_id: int) -> None:
     async with AsyncSessionLocal() as db:
         try:
             result = await db.execute(select(BbInvoice).where(BbInvoice.id == invoice_id))

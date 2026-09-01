@@ -2885,7 +2885,29 @@ class CardService:
             )
         )
 
+    # user_id:card_id pairs with a deposit running right now in this process —
+    # prevents a second parallel deposit for the same card (e.g. webhook flow
+    # still funding while the auto-recovery worker fires a retry).
+    _deposits_in_flight: set = set()
+
     async def _run_deposit_in_background(
+        self,
+        user_id: int,
+        card_id: str,
+        amount: float,
+        skip_balance_check: bool,
+    ) -> None:
+        key = f"{user_id}:{card_id}"
+        if key in self._deposits_in_flight:
+            logger.warning("Background deposit for %s is already in flight — skipping duplicate run", key)
+            return
+        self._deposits_in_flight.add(key)
+        try:
+            await self._run_deposit_in_background_inner(user_id, card_id, amount, skip_balance_check)
+        finally:
+            self._deposits_in_flight.discard(key)
+
+    async def _run_deposit_in_background_inner(
         self,
         user_id: int,
         card_id: str,
