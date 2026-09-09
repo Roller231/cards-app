@@ -55,6 +55,8 @@ services:
     volumes:
       - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./deploy/nginx/conf.d/active.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/nginx/conf.d/exprontopay.conf:/etc/nginx/conf.d/exprontopay.conf:ro
+      - ./landing:/var/www/landing:ro
       - certbot_www:/var/www/certbot
       - certbot_conf:/etc/letsencrypt
 
