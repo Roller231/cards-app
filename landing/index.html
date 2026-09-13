@@ -4,12 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ProntoPay — виртуальные карты для оплат за рубежом</title>
-  <meta name="description" content="ProntoPay — виртуальные карты Mastercard для оплаты зарубежных сервисов и подписок из России. Выпуск за пару минут в Telegram, пополнение по СБП." />
+  <meta name="description" content="ProntoPay — виртуальные карты Mastercard (регион Сингапур, валюта USD) для оплаты зарубежных сервисов и подписок из России. Выпуск за пару минут в Telegram, пополнение по СБП." />
   <meta property="og:title" content="ProntoPay — виртуальные карты для оплат за рубежом" />
-  <meta property="og:description" content="Оплачивайте зарубежные сервисы и подписки. Выпуск карты за пару минут в Telegram, пополнение по СБП." />
+  <meta property="og:description" content="Оплачивайте ChatGPT, Claude, Booking, Airbnb и другие зарубежные сервисы. Выпуск карты за пару минут в Telegram, пополнение по СБП." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://exprontopay.pro/" />
-  <link rel="icon" type="image/png" href="/assets/Mastercard.png" />
+  <link rel="icon" type="image/png" href="/assets/logo-mark.png" />
 
   <!-- Yandex.Metrika counter -->
   <script type="text/javascript">
@@ -33,7 +33,6 @@
       --muted: #6B7280;
       --soft: #F3F5F8;
       --bg: #FFFFFF;
-      --radius: 16px;
       --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, sans-serif;
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -55,18 +54,16 @@
     .btn.ghost:hover { background: #E9ECF1; }
     .btn svg { flex-shrink: 0; }
     .tg-icon { width: 20px; height: 20px; }
+    .link { color: var(--accent); font-weight: 600; }
+    .link:hover { text-decoration: underline; }
 
     /* ── Header ─────────────────────────────── */
     header { position: sticky; top: 0; z-index: 50; background: rgba(255,255,255,.92); backdrop-filter: blur(12px); border-bottom: 1px solid #EEF0F4; }
     .nav { display: flex; align-items: center; justify-content: space-between; height: 68px; }
-    .logo { display: flex; align-items: center; gap: 10px; font-size: 20px; font-weight: 800; letter-spacing: -0.02em; }
-    .logo-mark {
-      width: 34px; height: 34px; border-radius: 10px; flex-shrink: 0;
-      background: linear-gradient(135deg, var(--accent) 0%, #E8785F 100%);
-      display: flex; align-items: center; justify-content: center;
-    }
-    .logo-mark svg { width: 18px; height: 18px; }
-    .logo span em { color: var(--accent); font-style: normal; }
+    .logo { display: flex; align-items: center; gap: 11px; }
+    .logo img { height: 34px; width: auto; }
+    .logo .wm { font-size: 17px; font-weight: 900; letter-spacing: .04em; text-transform: uppercase; line-height: 1; }
+    .logo .wm em { font-style: normal; color: var(--accent); }
     .nav-links { display: flex; gap: 26px; font-size: 14.5px; font-weight: 500; color: var(--muted); }
     .nav-links a:hover { color: var(--ink); }
     .nav .btn { padding: 10px 18px; font-size: 14px; border-radius: 11px; box-shadow: none; }
@@ -106,10 +103,13 @@
     .payfor-inner .t { font-size: 13px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #9AA1B9; }
     .chips { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 9px; }
     .chip { background: rgba(255,255,255,.09); border: 1px solid rgba(255,255,255,.12); padding: 7px 14px; border-radius: 999px; font-size: 14px; font-weight: 600; }
+    .payfor-note { margin-top: 18px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,.12); font-size: 14px; color: #B4BACF; max-width: 78ch; }
+    .payfor-note a { color: #fff; font-weight: 600; border-bottom: 1px solid rgba(255,255,255,.35); }
+    .payfor-note a:hover { border-color: #fff; }
 
     /* ── Sections ───────────────────────────── */
     section { padding: 64px 0; }
-    .sec-head { max-width: 620px; }
+    .sec-head { max-width: 680px; }
     .sec-head h2 { font-size: clamp(26px, 3.4vw, 36px); font-weight: 800; letter-spacing: -0.02em; }
     .sec-head p { margin-top: 10px; color: var(--muted); font-size: 16.5px; }
 
@@ -117,13 +117,22 @@
     .products { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 36px; }
     @media (max-width: 860px) { .products { grid-template-columns: 1fr; } }
     .product { background: var(--soft); border-radius: 20px; padding: 24px; display: flex; flex-direction: column; }
+    .product.live { background: #fff; border: 1.5px solid #E5E7EB; box-shadow: 0 12px 40px rgba(26,31,54,.08); }
     .product img.art { border-radius: 14px; box-shadow: 0 12px 30px rgba(26,31,54,.18); margin-bottom: 20px; }
-    .product h3 { font-size: 20px; font-weight: 800; letter-spacing: -0.01em; display: flex; align-items: center; gap: 10px; }
+    .product h3 { font-size: 20px; font-weight: 800; letter-spacing: -0.01em; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .product .soon { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; background: var(--navy); color: #fff; border-radius: 6px; padding: 3px 8px; }
-    .product p { margin-top: 8px; color: var(--muted); font-size: 15px; flex: 1; }
-    .product ul { margin: 14px 0 0; padding: 0; list-style: none; }
+    .product .price { margin-left: auto; font-size: 18px; font-weight: 800; color: var(--accent); white-space: nowrap; }
+    .product p { margin-top: 8px; color: var(--muted); font-size: 15px; }
+    .product ul { margin: 14px 0 0; padding: 0; list-style: none; flex: 1; }
     .product li { display: flex; gap: 9px; align-items: flex-start; font-size: 14.5px; padding: 5px 0; color: #374151; }
     .product li::before { content: ""; width: 7px; height: 7px; border-radius: 4px; background: var(--accent); margin-top: 7px; flex-shrink: 0; }
+    .product li.minus::before { background: #C9CDD6; }
+    .rate-line {
+      margin-top: 16px; background: var(--soft); border-radius: 12px; padding: 12px 14px;
+      display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 13.5px; color: var(--muted);
+    }
+    .rate-line b { font-size: 17px; color: var(--ink); font-weight: 800; }
+    .product .btn { margin-top: 16px; width: 100%; }
     .paymarks { display: flex; gap: 8px; margin-top: 16px; align-items: center; }
     .paymarks img { height: 22px; width: auto; }
 
@@ -138,10 +147,24 @@
     }
     .step h3 { margin-top: 16px; font-size: 18px; font-weight: 700; }
     .step p { margin-top: 7px; color: var(--muted); font-size: 14.5px; }
-    .steps-cta { margin-top: 34px; }
+
+    /* NeuroVision */
+    .nv-grid { display: grid; grid-template-columns: 1.1fr .9fr; gap: 36px; align-items: center; margin-top: 36px; }
+    @media (max-width: 860px) { .nv-grid { grid-template-columns: 1fr; } }
+    .nv-text p { color: #374151; font-size: 16px; margin-top: 14px; max-width: 60ch; }
+    .nv-logos { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; margin-top: 26px; padding-top: 22px; border-top: 1px solid #ECEFF3; }
+    .nv-logos img { height: 30px; width: auto; }
+    .nv-logos .nv-main { height: 32px; }
+    .nv-logos .reg {
+      display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: #374151;
+      background: var(--soft); border-radius: 999px; padding: 7px 12px;
+    }
+    .nv-logos .reg .dot { width: 8px; height: 8px; border-radius: 4px; background: #10B981; }
+    .nv-visual { border-radius: 24px; overflow: hidden; box-shadow: 0 20px 50px rgba(26,31,54,.18); }
+    .nv-visual img { width: 100%; height: 100%; object-fit: cover; }
 
     /* FAQ */
-    .faq-list { margin-top: 32px; max-width: 760px; }
+    .faq-list { margin-top: 32px; max-width: 800px; }
     details { border-bottom: 1px solid #ECEFF3; }
     summary {
       cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center;
@@ -150,8 +173,10 @@
     summary::-webkit-details-marker { display: none; }
     summary .pl { flex-shrink: 0; width: 26px; height: 26px; border-radius: 13px; background: var(--soft); display: flex; align-items: center; justify-content: center; font-weight: 700; color: var(--accent); transition: transform .2s; }
     details[open] summary .pl { transform: rotate(45deg); }
-    details .a { padding: 0 4px 20px; color: var(--muted); font-size: 15.5px; max-width: 66ch; }
+    details .a { padding: 0 4px 20px; color: #4B5563; font-size: 15.5px; max-width: 70ch; }
+    details .a p + p { margin-top: 10px; }
     details .a a { color: var(--accent); font-weight: 600; }
+    .rate-big { display: inline-block; background: var(--soft); border-radius: 10px; padding: 8px 14px; font-weight: 800; color: var(--ink); font-size: 18px; margin: 4px 0 10px; }
 
     /* Final CTA */
     .final { padding: 30px 0 80px; }
@@ -160,9 +185,10 @@
       border-radius: 24px; padding: 56px 40px; text-align: center; color: #fff;
       position: relative; overflow: hidden;
     }
-    .final-inner h2 { font-size: clamp(26px, 3.4vw, 38px); font-weight: 800; letter-spacing: -0.02em; }
-    .final-inner p { margin-top: 12px; color: #B4BACF; font-size: 16.5px; }
-    .final-inner .btn { margin-top: 28px; }
+    .final-inner .wm-bg { position: absolute; right: -40px; top: -30px; height: 130%; opacity: .07; pointer-events: none; }
+    .final-inner h2 { font-size: clamp(26px, 3.4vw, 38px); font-weight: 800; letter-spacing: -0.02em; position: relative; }
+    .final-inner p { margin-top: 12px; color: #B4BACF; font-size: 16.5px; position: relative; }
+    .final-inner .btn { margin-top: 28px; position: relative; }
 
     /* Footer */
     footer { border-top: 1px solid #EEF0F4; padding: 34px 0 44px; }
@@ -177,17 +203,16 @@
   <header>
     <div class="wrap nav">
       <a class="logo" href="/">
-        <span class="logo-mark">
-          <svg viewBox="0 0 24 24" fill="none"><rect x="2" y="5" width="20" height="14" rx="3" fill="#fff"/><rect x="2" y="8.5" width="20" height="3" fill="#1A1F36"/><rect x="5" y="14.5" width="6" height="2" rx="1" fill="#DC4D35"/></svg>
-        </span>
-        <span>Pronto<em>Pay</em></span>
+        <img src="/assets/logo-mark.png" alt="ProntoPay" />
+        <span class="wm">Pronto<em>Pay</em></span>
       </a>
       <nav class="nav-links">
         <a href="#products">Карты</a>
         <a href="#how">Как открыть</a>
+        <a href="#trust">Безопасность</a>
         <a href="#faq">Вопросы</a>
       </nav>
-      <a class="btn" href="https://t.me/exprontopay" onclick="try{ym(111788180,'reachGoal','landing_bot_click',{place:'header'})}catch(e){}">
+      <a class="btn" href="https://t.me/exprontopay_bot/exprontopay" onclick="try{ym(111788180,'reachGoal','landing_bot_click',{place:'header'})}catch(e){}">
         Открыть в Telegram
       </a>
     </div>
@@ -203,7 +228,7 @@
           Карта выпускается за пару минут прямо в Telegram, пополняется по СБП с любой российской карты.
         </p>
         <div class="hero-cta">
-          <a class="btn" href="https://t.me/exprontopay" onclick="try{ym(111788180,'reachGoal','landing_bot_click',{place:'hero'})}catch(e){}">
+          <a class="btn" href="https://t.me/exprontopay_bot/exprontopay" onclick="try{ym(111788180,'reachGoal','landing_bot_click',{place:'hero'})}catch(e){}">
             <svg class="tg-icon" viewBox="0 0 24 24" fill="none"><path d="M21.9 4.6 18.8 19c-.2 1-.8 1.2-1.7.8l-4.6-3.4-2.2 2.1c-.3.3-.5.5-.9.5l.3-4.6L18 6.9c.4-.3-.1-.5-.6-.2L7.2 13.2 2.7 11.8c-1-.3-1-1 .2-1.4l17.7-6.8c.8-.3 1.5.2 1.3 1z" fill="currentColor"/></svg>
             Открыть карту в Telegram
           </a>
@@ -213,7 +238,7 @@
         <div class="hero-badges">
           <span class="badge"><span class="dot"></span>Выпуск за пару минут</span>
           <span class="badge"><img src="/assets/sbp.png" alt="СБП">Пополнение по СБП</span>
-          <span class="badge"><img src="/assets/Mastercard.png" alt="Mastercard">Mastercard</span>
+          <span class="badge"><img src="/assets/Mastercard.png" alt="Mastercard">Mastercard · Сингапур</span>
         </div>
       </div>
       <div class="hero-cards" aria-hidden="true">
@@ -229,11 +254,15 @@
       <div class="payfor-inner">
         <div class="t">Оплачивайте</div>
         <div class="chips">
-          <span class="chip">ChatGPT</span><span class="chip">Spotify</span><span class="chip">YouTube Premium</span>
+          <span class="chip">ChatGPT</span><span class="chip">Claude</span><span class="chip">Spotify</span><span class="chip">YouTube Premium</span>
           <span class="chip">Netflix</span><span class="chip">Booking</span><span class="chip">Airbnb</span>
-          <span class="chip">Steam</span><span class="chip">PlayStation</span><span class="chip">Google One</span>
-          <span class="chip">Zoom</span><span class="chip">Telegram Premium</span><span class="chip">Discord Nitro</span>
+          <span class="chip">Авиабилеты</span><span class="chip">Зарубежные маркетплейсы</span>
+          <span class="chip">Steam</span><span class="chip">Google One</span><span class="chip">Telegram Premium</span>
           <span class="chip">и тысячи других сервисов</span>
+        </div>
+        <div class="payfor-note">
+          Об особенностях подписок и оплат на конкретных сервисах и маркетплейсах рассказываем
+          в <a href="https://t.me/exprontopay">Telegram-канале</a>, уточнить можно у <a href="https://t.me/exprontopay" data-support>поддержки</a>.
         </div>
       </div>
     </div>
@@ -244,28 +273,32 @@
     <div class="wrap">
       <div class="sec-head">
         <h2>Линейка карт</h2>
-        <p>Все карты — виртуальные Mastercard с зарубежным BIN. Выпускаются и управляются в Telegram, актуальные тарифы — в приложении.</p>
+        <p>Все карты — виртуальные Mastercard, регион эмиссии — Сингапур, валюта — доллар США. Выпускаются и управляются в мини-приложении прямо в Telegram.</p>
       </div>
       <div class="products">
-        <div class="product">
+        <div class="product live">
           <img class="art" src="/assets/OnlineCard.png" alt="Карта ProntoPay Online" loading="lazy" />
-          <h3>Online</h3>
+          <h3>Online <span class="price">1 499 ₽</span></h3>
           <p>Для оплаты покупок и сервисов в интернете: подписки, магазины, игры, ИИ-сервисы.</p>
           <ul>
-            <li>Оплата на любых зарубежных сайтах</li>
-            <li>Пополнение по СБП за минуту</li>
             <li>Бесплатное обслуживание</li>
+            <li>Один из самых выгодных курсов на рынке</li>
+            <li>Комиссия за операцию — $0,8, без скрытых доплат</li>
           </ul>
-          <div class="paymarks"><img src="/assets/Mastercard.png" alt="Mastercard"></div>
+          <div class="rate-line">
+            <span>Курс сегодня</span>
+            <b><span data-rate>—</span> ₽/$</b>
+          </div>
+          <a class="btn" href="https://t.me/exprontopay_bot/exprontopay" onclick="try{ym(111788180,'reachGoal','landing_bot_click',{place:'product_online'})}catch(e){}">Оформить карту</a>
         </div>
         <div class="product">
-          <img class="art" src="/assets/PremiumCard.png" alt="Карта ProntoPay Premium" loading="lazy" />
-          <h3>Premium <span class="soon">Скоро</span></h3>
-          <p>Всё то же, плюс Apple Pay и Google Pay — платите телефоном в магазинах за границей.</p>
+          <img class="art" src="/assets/Pay.png" alt="Карта ProntoPay Pay" loading="lazy" />
+          <h3>Pay <span class="soon">Скоро</span></h3>
+          <p>Удобная альтернатива физической карте в поездках.</p>
           <ul>
-            <li>Подключение к Apple Pay / Google Pay</li>
-            <li>Оплата в офлайн-магазинах по всему миру</li>
-            <li>Анонс — в нашем Telegram</li>
+            <li>Платите смартфоном везде, где есть Apple Pay и Google Pay</li>
+            <li class="minus">Не подходит для оплаты на сайтах и в сервисах — для этого нужна Online или Premium</li>
+            <li>Анонс — в нашем <a class="link" href="https://t.me/exprontopay">Telegram</a></li>
           </ul>
           <div class="paymarks">
             <img src="/assets/Mastercard.png" alt="Mastercard">
@@ -274,13 +307,13 @@
           </div>
         </div>
         <div class="product">
-          <img class="art" src="/assets/Pay.png" alt="Карта ProntoPay Pay" loading="lazy" />
-          <h3>Pay <span class="soon">Скоро</span></h3>
-          <p>Универсальная карта для международных оплат и подписок — готовим к запуску.</p>
+          <img class="art" src="/assets/PremiumCard.png" alt="Карта ProntoPay Premium" loading="lazy" />
+          <h3>Premium <span class="soon">Скоро</span></h3>
+          <p>Сочетает преимущества Online и Pay: оплата на сайтах и оплата телефоном в одной карте.</p>
           <ul>
-            <li>Расширенные лимиты</li>
-            <li>Международные оплаты и подписки</li>
-            <li>Анонс — в нашем Telegram</li>
+            <li>Оплата на сайтах и в сервисах</li>
+            <li>Подключение к Apple Pay / Google Pay</li>
+            <li>Анонс — в нашем <a class="link" href="https://t.me/exprontopay">Telegram</a></li>
           </ul>
           <div class="paymarks">
             <img src="/assets/Mastercard.png" alt="Mastercard">
@@ -303,12 +336,12 @@
         <div class="step">
           <div class="n">1</div>
           <h3>Откройте бота</h3>
-          <p>Нажмите «Открыть карту в Telegram» — мини-приложение ProntoPay запустится прямо в мессенджере.</p>
+          <p>Нажмите «Оформить карту» — мини-приложение ProntoPay запустится прямо в мессенджере.</p>
         </div>
         <div class="step">
           <div class="n">2</div>
           <h3>Пройдите быструю проверку</h3>
-          <p>Верификация занимает пару минут: камера телефона и паспорт. Требование платёжной системы — данные защищены.</p>
+          <p>Верификация занимает пару минут: фото паспорта и камера телефона. Требование платёжной системы — данные защищены.</p>
         </div>
         <div class="step">
           <div class="n">3</div>
@@ -316,8 +349,36 @@
           <p>Отсканируйте QR из любого российского банка — карта выпустится автоматически и сразу готова к оплатам.</p>
         </div>
       </div>
-      <div class="steps-cta">
-        <a class="btn" href="https://t.me/exprontopay" onclick="try{ym(111788180,'reachGoal','landing_bot_click',{place:'steps'})}catch(e){}">Начать — открыть бота</a>
+    </div>
+  </section>
+
+  <!-- TRUST / NEUROVISION -->
+  <section id="trust">
+    <div class="wrap">
+      <div class="sec-head">
+        <h2>Надёжность верификации — банковский стандарт</h2>
+      </div>
+      <div class="nv-grid">
+        <div class="nv-text">
+          <p>
+            Проверку личности в ProntoPay обеспечивает <b>NeuroVision</b> — российская платформа компьютерного зрения
+            для KYC/AML-проверок, участник «Сколково» и реестра отечественного ПО Минцифры.
+            Её используют банки и финтех-компании для удалённой идентификации клиентов.
+          </p>
+          <p>
+            Распознавание документа, антифрод-проверки и подтверждение, что вы — живой человек, занимают пару минут.
+            Технология разработана в России и соответствует законодательству о защите данных.
+          </p>
+          <div class="nv-logos">
+            <img class="nv-main" src="/assets/partners/neurovision.svg" alt="NeuroVision" />
+            <img src="/assets/partners/logo-skolkovo.png" alt="Участник Сколково" />
+            <img src="/assets/partners/logo-fund.png" alt="Фонд содействия инновациям" />
+            <a class="reg" href="https://reestr.digital.gov.ru/reestr/1931358/" target="_blank" rel="noopener"><span class="dot"></span>Реестр ПО Минцифры</a>
+          </div>
+        </div>
+        <div class="nv-visual">
+          <img src="/assets/partners/kyc-illustration.png" alt="" loading="lazy" />
+        </div>
       </div>
     </div>
   </section>
@@ -327,32 +388,77 @@
     <div class="wrap">
       <div class="sec-head">
         <h2>Частые вопросы</h2>
-        <p>Коротко о главном. Развёрнутая база знаний — скоро; пока любой вопрос можно задать в поддержке.</p>
+        <p>Тонкости оплаты отдельных сервисов разбираем в <a class="link" href="https://t.me/exprontopay">Telegram-канале</a>,
+          любой вопрос можно задать в <a class="link" href="https://t.me/exprontopay" data-support>поддержке</a>.</p>
       </div>
       <div class="faq-list">
-        <details>
-          <summary>Что такое виртуальная карта?<span class="pl">+</span></summary>
-          <div class="a">Это полноценная банковская карта без пластика: номер, срок действия и CVC существуют в цифровом виде. Ей платят в интернете так же, как обычной, а карты с Apple Pay / Google Pay работают и в офлайн-магазинах через телефон.</div>
+        <details open>
+          <summary>Какой у вас курс?<span class="pl">+</span></summary>
+          <div class="a">
+            <p>Актуальный курс на <span data-rate-date>сегодня</span>:</p>
+            <div class="rate-big"><span data-rate>загружаем…</span> ₽/$</div>
+            <p>Курс формируется из курса ЦБ РФ и ставки платёжной системы за конвертацию; среди аналогичных инструментов курс ProntoPay — один из самых низких на рынке.</p>
+          </div>
         </details>
         <details>
-          <summary>Смогу ли я оплатить ChatGPT, Spotify или Netflix?<span class="pl">+</span></summary>
-          <div class="a">Да — карты ProntoPay выпускаются с зарубежным BIN, поэтому иностранные сервисы принимают их как обычную международную карту. Подписки, разовые покупки, бронирования — всё работает.</div>
+          <summary>Какие лимиты и комиссии у карты Online?<span class="pl">+</span></summary>
+          <div class="a">
+            <p>Выпуск — 1 499 ₽, дальше карта ничего не стоит. Комиссия за операцию — $0,8; списывается независимо от того, прошла оплата или была отклонена. Пополнение — по СБП. При пополнении на сумму до 10 000 ₽ есть комиссия платёжной системы — 210 ₽.</p>
+            <p>Лимит на одну операцию — до $50 000, общий лимит карты — до $2 000 000, срок действия — 2 года.</p>
+          </div>
+        </details>
+        <details>
+          <summary>Что такое виртуальная карта и какую выбрать?<span class="pl">+</span></summary>
+          <div class="a">
+            <p>Виртуальная карта — полноценная банковская карта без пластика: номер, срок действия и CVC существуют в цифровом виде, ей платят в интернете так же, как обычной.</p>
+            <p>Сейчас доступна карта Online — для оплаты на сайтах и в сервисах. Pay (Apple Pay / Google Pay для офлайн-покупок) и Premium (сайты + Apple Pay / Google Pay) готовятся к запуску.</p>
+          </div>
         </details>
         <details>
           <summary>Как пополнять карту?<span class="pl">+</span></summary>
-          <div class="a">По СБП с любой российской карты: приложение показывает QR-код, вы сканируете его в своём банке — деньги зачисляются на карту за пару минут. Итоговый курс и все комиссии видны до оплаты.</div>
+          <div class="a">
+            <p>По СБП с любой российской карты: в мини-приложении показывается QR-код, вы сканируете его в своём банке — деньги зачисляются на карту за пару минут. Итоговый курс и комиссии видны до оплаты. Минимальная сумма для перевода по СБП — 1 210 ₽.</p>
+          </div>
         </details>
         <details>
-          <summary>Это безопасно? Зачем нужна верификация?<span class="pl">+</span></summary>
-          <div class="a">Верификацию требует платёжная система — это стандарт для выпуска именных карт, тот же, что в банках. Данные передаются в зашифрованном виде сертифицированному провайдеру проверки и не публикуются.</div>
+          <summary>В каких странах есть риск, что платёж не пройдёт?<span class="pl">+</span></summary>
+          <div class="a">
+            <p>Карты ProntoPay работают в большинстве стран мира. Исключения — Россия, Беларусь, Китай, Афганистан, Иран, Северная Корея, Венесуэла: там платежи блокируются из-за санкционных и регуляторных ограничений.</p>
+            <p>Ограничение зависит от страны регистрации продавца или сервиса, а не от того, где физически находитесь вы.</p>
+          </div>
         </details>
         <details>
-          <summary>Почему некоторые виртуальные карты банят, и что у вас с этим?<span class="pl">+</span></summary>
-          <div class="a">Сервисы блокируют «одноразовые» анонимные карты с массовых BIN. Мы выпускаем именные карты на проверенных банковских BIN — для сервисов такая карта неотличима от выпущенной зарубежным банком.</div>
+          <summary>Нужно ли подтверждать личность для оформления карты?<span class="pl">+</span></summary>
+          <div class="a">
+            <p>Да — верификация занимает пару минут: фото паспорта и проверка, что вы живой человек, через камеру телефона. Это требование платёжной системы, тот же стандарт, что и в банках при выпуске именных карт.</p>
+            <p>Данные передаются в зашифрованном виде сертифицированному провайдеру проверки и не публикуются.</p>
+          </div>
         </details>
         <details>
-          <summary>Что выбрать при отъезде из России на первое время?<span class="pl">+</span></summary>
-          <div class="a">Начните с карты Online: ей оплачивают такси, связь, брони, подписки и покупки в интернете — то, что нужно в первые дни. Пополняется по СБП из любого российского банка, даже когда вы уже за границей. Карты с Apple Pay / Google Pay для офлайн-оплат телефоном готовим к запуску — анонсируем в Telegram. <a href="https://t.me/exprontopay">Открыть карту →</a></div>
+          <summary>Что если платёж не прошёл?<span class="pl">+</span></summary>
+          <div class="a">
+            <p>Такое случается по нескольким причинам: сервис зарегистрирован в стране из списка исключений (см. вопрос выше); покупка у сервиса, который карта не поддерживает (казино, ставки, контент 18+, запрещённые товары); недостаточно средств на балансе — учитывайте комиссию за операцию и конвертацию при оплате не в долларах, советуем держать небольшой запас; либо сам сервис ограничивает оплату по региону (например, не принимает карты с российским IP) — здесь помогает смена на IP Сингапура, что совпадает с регионом BIN карты.</p>
+            <p>Средства при отмене возвращаются на баланс, сроки зависят от продавца. Частые отмены могут привлечь дополнительное внимание банка к карте — поэтому стоит проверять баланс перед оплатой и учитывать комиссию заранее.</p>
+          </div>
+        </details>
+        <details>
+          <summary>Как оплатить ChatGPT, Claude, Booking или другой конкретный сервис?<span class="pl">+</span></summary>
+          <div class="a">
+            <p>Ещё раз обращаем внимание: возможны региональные ограничения на стороне самого сервиса. Например, в турецком PS Store оплата принимается только турецкой картой. А при оплате Claude нужно вводить биллинговый адрес Сингапура. Тонкости оплаты отдельных сервисов разбираем в нашем <a href="https://t.me/exprontopay">Telegram-канале</a>, также можно написать в <a href="https://t.me/exprontopay" data-support>поддержку</a>.</p>
+            <p>Оптимальный сценарий использования карт ProntoPay — оплата ChatGPT, Claude, Booking, Airbnb, зарубежных маркетплейсов и авиабилетов: это покрывает подавляющее большинство трат клиентов. Ограничение по странам регистрации сервисов касается только тех сервисов, что зарегистрированы в России, Беларуси, Китае, Афганистане, Иране, Северной Корее, Венесуэле.</p>
+          </div>
+        </details>
+        <details>
+          <summary>Можно ли снять наличные с карты?<span class="pl">+</span></summary>
+          <div class="a">
+            <p>Нет — карта не поддерживает снятие наличных и переводы, только оплату товаров и услуг.</p>
+          </div>
+        </details>
+        <details>
+          <summary>Другие вопросы?<span class="pl">+</span></summary>
+          <div class="a">
+            <p>Ответ на любой другой вопрос — в <a href="https://t.me/exprontopay" data-support>поддержке</a>.</p>
+          </div>
         </details>
       </div>
     </div>
@@ -362,9 +468,10 @@
   <div class="final">
     <div class="wrap">
       <div class="final-inner">
+        <img class="wm-bg" src="/assets/logo-white.png" alt="" aria-hidden="true" />
         <h2>Карта будет готова через пару минут</h2>
         <p>Выпуск, пополнение и поддержка — всё в одном Telegram-боте.</p>
-        <a class="btn" href="https://t.me/exprontopay" onclick="try{ym(111788180,'reachGoal','landing_bot_click',{place:'final'})}catch(e){}">
+        <a class="btn" href="https://t.me/exprontopay_bot/exprontopay" onclick="try{ym(111788180,'reachGoal','landing_bot_click',{place:'final'})}catch(e){}">
           <svg class="tg-icon" viewBox="0 0 24 24" fill="none"><path d="M21.9 4.6 18.8 19c-.2 1-.8 1.2-1.7.8l-4.6-3.4-2.2 2.1c-.3.3-.5.5-.9.5l.3-4.6L18 6.9c.4-.3-.1-.5-.6-.2L7.2 13.2 2.7 11.8c-1-.3-1-1 .2-1.4l17.7-6.8c.8-.3 1.5.2 1.3 1z" fill="currentColor"/></svg>
           Открыть карту в Telegram
         </a>
@@ -375,20 +482,36 @@
   <footer>
     <div class="wrap foot">
       <a class="logo" href="/">
-        <span class="logo-mark">
-          <svg viewBox="0 0 24 24" fill="none"><rect x="2" y="5" width="20" height="14" rx="3" fill="#fff"/><rect x="2" y="8.5" width="20" height="3" fill="#1A1F36"/><rect x="5" y="14.5" width="6" height="2" rx="1" fill="#DC4D35"/></svg>
-        </span>
-        <span>Pronto<em>Pay</em></span>
+        <img src="/assets/logo-mark.png" alt="ProntoPay" />
+        <span class="wm">Pronto<em>Pay</em></span>
       </a>
       <nav class="foot-links">
-        <a href="https://t.me/exprontopay">Telegram-бот</a>
+        <a href="https://t.me/exprontopay_bot/exprontopay">Telegram-бот</a>
         <a href="https://t.me/exprontopay">Канал</a>
-        <a href="https://t.me/exprontopay">Поддержка</a>
+        <a href="https://t.me/exprontopay" data-support>Поддержка</a>
         <a href="#faq">Вопросы и ответы</a>
       </nav>
       <div class="copy">© ProntoPay, 2026</div>
     </div>
   </footer>
 
+  <script>
+    // Live rate from the app backend (same rate users pay), cached server-side.
+    (function () {
+      var els = document.querySelectorAll('[data-rate]');
+      var dates = document.querySelectorAll('[data-rate-date]');
+      fetch('https://prontopay.pro/api/sbp/public-rate', { cache: 'no-store' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (d) {
+          if (!d || !d.rate) throw new Error('no rate');
+          var v = Number(d.rate).toFixed(2).replace('.', ',');
+          els.forEach(function (e) { e.textContent = v; });
+          dates.forEach(function (e) { e.textContent = d.date_msk || 'сегодня'; });
+        })
+        .catch(function () {
+          els.forEach(function (e) { e.textContent = 'см. в приложении'; });
+        });
+    })();
+  </script>
 </body>
 </html>

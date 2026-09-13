@@ -138,6 +138,44 @@ async def get_usd_to_rub_rate(_: User = Depends(get_current_user)):
     return {"usd_to_rub_rate": settings.USD_TO_RUB_RATE}
 
 
+# Public (unauthenticated) rate for the landing page. Cached so anonymous
+# traffic can't hammer Bitbanker; the value is the same app rate users pay.
+_public_rate_cache: Dict[str, Any] = {"at": 0.0, "data": None}
+_PUBLIC_RATE_TTL_S = 300
+
+
+@router.get("/public-rate", summary="Public app exchange rate for the landing page (cached 5 min)")
+async def get_public_rate():
+    now = _time.time()
+    if _public_rate_cache["data"] and now - _public_rate_cache["at"] < _PUBLIC_RATE_TTL_S:
+        return _public_rate_cache["data"]
+    try:
+        pred = await bitbanker_client.get_exchange_prediction(10000)
+        index = float(pred.get("approximate_rate") or 0)
+    except Exception as exc:
+        logger.warning("[SBP] public-rate: exchange prediction failed: %s", str(exc)[:200])
+        index = 0.0
+    if index <= 0:
+        if _public_rate_cache["data"]:
+            return _public_rate_cache["data"]  # stale beats nothing for a landing page
+        raise HTTPException(status_code=502, detail="Курс временно недоступен")
+    rate = (
+        index
+        * (1 + settings.SBP_BITBANKER_FEE_PERCENT / 100)
+        * (1 + settings.SBP_OUR_FEE_PERCENT / 100)
+        * (1 + settings.SBP_CLARUS_FEE_PERCENT / 100)
+    )
+    msk_now = datetime.now(_dt_timezone(timedelta(hours=3)))
+    data = {
+        "rate": round(rate, 2),
+        "date_msk": msk_now.strftime("%d.%m.%Y"),
+        "updated_at_msk": msk_now.strftime("%d.%m.%Y %H:%M"),
+        "issue_price_rub": settings.CARD_ISSUANCE_PRICE_RUB,
+    }
+    _public_rate_cache.update(at=now, data=data)
+    return data
+
+
 @router.get("/rate", summary="App exchange rate: BB index × bitbFee × myFee × clarusFee")
 async def get_sbp_rate(db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)):
     """Rate formula (always applies): [Bitbanker index] × three admin-configured
