@@ -149,19 +149,23 @@
     .step p { margin-top: 7px; color: var(--muted); font-size: 14.5px; }
 
     /* NeuroVision */
-    .nv-grid { display: grid; grid-template-columns: 1.1fr .9fr; gap: 36px; align-items: center; margin-top: 36px; }
-    @media (max-width: 860px) { .nv-grid { grid-template-columns: 1fr; } }
-    .nv-text p { color: #374151; font-size: 16px; margin-top: 14px; max-width: 60ch; }
-    .nv-logos { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; margin-top: 26px; padding-top: 22px; border-top: 1px solid #ECEFF3; }
-    .nv-logos img { height: 30px; width: auto; }
-    .nv-logos .nv-main { height: 32px; }
-    .nv-logos .reg {
-      display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: #374151;
-      background: var(--soft); border-radius: 999px; padding: 7px 12px;
+    .nv-card {
+      background: #FBE3DA url('/assets/partners/nv-bg.jpg') center / cover no-repeat;
+      border-radius: 28px; padding: 48px;
+      display: grid; grid-template-columns: 1.15fr .85fr; gap: 40px; align-items: center;
     }
-    .nv-logos .reg .dot { width: 8px; height: 8px; border-radius: 4px; background: #10B981; }
-    .nv-visual { border-radius: 24px; overflow: hidden; box-shadow: 0 20px 50px rgba(26,31,54,.18); }
-    .nv-visual img { width: 100%; height: 100%; object-fit: cover; }
+    @media (max-width: 860px) { .nv-card { grid-template-columns: 1fr; padding: 28px 22px; gap: 28px; } }
+    .nv-card h2 { font-size: clamp(26px, 3.4vw, 36px); font-weight: 800; letter-spacing: -0.02em; line-height: 1.18; }
+    .nv-card p { color: #374151; font-size: 16px; margin-top: 14px; max-width: 60ch; }
+    .nv-card .reg {
+      display: inline-flex; align-items: center; gap: 8px; margin-top: 24px;
+      font-size: 13px; font-weight: 600; color: #374151;
+      background: rgba(255,255,255,.85); border-radius: 999px; padding: 8px 14px;
+    }
+    .nv-card .reg:hover { background: #fff; }
+    .nv-card .reg .dot { width: 8px; height: 8px; border-radius: 4px; background: #10B981; }
+    .nv-plate { border-radius: 22px; overflow: hidden; box-shadow: 0 24px 60px rgba(160, 60, 30, .22); }
+    .nv-plate img { width: 100%; height: auto; }
 
     /* FAQ */
     .faq-list { margin-top: 32px; max-width: 800px; }
@@ -355,11 +359,9 @@
   <!-- TRUST / NEUROVISION -->
   <section id="trust">
     <div class="wrap">
-      <div class="sec-head">
-        <h2>Надёжность верификации — банковский стандарт</h2>
-      </div>
-      <div class="nv-grid">
-        <div class="nv-text">
+      <div class="nv-card">
+        <div>
+          <h2>Надёжность верификации — банковский стандарт</h2>
           <p>
             Проверку личности в ProntoPay обеспечивает <b>NeuroVision</b> — российская платформа компьютерного зрения
             для KYC/AML-проверок, участник «Сколково» и реестра отечественного ПО Минцифры.
@@ -369,15 +371,10 @@
             Распознавание документа, антифрод-проверки и подтверждение, что вы — живой человек, занимают пару минут.
             Технология разработана в России и соответствует законодательству о защите данных.
           </p>
-          <div class="nv-logos">
-            <img class="nv-main" src="/assets/partners/neurovision.svg" alt="NeuroVision" />
-            <img src="/assets/partners/logo-skolkovo.png" alt="Участник Сколково" />
-            <img src="/assets/partners/logo-fund.png" alt="Фонд содействия инновациям" />
-            <a class="reg" href="https://reestr.digital.gov.ru/reestr/1931358/" target="_blank" rel="noopener"><span class="dot"></span>Реестр ПО Минцифры</a>
-          </div>
+          <a class="reg" href="https://reestr.digital.gov.ru/reestr/1931358/" target="_blank" rel="noopener"><span class="dot"></span>Реестр отечественного ПО Минцифры</a>
         </div>
-        <div class="nv-visual">
-          <img src="/assets/partners/kyc-illustration.png" alt="" loading="lazy" />
+        <div class="nv-plate">
+          <img src="/assets/partners/nv-plate.jpg" alt="NeuroVision — участник Сколково, Фонд содействия инновациям, NIST" loading="lazy" />
         </div>
       </div>
     </div>
