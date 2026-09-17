@@ -208,23 +208,47 @@ function AppInner() {
     tgInitOnceRef.current = true
     let canceled = false
 
+    // In fullscreen the webview covers the notch/status bar and Telegram's
+    // floating close/menu buttons, so the app must pad itself out of their way.
+    // Outside fullscreen Telegram already reserves that space — insets go back
+    // to 0 and the layout is exactly as before.
+    const applySafeAreas = (tg) => {
+      const root = document.documentElement
+      if (!tg.isFullscreen) {
+        root.style.setProperty('--tg-safe-top', '0px')
+        root.style.setProperty('--tg-safe-bottom', '0px')
+        return
+      }
+      const device = tg.safeAreaInset || {}
+      const content = tg.contentSafeAreaInset || {}
+      const top = (Number(device.top) || 0) + (Number(content.top) || 0)
+      const bottom = (Number(device.bottom) || 0) + (Number(content.bottom) || 0)
+      root.style.setProperty('--tg-safe-top', `${top}px`)
+      root.style.setProperty('--tg-safe-bottom', `${bottom}px`)
+    }
+
     const initTg = () => {
       const tg = window?.Telegram?.WebApp
       if (!tg) return false
       try {
         tg.ready()
-        const platform = String(tg.platform || '').toLowerCase()
-        const ua = String(navigator?.userAgent || '').toLowerCase()
-        const isDesktop =
-          platform === 'tdesktop' ||
-          (!platform &&
-            (ua.includes('windows') || ua.includes('mac os') || ua.includes('linux')) &&
-            !ua.includes('android'))
-        if (isDesktop && typeof tg.requestFullscreen === 'function' && !tg.isFullscreen) {
-          try { tg.requestFullscreen() } catch {}
-        }
         tg.expand()
         if (typeof tg.disableVerticalSwipes === 'function') tg.disableVerticalSwipes()
+
+        // requestFullscreen needs Bot API 8.0; older clients keep expand() only
+        const canFullscreen =
+          typeof tg.requestFullscreen === 'function' &&
+          (typeof tg.isVersionAtLeast !== 'function' || tg.isVersionAtLeast('8.0'))
+        if (canFullscreen && !tg.isFullscreen) {
+          try { tg.requestFullscreen() } catch {}
+        }
+
+        applySafeAreas(tg)
+        const onChange = () => applySafeAreas(tg)
+        ;['fullscreenChanged', 'safeAreaChanged', 'contentSafeAreaChanged', 'viewportChanged'].forEach((ev) => {
+          try { tg.onEvent(ev, onChange) } catch {}
+        })
+        try { tg.onEvent('fullscreenFailed', () => { try { tg.expand() } catch {}; applySafeAreas(tg) }) } catch {}
       } catch {}
       return true
     }

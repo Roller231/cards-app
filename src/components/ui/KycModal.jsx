@@ -20,6 +20,16 @@ import Portal from './Portal'
 
 const font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif'
 
+/** Current value of a Telegram safe-area CSS variable, in px (0 by default). */
+function readSafeInset(varName) {
+  try {
+    const raw = getComputedStyle(document.documentElement).getPropertyValue(varName)
+    return Math.round(parseFloat(raw) || 0)
+  } catch {
+    return 0
+  }
+}
+
 function formatPhoneInput(value) {
   // Remove all non-digits
   const digits = value.replace(/\D/g, '')
@@ -150,8 +160,11 @@ export default function KycModal({ isOpen, onClose, onSuccess }) {
         clientKey: creds.client_key_encrypted,
         clientUser: String(creds.user_id ?? ''),
         theme: 'light',
-        topOffset: 0,
-        bottomOffset: 0,
+        // In Telegram fullscreen the widget overlays the whole screen, so it
+        // needs the same safe-area offsets the app pads itself with (0 outside
+        // fullscreen).
+        topOffset: readSafeInset('--tg-safe-top'),
+        bottomOffset: readSafeInset('--tg-safe-bottom'),
         closeCb: () => {
           // Only reset to contact form if user closed the widget WITHOUT completing
           // (i.e. screen is still 'widget'). If success/processing — leave it alone.

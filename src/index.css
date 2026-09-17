@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+/* Telegram fullscreen safe areas: the mini app covers the whole screen, so
+   content must clear the notch/status bar and Telegram's floating buttons.
+   Both stay 0 outside fullscreen, keeping the regular layout untouched. */
+:root {
+  --tg-safe-top: 0px;
+  --tg-safe-bottom: 0px;
+}
+
 html,
 body {
   height: 100%;
@@ -12,6 +20,15 @@ body {
 #root {
   min-height: 100%;
   background-color: #F3F5F8;
+  box-sizing: border-box;
+  padding-top: var(--tg-safe-top);
+  padding-bottom: var(--tg-safe-bottom);
+}
+
+/* Screens are sized to the viewport; subtract the insets we padded with so
+   full-height pages don't overflow into a phantom scroll. */
+.min-h-screen {
+  min-height: calc(100dvh - var(--tg-safe-top) - var(--tg-safe-bottom));
 }
 
 body {
