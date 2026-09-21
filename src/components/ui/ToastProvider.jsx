@@ -28,7 +28,7 @@ export function ToastProvider({ children }) {
       <div
         style={{
           position: 'fixed',
-          top: 14,
+          top: 'calc(var(--tg-safe-top) + 14px)',
           left: '50%',
           transform: 'translateX(-50%)',
           zIndex: 9999,

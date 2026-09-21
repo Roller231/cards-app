@@ -11,6 +11,7 @@ import { useAuth } from '../context/AuthContext'
 import { cardBackgroundByOffer, McChip } from '../utils/cardAssets'
 import PromoCard, { usePromoCards } from '../components/PromoCard'
 import { TxIcon } from './HistoryPage'
+import { BOTTOM_BAR_SPACE } from '../components/BottomBar'
 
 const PULL_THRESHOLD = 120
 const PULL_MAX = 180
@@ -91,12 +92,12 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
 
   return (
     <div
-      className="flex-1 flex flex-col pb-24"
+      className="flex-1 flex flex-col"
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
       onTouchCancel={handleTouchEnd}
-      style={{ touchAction: 'pan-y' }}
+      style={{ touchAction: 'pan-y', paddingBottom: BOTTOM_BAR_SPACE }}
     >
       {(pull > 0 || refreshing) && (
         <div

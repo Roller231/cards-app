@@ -3,6 +3,7 @@ import api from '../api/client'
 import Card from '../components/ui/Card'
 import Section from '../components/ui/Section'
 import BalanceDepositModal from '../components/ui/BalanceDepositModal'
+import { BOTTOM_BAR_SPACE } from '../components/BottomBar'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../components/ui/ToastProvider'
 
@@ -150,7 +151,7 @@ export default function ProfilePage() {
   const money = (v) => `${Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`
 
   return (
-    <div className="flex-1 flex flex-col" style={{ paddingBottom: 110 }}>
+    <div className="flex-1 flex flex-col" style={{ paddingBottom: BOTTOM_BAR_SPACE }}>
       {/* Header: avatar + name */}
       <Section>
         <Card padding="22px 20px">
