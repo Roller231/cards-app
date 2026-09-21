@@ -10,10 +10,11 @@ import PromoCard, { usePromoCards, PROMO_KEY_BY_TYPE } from '../components/Promo
 
 const PAYMENT_METHODS = [
   { id: 'sbp', label: 'СБП', description: 'Моментальный перевод через Систему Быстрых Платежей', iconSrc: '/images/sbp.png' },
+  { id: 'balance', label: 'Внутренний баланс', description: 'Оплата с баланса ProntoPay — без комиссии СБП', icon: '💼' },
 ]
 
 function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
-  const { user } = useAuth()
+  const { user, fetchMe } = useAuth()
   const [offers, setOffers] = useState([])
   const [offersLoading, setOffersLoading] = useState(true)
   const [selectedCardType, setSelectedCardType] = useState('')
@@ -26,7 +27,8 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
   const [showSbpModal, setShowSbpModal] = useState(false)
   const [showKycModal, setShowKycModal] = useState(false)
   const [kycStatus, setKycStatus] = useState(null)
-  const [paymentMethod, setPaymentMethod] = useState(null) // 'sbp' | 'balance'
+  const [paymentMethod, setPaymentMethod] = useState('sbp') // 'sbp' | 'balance'
+  const [quote, setQuote] = useState(null) // /cards/issue-quote: { price_usd, balance_usd, enough, rate }
   const [promoExpanded, setPromoExpanded] = useState(false)
 
   // Info card (same as on the home screen) for the selected card type
@@ -69,6 +71,16 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
     }
   }, [onBack])
 
+  // USD price of this card when paid from the internal balance (RUB price / app rate)
+  useEffect(() => {
+    if (!selectedCardType) { setQuote(null); return }
+    let cancelled = false
+    api.cards.issueQuote(String(selectedCardType))
+      .then((q) => { if (!cancelled) setQuote(q) })
+      .catch(() => { if (!cancelled) setQuote(null) })
+    return () => { cancelled = true }
+  }, [selectedCardType, user?.balance])
+
   const cardTypes = offers
   const selectedCard = cardTypes.find((c) => String(c.id) === String(selectedCardType))
   // What the user sees (admin-editable display name); internal `name` drives pricing
@@ -81,7 +93,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
     : _name === 'Pay'
       ? (Number(issuancePrice?.price_univ_rub) || 1999)
       : (Number(issuancePrice?.price_rub) || 999)
-  
+
   const initialBalance = issuancePrice?.initial_balance || 0
   const maxCards = selectedCard?.max_issued_count || 999
   const currentCards = selectedCard?.current_count || 0
@@ -101,10 +113,11 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
         holderFirstName,
         holderLastName,
         email: user?.email,
-        paymentMethod: 'sbp',
+        paymentMethod: 'balance',
       })
       setIsLoading(false)
       setResultScreen('success')
+      fetchMe?.()
     } catch (e) {
       setIsLoading(false)
       // Check if it's a KYC verification error
@@ -339,41 +352,61 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
           >
             Способ оплаты
           </label>
-          {PAYMENT_METHODS.map((method) => (
-            <div
-              key={method.id}
-              style={{
-                backgroundColor: 'white',
-                borderRadius: 12,
-                padding: '14px 16px',
-                marginBottom: 8,
-                display: 'flex',
-                alignItems: 'center',
-                gap: method.iconSrc ? 12 : 0,
-                border: '2px solid transparent',
-                boxSizing: 'border-box',
-              }}
-            >
-              {method.iconSrc ? (
-                <img src={method.iconSrc} alt="" style={{ width: 22, height: 22, objectFit: 'contain', flexShrink: 0 }} />
-              ) : null}
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 15, fontWeight: 600, color: '#111827', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif' }}>{method.label}</div>
-                {method.description && (
-                  <div style={{ fontSize: 13, color: '#6B7280', marginTop: 4, fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif' }}>
-                    {method.description}
-                  </div>
+          {PAYMENT_METHODS.map((method) => {
+            const selected = paymentMethod === method.id
+            const isBalance = method.id === 'balance'
+            const balanceUsd = Number(quote?.balance_usd ?? user?.balance ?? 0)
+            const notEnough = isBalance && quote && !quote.enough
+            const description = isBalance
+              ? (quote
+                  ? `Доступно ${balanceUsd.toFixed(2)} $ · списание ≈ ${Number(quote.price_usd).toFixed(2)} $`
+                  : `Доступно ${balanceUsd.toFixed(2)} $ · без комиссии СБП`)
+              : method.description
+            return (
+              <div
+                key={method.id}
+                onClick={() => setPaymentMethod(method.id)}
+                className="transition-transform duration-150 active:scale-[0.99]"
+                style={{
+                  backgroundColor: 'white',
+                  borderRadius: 12,
+                  padding: '14px 16px',
+                  marginBottom: 8,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  border: selected ? '2px solid #DC4D35' : '2px solid transparent',
+                  boxSizing: 'border-box',
+                  cursor: 'pointer',
+                }}
+              >
+                {method.iconSrc ? (
+                  <img src={method.iconSrc} alt="" style={{ width: 22, height: 22, objectFit: 'contain', flexShrink: 0 }} />
+                ) : (
+                  <span style={{ fontSize: 20, lineHeight: '22px', width: 22, textAlign: 'center', flexShrink: 0 }}>{method.icon}</span>
                 )}
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: '#111827', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif' }}>{method.label}</div>
+                  <div style={{ fontSize: 13, color: notEnough && selected ? '#DC2626' : '#6B7280', marginTop: 4, fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif' }}>
+                    {description}
+                    {notEnough && selected ? ' — недостаточно средств, пополните баланс в профиле' : ''}
+                  </div>
+                </div>
+                <div style={{
+                  width: 20, height: 20, borderRadius: 10, flexShrink: 0, boxSizing: 'border-box',
+                  border: selected ? '6px solid #DC4D35' : '2px solid #D1D5DB',
+                }} />
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
 
         {/* Issue Button */}
         <Button
-          disabled={!canIssueCard}
+          disabled={!canIssueCard || (paymentMethod === 'balance' && quote && !quote.enough)}
           onClick={() => {
             if (!canIssueCard) return
+            if (paymentMethod === 'balance' && quote && !quote.enough) return
             setShowConfirmation(true)
           }}
           fullWidth
@@ -501,7 +534,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
                       fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
                     }}
                   >
-                    {price.toLocaleString('ru-RU')} ₽
+                    {price.toLocaleString('ru-RU')} ₽{paymentMethod === 'balance' && quote ? ` (≈ ${Number(quote.price_usd).toFixed(2)} $ с баланса)` : ''}
                   </div>
                 </div>
 
@@ -551,7 +584,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
                       fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
                     }}
                   >
-                    СБП
+                    {paymentMethod === 'balance' ? 'Внутренний баланс' : 'СБП'}
                   </div>
                 </div>
               </div>
@@ -561,11 +594,13 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
               <Button
                 onClick={async () => {
                   setShowConfirmation(false)
-                  // Check KYC status before opening SBP
+                  // KYC is required for both payment methods (the provider
+                  // needs a verified identity to issue the card)
                   try {
                     const s = await api.kyc.status()
                     if (s.kyc_status === 'success') {
-                      setShowSbpModal(true)
+                      if (paymentMethod === 'balance') handleIssueCard()
+                      else setShowSbpModal(true)
                     } else {
                       setShowKycModal(true)
                     }
@@ -688,9 +723,9 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
                 animation: 'textAppear 0.5s ease-out 0.2s backwards',
               }}
             >
-              {paymentMethod === 'sbp' 
-                ? 'Оплата прошла успешно! Карта выпускается, ожидайте до 5 минут.'
-                : 'Запрос на выпуск карты отправлен успешно. Ожидайте до 5 минут.'}
+              {paymentMethod === 'balance'
+                ? 'Оплата с баланса прошла успешно! Карта выпускается, ожидайте до 5 минут.'
+                : 'Оплата прошла успешно! Карта выпускается, ожидайте до 5 минут.'}
             </div>
           </div>
 
@@ -793,7 +828,8 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
         onClose={() => setShowKycModal(false)}
         onSuccess={() => {
           setShowKycModal(false)
-          setShowSbpModal(true)
+          if (paymentMethod === 'balance') handleIssueCard()
+          else setShowSbpModal(true)
         }}
       />
 

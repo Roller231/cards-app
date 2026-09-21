@@ -88,7 +88,7 @@ async def get_valid_promo(
     # Purpose match
     if purpose == "card_issue" and promo.type not in ("issue_discount",):
         raise PromoError("Этот промокод не действует на выпуск карты")
-    if purpose == "balance_topup" and promo.type not in ("rate_discount", "no_small_fee"):
+    if purpose in ("balance_topup", "balance_deposit") and promo.type not in ("rate_discount", "no_small_fee"):
         raise PromoError("Этот промокод не действует на пополнение")
     if promo.type == "issue_discount" and promo.card_type and card_type and promo.card_type != card_type:
         raise PromoError(f"Промокод действует только на карту {promo.card_type}")
@@ -116,13 +116,13 @@ def compute_discount_rub(promo: PromoCode, purpose: str, amount_rub: float) -> f
     amount = float(amount_rub or 0)
     if amount <= 0:
         return 0.0
-    if promo.type == "rate_discount" and purpose == "balance_topup":
+    if promo.type == "rate_discount" and purpose in ("balance_topup", "balance_deposit"):
         return round(amount * float(promo.percent_off or 0) / 100.0, 2)
     if promo.type == "issue_discount" and purpose == "card_issue":
         pct = round(amount * float(promo.percent_off or 0) / 100.0, 2)
         fixed = float(promo.fixed_off_rub or 0)
         return min(max(pct, fixed), amount)  # larger of the two, never above the price
-    if promo.type == "no_small_fee" and purpose == "balance_topup":
+    if promo.type == "no_small_fee" and purpose in ("balance_topup", "balance_deposit"):
         fee = float(settings.SBP_SMALL_PAYMENT_FEE_RUB)
         # amount_rub arrives WITH the fee already added by the app when the
         # payment is below the threshold; the fee itself is the discount.

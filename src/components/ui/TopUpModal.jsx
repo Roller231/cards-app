@@ -3,12 +3,16 @@ import api from '../../api/client'
 import Button from './Button'
 import Portal from './Portal'
 import SbpPaymentModal from './SbpPaymentModal'
+import { useAuth } from '../../context/AuthContext'
 
 const TOPUP_PAYMENT_METHODS = [
   { id: 'sbp', label: 'СБП', description: 'Мгновенное пополнение через Систему Быстрых Платежей', iconSrc: '/images/sbp.png' },
+  { id: 'balance', label: 'Внутренний баланс', description: 'Списание с баланса ProntoPay — без комиссии СБП', icon: '💼' },
 ]
 
 function TopUpModal({ isOpen, onClose, card, onTopUp }) {
+  const { user, fetchMe, commissions } = useAuth()
+  const [method, setMethod] = useState('sbp') // 'sbp' | 'balance'
   const [depositError, setDepositError] = useState('')
   const [amount, setAmount] = useState(0)
   const [amountInput, setAmountInput] = useState('')
@@ -44,12 +48,13 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
         setAmountInput('')
         setScreen('form')
         setDepositError('')
+        setMethod('sbp')
       }, 350)
       return () => clearTimeout(t)
     }
   }, [isOpen])
 
-  // Deposit call — SBP direct
+  // Deposit call — paid from the INTERNAL balance (SBP goes through the QR flow)
   useEffect(() => {
     if (screen !== 'loading') return
     if (!card?.aifory_card_id) {
@@ -58,10 +63,11 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
       return
     }
     let canceled = false
-    api.cards.deposit(card.aifory_card_id, amount, 'sbp')
+    api.cards.deposit(card.aifory_card_id, amount, 'balance')
       .then(() => {
         if (canceled) return
         setScreen('success')
+        fetchMe?.()
         if (typeof onTopUp === 'function') onTopUp()
       })
       .catch((e) => {
@@ -92,6 +98,12 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
 
   const hasAmount = amount > 0
   const amountText = amountInput || ''
+  // Paying from the internal balance: USD amount + card-type markup, no SBP fee
+  const isUnivCard = String(card?.offer_id || '').includes('RT-8')
+  const balanceMarkup = Number(isUnivCard ? commissions?.online_plus_topup : commissions?.online_topup) || 0
+  const balanceCharge = hasAmount ? Math.ceil(amount * (1 + balanceMarkup / 100) * 100) / 100 : 0
+  const balanceUsd = Number(user?.balance || 0)
+  const balanceEnough = hasAmount && balanceUsd >= balanceCharge
   // payRub = ceil(amount × rate); payments below the threshold additionally
   // carry Bitbanker's fixed fee (210 ₽), payments above pay exactly the amount.
   const rate = rateInfo?.rate || null
@@ -232,7 +244,8 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
                 </div>
               </div>
 
-              {/* RUB total block */}
+              {/* RUB total block (SBP only) */}
+              {method === 'sbp' && (
               <div style={{ backgroundColor: 'white', borderRadius: 12, padding: '14px 16px' }}>
                 <label style={{ fontSize: 13, fontWeight: 600, color: '#6B7280', fontFamily: font, display: 'block', marginBottom: 8 }}>
                   Сумма к оплате
@@ -272,43 +285,83 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
                   </div>
                 )}
               </div>
+              )}
+
+              {method === 'balance' && (
+                <div style={{ backgroundColor: 'white', borderRadius: 12, padding: '14px 16px' }}>
+                  <label style={{ fontSize: 13, fontWeight: 600, color: '#6B7280', fontFamily: font, display: 'block', marginBottom: 8 }}>
+                    Списание с баланса
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: 15, fontWeight: 600, color: '#111827', fontFamily: font }}>
+                      {hasAmount ? `${balanceCharge.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $` : '—'}
+                    </span>
+                    <span style={{ fontSize: 12, color: '#9CA3AF', fontFamily: font }}>
+                      доступно {balanceUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $
+                    </span>
+                  </div>
+                  {balanceMarkup > 0 && hasAmount && (
+                    <div style={{ fontSize: 12, color: '#6B7280', fontFamily: font, marginTop: 8, lineHeight: 1.5 }}>
+                      Включая комиссию за пополнение {balanceMarkup}%.
+                    </div>
+                  )}
+                  {hasAmount && !balanceEnough && (
+                    <div style={{ fontSize: 12, color: '#DC2626', fontFamily: font, marginTop: 8, lineHeight: 1.5 }}>
+                      Недостаточно средств на балансе. Пополните баланс в профиле или выберите оплату по СБП.
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Payment Method */}
               <div style={{ marginTop: 8 }}>
                 <label style={{ fontSize: 17, fontWeight: 700, color: '#111827', fontFamily: font, display: 'block', marginBottom: 12 }}>
                   Способ оплаты
                 </label>
-                {TOPUP_PAYMENT_METHODS.map((method) => (
-                  <div
-                    key={method.id}
-                    style={{
-                      backgroundColor: 'white',
-                      borderRadius: 12,
-                      padding: '14px 16px',
-                      marginBottom: 8,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: method.iconSrc ? 12 : 0,
-                      border: '2px solid transparent',
-                      boxSizing: 'border-box',
-                    }}
-                  >
-                    {method.iconSrc ? (
-                      <img src={method.iconSrc} alt="" style={{ width: 22, height: 22, objectFit: 'contain', flexShrink: 0 }} />
-                    ) : null}
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 15, fontWeight: 600, color: '#111827', fontFamily: font }}>{method.label}</div>
-                      {method.description && (
-                        <div style={{ fontSize: 13, color: '#6B7280', marginTop: 4, fontFamily: font }}>
-                          {method.description}
-                        </div>
+                {TOPUP_PAYMENT_METHODS.map((m) => {
+                  const selected = method === m.id
+                  return (
+                    <div
+                      key={m.id}
+                      onClick={() => setMethod(m.id)}
+                      className="transition-transform duration-150 active:scale-[0.99]"
+                      style={{
+                        backgroundColor: 'white',
+                        borderRadius: 12,
+                        padding: '14px 16px',
+                        marginBottom: 8,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 12,
+                        border: selected ? '2px solid #DC4D35' : '2px solid transparent',
+                        boxSizing: 'border-box',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {m.iconSrc ? (
+                        <img src={m.iconSrc} alt="" style={{ width: 22, height: 22, objectFit: 'contain', flexShrink: 0 }} />
+                      ) : (
+                        <span style={{ fontSize: 20, lineHeight: '22px', width: 22, textAlign: 'center', flexShrink: 0 }}>{m.icon}</span>
                       )}
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: '#111827', fontFamily: font }}>{m.label}</div>
+                        <div style={{ fontSize: 13, color: '#6B7280', marginTop: 4, fontFamily: font }}>
+                          {m.id === 'balance'
+                            ? `Доступно ${balanceUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $ · без комиссии СБП`
+                            : m.description}
+                        </div>
+                      </div>
+                      <div style={{
+                        width: 20, height: 20, borderRadius: 10, flexShrink: 0, boxSizing: 'border-box',
+                        border: selected ? '6px solid #DC4D35' : '2px solid #D1D5DB',
+                      }} />
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
 
               {/* SBP limits info (Bitbanker prod) */}
+              {method === 'sbp' && (
               <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 12, padding: '12px 14px', fontSize: 12, color: '#92400E', fontFamily: font, lineHeight: 1.55 }}>
                 <b>Лимиты СБП:</b> от 1 000 ₽ до 50 000 ₽ за перевод, не более 2 пополнений в сутки
                 (обновляется в 00:00 по Москве).
@@ -316,6 +369,7 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
                 <b>Важно:</b> оплачивайте каждый созданный QR-код — после трёх неоплаченных подряд
                 платёжная система блокирует пополнения по СБП.
               </div>
+              )}
             </div>
           </div>
         )}
@@ -331,8 +385,14 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
               />
               <DetailRow
                 label="Способ оплаты"
-                value="СБП"
+                value={method === 'balance' ? 'Внутренний баланс' : 'СБП'}
               />
+              {method === 'balance' && (
+                <DetailRow
+                  label="Списание с баланса"
+                  value={`${balanceCharge.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`}
+                />
+              )}
             </div>
           </div>
         )}
@@ -463,8 +523,10 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
           <div style={{ padding: '12px 16px 24px 16px' }}>
             {screen === 'form' && (
               <Button
-                disabled={!hasAmount || !payRub || rubTooSmall || rubTooBig}
-                onClick={() => setShowSbpModal(true)}
+                disabled={method === 'balance'
+                  ? (!hasAmount || !balanceEnough)
+                  : (!hasAmount || !payRub || rubTooSmall || rubTooBig)}
+                onClick={() => (method === 'balance' ? setScreen('confirmation') : setShowSbpModal(true))}
                 fullWidth
               >
                 Продолжить

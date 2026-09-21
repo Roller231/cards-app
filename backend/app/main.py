@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routers import auth, admin, cards, faq, orders, balance, sbp, kyc
+from app.api.routers import auth, admin, cards, faq, orders, balance, sbp, kyc, profile
 from app.core.config import settings
 from app.core.database import engine
 from app.models import Base
@@ -40,6 +40,7 @@ app.include_router(orders.router)
 app.include_router(balance.router)
 app.include_router(sbp.router)
 app.include_router(kyc.router)
+app.include_router(profile.router)
 
 
 # Static uploads (bot welcome image, broadcast images)
@@ -179,18 +180,18 @@ async def _load_admin_settings() -> None:
 def check_and_update_schema(conn):
     from sqlalchemy import inspect, text
     inspector = inspect(conn)
-    
+
     # Check if 'cards' table exists
     if 'cards' in inspector.get_table_names():
         columns = inspector.get_columns('cards')
         column_names = [col['name'] for col in columns]
-        
+
         # Check if 'last_notified_transaction_id' column exists
         if 'last_notified_transaction_id' not in column_names:
             logger.info("Adding missing 'last_notified_transaction_id' column to 'cards' table")
             conn.execute(text("ALTER TABLE cards ADD COLUMN last_notified_transaction_id VARCHAR(255) NULL;"))
             logger.info("Column 'last_notified_transaction_id' added to 'cards' table")
-    
+
     # Check if 'faqs' table exists, create if not
     if 'faqs' not in inspector.get_table_names():
         logger.info("Creating 'faqs' table")
@@ -204,7 +205,7 @@ def check_and_update_schema(conn):
             );
         """))
         logger.info("Table 'faqs' created")
-    
+
     # Check for new KYC/contact columns in users table
     if 'users' in inspector.get_table_names():
         user_cols = [col['name'] for col in inspector.get_columns('users')]
@@ -223,42 +224,65 @@ def check_and_update_schema(conn):
             'sbp_qr_reset_at': 'DATETIME NULL',
             'univ_client_seq': 'INT NOT NULL DEFAULT 0',
             'client_seq': 'INT NOT NULL DEFAULT 0',
+            'referral_code': 'VARCHAR(16) NULL',
+            'referrer_id': 'BIGINT NULL',
+            'referred_at': 'DATETIME NULL',
         }
         for col_name, col_def in new_user_cols.items():
             if col_name not in user_cols:
                 logger.info("Adding column '%s' to 'users' table", col_name)
                 conn.execute(text(f"ALTER TABLE users ADD COLUMN {col_name} {col_def};"))
+        if 'referral_code' not in user_cols:
+            conn.execute(text("CREATE UNIQUE INDEX ux_users_referral_code ON users (referral_code);"))
+            conn.execute(text("CREATE INDEX ix_users_referrer_id ON users (referrer_id);"))
 
-    # Check for offer_id column in bb_invoices table
-    if 'bb_invoices' in inspector.get_table_names():
-        inv_cols = [col['name'] for col in inspector.get_columns('bb_invoices')]
-        if 'offer_id' not in inv_cols:
-            logger.info("Adding column 'offer_id' to 'bb_invoices' table")
-            conn.execute(text("ALTER TABLE bb_invoices ADD COLUMN offer_id VARCHAR(256) NULL;"))
-        if 'card_id' not in inv_cols:
-            logger.info("Adding column 'card_id' to 'bb_invoices' table")
-            conn.execute(text("ALTER TABLE bb_invoices ADD COLUMN card_id VARCHAR(256) NULL;"))
-        if 'amount_usd_requested' not in inv_cols:
-            logger.info("Adding column 'amount_usd_requested' to 'bb_invoices' table")
-            conn.execute(text("ALTER TABLE bb_invoices ADD COLUMN amount_usd_requested DECIMAL(18,6) NULL;"))
-        if 'created_at' not in inv_cols:
-            logger.info("Adding column 'created_at' to 'bb_invoices' table")
-            conn.execute(text("ALTER TABLE bb_invoices ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP;"))
-            # Backdate existing invoices so they don't count against today's QR limit
-            conn.execute(text("UPDATE bb_invoices SET created_at = DATE_SUB(NOW(), INTERVAL 2 DAY);"))
-        if 'recover_attempts' not in inv_cols:
-            logger.info("Adding auto-recovery columns to 'bb_invoices' table")
-            conn.execute(text("ALTER TABLE bb_invoices ADD COLUMN recover_attempts INT NOT NULL DEFAULT 0;"))
-            conn.execute(text("ALTER TABLE bb_invoices ADD COLUMN last_recover_at DATETIME NULL;"))
-
-    if 'orders' in inspector.get_table_names():
-        ord_cols = [col['name'] for col in inspector.get_columns('orders')]
-        if 'notified' not in ord_cols:
-            logger.info("Adding column 'notified' to 'orders' table")
-            conn.execute(text("ALTER TABLE orders ADD COLUMN notified TINYINT(1) NOT NULL DEFAULT 0;"))
-            # Mark all existing completed/failed orders as already notified to prevent duplicate notifications
-            conn.execute(text("UPDATE orders SET notified = 1 WHERE status IN ('completed', 'failed');"))
-            logger.info("Marked existing completed/failed orders as notified")
+    # Internal balance ledger (the table itself is created by create_all /
+    # the block below). ONE-TIME reset of users.balance, guarded by an
+    # admin_settings marker: until now every paid SBP invoice was credited to
+    # the balance and never spent (the money bought a card / top-up), so the
+    # stored balances are phantom. Each reset is recorded in the ledger.
+    tables = inspector.get_table_names()
+    if 'balance_transactions' not in tables:
+        logger.info("Creating 'balance_transactions' table")
+        conn.execute(text("""
+            CREATE TABLE balance_transactions (
+                id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                user_id BIGINT NOT NULL,
+                type VARCHAR(24) NOT NULL,
+                amount DECIMAL(18,2) NOT NULL,
+                balance_after DECIMAL(18,2) NOT NULL,
+                description VARCHAR(255) NULL,
+                ref_invoice_id BIGINT NULL,
+                ref_order_id BIGINT NULL,
+                ref_user_id BIGINT NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                INDEX ix_bt_user_id (user_id),
+                INDEX ix_bt_type (type),
+                INDEX ix_bt_ref_invoice_id (ref_invoice_id),
+                INDEX ix_bt_ref_order_id (ref_order_id),
+                INDEX ix_bt_ref_user_id (ref_user_id),
+                INDEX ix_bt_created_at (created_at),
+                CONSTRAINT fk_bt_user FOREIGN KEY (user_id) REFERENCES users(id)
+            );
+        """))
+    if 'users' in tables and 'admin_settings' in tables:
+        done = conn.execute(
+            text("SELECT 1 FROM admin_settings WHERE `key` = 'BALANCE_LEDGER_RESET_DONE' LIMIT 1")
+        ).fetchone()
+        if not done:
+            rows = conn.execute(text("SELECT id, balance FROM users WHERE balance <> 0")).fetchall()
+            for uid, bal in rows:
+                conn.execute(
+                    text("INSERT INTO balance_transactions (user_id, type, amount, balance_after, description) "
+                         "VALUES (:uid, 'admin_adjust', :amt, 0, 'Сброс фантомного баланса (миграция внутреннего баланса)')"),
+                    {"uid": uid, "amt": -float(bal)},
+                )
+            conn.execute(text("UPDATE users SET balance = 0 WHERE balance <> 0"))
+            conn.execute(
+                text("INSERT INTO admin_settings (`key`, value, description) VALUES "
+                     "('BALANCE_LEDGER_RESET_DONE', '1', 'Marker: phantom balances zeroed when the internal balance ledger was introduced')")
+            )
+            logger.info("Reset phantom balances for %d users (recorded in balance_transactions)", len(rows))
 
     return
 

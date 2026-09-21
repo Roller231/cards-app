@@ -7,6 +7,8 @@ import CardDetailPage from './pages/CardDetailPage'
 import FAQPage from './pages/FAQPage'
 import HistoryPage from './pages/HistoryPage'
 import HomePage from './pages/HomePage'
+import ProfilePage from './pages/ProfilePage'
+import BottomBar from './components/BottomBar'
 import IssueCardPage from './pages/IssueCardPage'
 import WelcomePage from './pages/WelcomePage'
 import { metrikaHit } from './utils/metrika'
@@ -61,7 +63,7 @@ function mapAiforyTx(tx, card) {
 }
 
 function AppInner() {
-  const { user, loading: authLoading, banned, authError, appConfig, commissions } = useAuth()
+  const { user, loading: authLoading, banned, authError, appConfig, commissions, fetchMe } = useAuth()
   const [currentPage, setCurrentPage] = useState(() => {
     try {
       return localStorage.getItem('pp_seen_welcome') ? 'home' : 'welcome'
@@ -188,19 +190,21 @@ function AppInner() {
   const handleCardIssued = useCallback(async () => {
     setCardTypeToIssue(null)
     setCurrentPage('home')
+    fetchMe?.()  // balance may have changed (paid from the internal balance)
     const cards = await refreshCards()
     refreshOffers()
     if (cards.length > 0) refreshTransactions(cards)
-  }, [refreshCards, refreshOffers, refreshTransactions])
+  }, [refreshCards, refreshOffers, refreshTransactions, fetchMe])
 
   // After deposit: reload cards to update balance
   const handleDeposited = useCallback(async () => {
+    fetchMe?.()
     const cards = await refreshCards()
     if (selectedCard) {
       const updated = cards.find((c) => c.id === selectedCard.id)
       if (updated) setSelectedCard({ ...updated, title: 'Виртуальная карта' })
     }
-  }, [refreshCards, selectedCard])
+  }, [refreshCards, selectedCard, fetchMe])
 
   // Telegram WebApp init
   useEffect(() => {
@@ -364,6 +368,7 @@ function AppInner() {
           }}
         />
       )}
+      {currentPage === 'profile' && <ProfilePage />}
       {currentPage === 'faq' && <FAQPage onBack={() => setCurrentPage('home')} />}
       {currentPage === 'history' && (
         <HistoryPage
@@ -405,6 +410,9 @@ function AppInner() {
           }}
           getCommissionForCardType={getCommissionForCardType}
         />
+      )}
+      {(currentPage === 'home' || currentPage === 'profile') && (
+        <BottomBar active={currentPage} onChange={(page) => setCurrentPage(page)} />
       )}
     </Layout>
   )

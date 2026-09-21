@@ -51,6 +51,8 @@ const adminApi = {
     issueCard: (id, offerId) => req('POST', `/admin/users/${id}/issue-card`, { offer_id: offerId }),
     depositCard: (id, cardId, amount) => req('POST', `/admin/users/${id}/deposit-card`, { card_id: cardId, amount }),
     invoices: (id) => req('GET', `/admin/users/${id}/invoices`),
+    balanceHistory: (id) => req('GET', `/admin/users/${id}/balance-history`),
+    referrals: (id) => req('GET', `/admin/users/${id}/referrals`),
   },
   invoices: {
     retryDeposit: (invoiceId) => req('POST', `/admin/invoices/${invoiceId}/retry-deposit`),

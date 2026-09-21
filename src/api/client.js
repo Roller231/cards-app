@@ -77,6 +77,11 @@ export const api = {
       req('GET', `/cards/${cardId}/transactions?limit=${limit}&offset=${offset}`),
     deposit: (cardId, amount, paymentMethod = 'balance') =>
       req('POST', `/cards/${cardId}/deposit`, { amount, payment_method: paymentMethod }),
+    issueQuote: (offerId) => req('GET', `/cards/issue-quote?offer_id=${encodeURIComponent(offerId)}`),
+  },
+  profile: {
+    get: () => req('GET', '/profile'),
+    balanceHistory: (limit = 50, offset = 0) => req('GET', `/profile/balance/history?limit=${limit}&offset=${offset}`),
   },
   sbp: {
     getUsdToRubRate: () => req('GET', '/sbp/usd-to-rub-rate'),

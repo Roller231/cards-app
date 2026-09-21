@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.models.user import User
-from app.schemas.topup import TopUpConfirmRequest, TopUpRequestCreate, TopUpRequestResponse
+from app.schemas.topup import TopUpRequestResponse
 from app.services.balance_service import balance_service
 
 router = APIRouter(prefix="/balance", tags=["balance"])
@@ -35,54 +35,9 @@ async def list_topup_requests(
     ]
 
 
-@router.post(
-    "/topup-requests",
-    response_model=TopUpRequestResponse,
-    summary="Create a balance top-up request (payment gateway will be wired later)",
-)
-async def create_topup_request(
-    body: TopUpRequestCreate,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    if body.amount <= 0:
-        raise HTTPException(status_code=400, detail="Amount must be positive")
-    req = await balance_service.create_topup_request(db, current_user, body.amount, body.comment)
-    return TopUpRequestResponse(
-        id=req.id,
-        user_id=req.user_id,
-        amount=float(req.amount),
-        status=req.status,
-        payment_reference=req.payment_reference,
-        comment=req.comment,
-    )
-
-
-@router.post(
-    "/topup-requests/{request_id}/confirm",
-    response_model=TopUpRequestResponse,
-    summary="[DEV] Manually confirm a top-up request and credit user balance",
-)
-async def confirm_topup(
-    request_id: int,
-    body: TopUpConfirmRequest,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    try:
-        req = await balance_service.confirm_topup(
-            db, current_user, request_id, body.payment_reference
-        )
-        return TopUpRequestResponse(
-            id=req.id,
-            user_id=req.user_id,
-            amount=float(req.amount),
-            status=req.status,
-            payment_reference=req.payment_reference,
-            comment=req.comment,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+# NOTE: the old self-service "create + [DEV] confirm top-up request" endpoints
+# were removed once the internal balance became spendable (a user could credit
+# himself). Balance deposits go through /sbp/invoice purpose=balance_deposit.
 
 
 @router.post(

@@ -52,6 +52,14 @@ class Settings(BaseSettings):
     ADMIN_ALERT_CHAT_ID: str = ""
     SBP_SMALL_PAYMENT_THRESHOLD_RUB: float = 10000.0
 
+    # Referral program: the inviter gets this % of every purchase (card issue,
+    # card top-up) their referral pays for, credited to the internal balance.
+    REFERRAL_PERCENT: float = 5.0
+    # Bot / mini-app names used to build the invite deep link
+    # (https://t.me/<bot>/<app>?startapp=<code>).
+    TELEGRAM_BOT_USERNAME: str = "exprontopay_bot"
+    TELEGRAM_MINIAPP_SHORT_NAME: str = "exprontopay"
+
     # Billing address shown in card info (O-Plata API does not provide one —
     # set the issuer's address here via admin panel once known)
     CARD_BILLING_ADDRESS: str = ""

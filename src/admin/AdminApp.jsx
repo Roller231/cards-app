@@ -218,6 +218,8 @@ function UserDetailPage({ userId, goBack }) {
   const [depositing, setDepositing] = useState(false)
   const [depMsg, setDepMsg] = useState('')
   const [invoices, setInvoices] = useState([])
+  const [ledger, setLedger] = useState([])
+  const [refs, setRefs] = useState(null)
   const [retryingInv, setRetryingInv] = useState(null)
 
   const loadInvoices = useCallback(async () => {
@@ -244,6 +246,8 @@ function UserDetailPage({ userId, goBack }) {
     })()
     loadLimits();
     loadInvoices();
+    adminApi.users.balanceHistory(userId).then(d => setLedger(d.items || [])).catch(() => {});
+    adminApi.users.referrals(userId).then(setRefs).catch(() => {});
     (async () => {
       try {
         const d = await adminApi.users.issueOffers(userId)
@@ -314,6 +318,8 @@ function UserDetailPage({ userId, goBack }) {
     { id: 'orders', label: `Ордера (${orders.length})` },
     { id: 'invoices', label: `СБП-платежи (${invoices.length})${stuckCount ? ` ⚠️${stuckCount}` : ''}` },
     { id: 'topups', label: `Пополнения (${topups.length})` },
+    { id: 'balance', label: `Баланс (${ledger.length})` },
+    { id: 'referrals', label: `Рефералы (${refs?.invited?.length ?? 0})` },
   ]
 
   return (
@@ -336,7 +342,11 @@ function UserDetailPage({ userId, goBack }) {
             <div style={{ fontSize: 14, lineHeight: 2 }}>
               <div><strong>Username:</strong> {user.username}</div>
               <div><strong>Telegram ID:</strong> {user.telegram_user_id || '—'}</div>
-              <div><strong>Баланс:</strong> ${fmt(user.balance)}</div>
+              <div><strong>Баланс:</strong> ${fmt(user.balance)} <span style={{ fontSize: 12, color: '#9ca3af' }}>(внутренний, см. вкладку «Баланс»)</span></div>
+              <div><strong>Реф. код:</strong> {refs?.referral_code || user.referral_code || '—'}
+                {refs?.referral_link && <span style={{ fontSize: 12, color: '#9ca3af', marginLeft: 6 }}>{refs.referral_link}</span>}</div>
+              <div><strong>Пригласил:</strong> {refs?.referrer ? `#${refs.referrer.id} ${refs.referrer.username}` : '—'}</div>
+              <div><strong>Рефералов:</strong> {refs?.referrals_count ?? 0} · <strong>заработано:</strong> ${fmt(refs?.referral_earned_usd)}</div>
               <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
                 <Btn small onClick={() => setEditMode(true)}>Редактировать</Btn>
                 <Btn small variant={user.is_active ? 'danger' : 'primary'} onClick={async () => {
@@ -495,6 +505,23 @@ function UserDetailPage({ userId, goBack }) {
         { key: 'status', label: 'Статус', render: r => badge(r.status, statusColor[r.status] || '#6b7280') },
         { key: 'payment_reference', label: 'Реф.' }, { key: 'comment', label: 'Коммент' },
       ]} rows={topups} />}
+
+      {tab === 'balance' && <Table columns={[
+        { key: 'id', label: 'ID' },
+        { key: 'type', label: 'Тип', render: r => badge(
+          ({ deposit: 'Пополнение', card_issue: 'Выпуск карты', card_topup: 'Пополнение карты', refund: 'Возврат', referral: 'Рефералка', admin_adjust: 'Админ' })[r.type] || r.type,
+          ({ deposit: '#22c55e', card_issue: '#6366f1', card_topup: '#0ea5e9', refund: '#f59e0b', referral: '#10b981', admin_adjust: '#6b7280' })[r.type] || '#6b7280') },
+        { key: 'amount', label: 'Сумма', render: r => <span style={{ color: r.amount > 0 ? '#16a34a' : '#111827', fontWeight: 600 }}>{r.amount > 0 ? '+' : ''}${fmt(r.amount)}</span> },
+        { key: 'balance_after', label: 'Баланс после', render: r => `$${fmt(r.balance_after)}` },
+        { key: 'description', label: 'Описание' },
+        { key: 'ref', label: 'Ссылки', render: r => [r.ref_invoice_id && `inv #${r.ref_invoice_id}`, r.ref_order_id && `order #${r.ref_order_id}`, r.ref_user_id && `user #${r.ref_user_id}`].filter(Boolean).join(', ') || '—' },
+        { key: 'created_at', label: 'Дата', render: r => r.created_at?.slice(0, 16).replace('T', ' ') },
+      ]} rows={ledger} />}
+
+      {tab === 'referrals' && <Table columns={[
+        { key: 'id', label: 'ID' }, { key: 'username', label: 'Username' }, { key: 'telegram_user_id', label: 'Telegram ID' },
+        { key: 'referred_at', label: 'Привязан', render: r => r.referred_at?.slice(0, 16).replace('T', ' ') || '—' },
+      ]} rows={refs?.invited || []} />}
     </div>
   )
 }
@@ -734,6 +761,11 @@ const SETTING_GROUPS = [
     title: '🖼 Промо-плашка Pay',
     desc: 'Тексты информационной плашки Pay (универсальная карта) на главной.',
     keys: ['CARD_PAY_PROMO_TITLE', 'CARD_PAY_PROMO_DESC', 'CARD_PAY_PROMO_BADGE', 'CARD_PAY_PROMO_PAYS', 'CARD_PAY_PROMO_BIN'],
+  },
+  {
+    title: '🎁 Рефералка и внутренний баланс',
+    desc: 'Пригласивший получает процент от покупок реферала (выпуск и пополнение карт, считается от суммы в $) на внутренний баланс. Реферал привязывается только к новым пользователям и один раз.',
+    keys: ['REFERRAL_PERCENT'],
   },
   {
     title: '⚙️ Прочее',

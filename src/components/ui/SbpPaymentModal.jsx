@@ -12,7 +12,7 @@
  *   onClose        — () => void
  *   onPaid         — (invoiceData) => void  called when status becomes captured/authorized
  *   amountRub      — number  exact amount in RUB (from admin settings or user input)
- *   purpose        — 'balance_topup' | 'card_issue'  (default: 'balance_topup')
+ *   purpose        — 'balance_topup' (card top-up) | 'card_issue' | 'balance_deposit' (internal balance)
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import api from '../../api/client'
@@ -318,7 +318,7 @@ export default function SbpPaymentModal({
                 )}
                 {requestedUsd > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#6B7280', borderTop: '1px solid #E5E7EB', paddingTop: 12 }}>
-                    <span>Вы получите</span>
+                    <span>{purpose === 'balance_deposit' ? 'Зачислится на баланс' : 'Вы получите'}</span>
                     <span>{requestedUsd.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} $</span>
                   </div>
                 )}
@@ -525,7 +525,11 @@ export default function SbpPaymentModal({
               <div style={{ fontSize: 48 }}>✅</div>
               <div style={{ fontSize: 17, fontWeight: 700, color: '#111827' }}>Оплата подтверждена</div>
               <div style={{ fontSize: 14, color: '#6B7280', textAlign: 'center' }}>
-                Баланс будет пополнен после конвертации USDT.
+                {purpose === 'card_issue'
+                  ? 'Карта выпускается — обычно это занимает до 5 минут.'
+                  : purpose === 'balance_deposit'
+                    ? 'Средства зачислятся на внутренний баланс в течение минуты.'
+                    : 'Карта будет пополнена в течение нескольких минут.'}
               </div>
               <Button onClick={onClose} fullWidth>Закрыть</Button>
             </div>

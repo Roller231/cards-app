@@ -896,6 +896,7 @@ class CardService:
                 issue_state = str(issue_payment.get("state") or "").upper()
                 if issue_state in {"CANCELED", "FAILED", "REFUNDED", "DEPOSIT_FAILED", "WITHDRAWAL_FAILED", "EXPIRED"}:
                     order.status = "failed"
+                    await self._refund_balance_charge(db, user, order, f"выпуск карты не выполнен ({issue_state})")
                     if order.card_id:
                         linked_card = await self._resolve_card(db, user.id, str(order.card_id))
                         linked_card.status = "failed"
@@ -911,7 +912,7 @@ class CardService:
                         )
                     except Exception as _n:
                         logger.warning("Card issue failure notification error: %s", _n)
-                    
+
                     # If payment was REFUNDED, O-Plata returned provider fee to user's wallet.
                     # Transfer it back to parent to maintain balance consistency.
                     if issue_state == "REFUNDED" and provider_fee_amount > 0:
@@ -931,7 +932,7 @@ class CardService:
                                 "Failed to refund to parent after REFUNDED issue for user_id=%s: %s",
                                 user.id, refund_exc,
                             )
-                    
+
                     await db.commit()
                     return
 
@@ -1142,7 +1143,7 @@ class CardService:
             raise RuntimeError(
                 "KYC verification required. Please complete identity verification before issuing a card."
             )
-        
+
         kyc_first_name = user.kyc_first_name
         kyc_last_name = user.kyc_last_name
         kyc_middle_name = user.kyc_patronymic or ""
@@ -1225,7 +1226,7 @@ class CardService:
             kyc_passport_issue_date = _to_iso_date(user.kyc_passport_issue_date) or "2025-01-01"
             # Use user's selected gender, default to FEMALE if not set
             kyc_gender = user.gender if user.gender in ("MALE", "FEMALE") else "FEMALE"
-            
+
             # O-Plata rejects the doc-example default phone (+71234567890):
             # the card issue payment is accepted and then silently REFUNDED.
             _phone = _ru_phone(user)
@@ -1542,13 +1543,13 @@ class CardService:
         if user_client_id == parent:
             logger.debug("User is parent client, skipping self-refund")
             return
-        
+
         # Get parent wallet ID
         parent_wallet_id = await self._resolve_client_wallet_id(parent)
-        
+
         # Snapshot user's pre-refund balance
         prev_balance = await self._get_user_currency_balance(user_client_id, currency_code)
-        
+
         if prev_balance < amount:
             logger.warning(
                 "User wallet balance (%s %s) is less than refund amount (%s) for client=%s — will attempt partial refund",
@@ -1559,7 +1560,7 @@ class CardService:
             if amount <= 0:
                 logger.error("User wallet has no funds to refund for client=%s currency=%s", user_client_id, currency_code)
                 return
-        
+
         result: Any = None
         last_exc: Optional[Exception] = None
         max_attempts = 5
@@ -1586,7 +1587,7 @@ class CardService:
                 if attempt < max_attempts:
                     backoff = min(2 ** (attempt - 1), 8)
                     await asyncio.sleep(backoff)
-        
+
         if last_exc is not None:
             logger.error(
                 "User->Parent refund transfer FAILED after %s attempts: from=%s to=%s wallet=%s amount=%s %s: %s",
@@ -1594,7 +1595,7 @@ class CardService:
             )
             # Don't raise — this is a cleanup operation, we don't want to fail the whole flow
             return
-        
+
         # Confirm the refund transfer on user side
         transfer_uuid = ""
         if isinstance(result, dict):
@@ -1612,7 +1613,7 @@ class CardService:
                     "User refund transfer confirm failed for user=%s uuid=%s: %s",
                     user_client_id, transfer_uuid, exc,
                 )
-        
+
         # Wait for balance to decrease (funds left user wallet)
         try:
             await self._wait_for_user_balance_decrease(
@@ -1783,6 +1784,59 @@ class CardService:
         return "USDT"
 
     # ------------------------------------------------------------------
+    # Internal-balance payments
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _balance_charge_tag(charge: Optional[Decimal]) -> str:
+        """Order description suffix marking an operation paid from the internal
+        balance; parsed back by _refund_balance_charge on failure."""
+        return f" balance_charge:{Decimal(str(charge)):.2f}" if charge and Decimal(str(charge)) > 0 else ""
+
+    @staticmethod
+    def _balance_charge_of(order: Optional[Order]) -> Decimal:
+        import re as _re
+        if not order or not order.description:
+            return Decimal("0")
+        m = _re.search(r"balance_charge:([0-9]+(?:\.[0-9]+)?)", order.description)
+        return Decimal(m.group(1)) if m else Decimal("0")
+
+    async def _refund_balance_charge(self, db: AsyncSession, user: User, order: Optional[Order], reason: str) -> None:
+        """If the order was paid from the internal balance, give the money
+        back (idempotent per order) and tell the user."""
+        charge = self._balance_charge_of(order)
+        if charge <= 0 or not order:
+            return
+        try:
+            from app.services import wallet_service
+            refunded = await wallet_service.refund_order_charge(db, user, order.id, charge, reason)
+            if refunded:
+                logger.info("Balance charge refunded: user_id=%s order_id=%s amount=%s (%s)", user.id, order.id, charge, reason)
+                try:
+                    from app.services.telegram_bot_service import send_notification
+                    if user.telegram_user_id:
+                        await send_notification(
+                            user.telegram_user_id,
+                            f"<b>↩️ Возврат на баланс</b>\n\nОперация не выполнена, "
+                            f"<b>${float(charge):.2f}</b> возвращены на внутренний баланс.\n"
+                            f"💼 Баланс: <b>${float(user.balance):.2f}</b>",
+                        )
+                except Exception as _n:
+                    logger.warning("Refund notification failed for user_id=%s: %s", user.id, _n)
+        except Exception as exc:
+            logger.error("Balance refund failed for user_id=%s order_id=%s: %s", user.id, getattr(order, "id", None), exc)
+
+    async def _award_balance_referral(self, db: AsyncSession, user: User, order: Order, kind: str) -> None:
+        charge = self._balance_charge_of(order)
+        if charge <= 0:
+            return
+        try:
+            from app.services import wallet_service
+            await wallet_service.award_referral(db, user, charge, kind, ref_order_id=order.id)
+        except Exception as exc:
+            logger.warning("Referral reward (balance %s) failed for user_id=%s order_id=%s: %s", kind, user.id, order.id, exc)
+
+    # ------------------------------------------------------------------
     # Issue card
     # ------------------------------------------------------------------
 
@@ -1799,8 +1853,13 @@ class CardService:
         eager_placeholder_commit: bool = False,
         defer_follow_up: bool = False,
         sbp_invoice_id: Optional[int] = None,
+        balance_charge_usd: Optional[Decimal] = None,
     ) -> Dict[str, Any]:
-        """Issue a virtual card via O-Plata for the given user."""
+        """Issue a virtual card via O-Plata for the given user.
+
+        balance_charge_usd: set when the caller already debited the user's
+        internal balance for this issuance; it is tagged on the order so a
+        failed issuance refunds it, and the referral reward is booked on it."""
         ravana_server_id, type_uuid = _parse_offer_id(offer_id)
         is_univ = _is_univ_ravana(ravana_server_id)
         client_id = _client_id_for_ravana(user, ravana_server_id)
@@ -1856,7 +1915,7 @@ class CardService:
             provider_balance_currency = str(provider.get("balanceCurrency") or provider.get("cardCurrency") or "USDT")
             max_issued_count = int(provider.get("maxIssuedCount") or 999)
             current_cards_count = len(provider.get("cardsList") or [])
-            
+
             logger.info(
                 "O-Plata provider requirements for %s on %s: clientMDMDataTypes=%s registered=%s issueConstantFee=%s balanceCurrency=%s maxIssuedCount=%s currentCount=%s",
                 client_id,
@@ -1868,7 +1927,7 @@ class CardService:
                 max_issued_count,
                 current_cards_count,
             )
-            
+
             # Check if user has reached the maximum number of cards for this provider
             if current_cards_count >= max_issued_count:
                 raise ValueError(
@@ -1929,11 +1988,11 @@ class CardService:
         # 2. Get admin-configured pricing
         from sqlalchemy import select as _select
         from app.models.admin_setting import AdminSetting
-        
+
         result = await db.execute(_select(AdminSetting).where(AdminSetting.key == "CARD_ISSUANCE_PRICE_USD"))
         price_setting = result.scalar_one_or_none()
         user_payment = Decimal(str(price_setting.value if price_setting else "10.0"))
-        
+
         # Card will be issued with zero balance (no initial funding)
         card_amount = Decimal("0")
         if settings.DETAILED_DEV_LOGS:
@@ -2022,11 +2081,17 @@ class CardService:
             amount=card_amount,
             fee=user_payment - card_amount,
             status="pending",
-            description=f"Card issuance: {ravana_server_id}:{type_uuid}" + (f" sbp_invoice:{sbp_invoice_id}" if sbp_invoice_id else ""),
+            description=(
+                f"Card issuance: {ravana_server_id}:{type_uuid}"
+                + (f" sbp_invoice:{sbp_invoice_id}" if sbp_invoice_id else "")
+                + self._balance_charge_tag(balance_charge_usd)
+            ),
         )
         db.add(order)
         await db.flush()
         order.status = "processing"
+        if balance_charge_usd:
+            await self._award_balance_referral(db, user, order, "card_issue")
         if eager_placeholder_commit or defer_follow_up:
             await db.commit()
             logger.info(
@@ -2069,6 +2134,7 @@ class CardService:
                 linked_card = await self._resolve_card(db, user.id, str(order.card_id))
                 linked_card.status = "failed"
                 linked_card.card_status = 0
+            await self._refund_balance_charge(db, user, order, f"выпуск карты не выполнен ({issue_state})")
             await notify_card_issued(
                 db=db, user=user,
                 card_amount=float(card_amount),
@@ -2560,8 +2626,12 @@ class CardService:
         card_id: str,
         amount: float,
         skip_balance_check: bool = False,
+        balance_charge_usd: Optional[Decimal] = None,
     ) -> Dict[str, Any]:
-        """Top up a specific card balance via O-Plata."""
+        """Top up a specific card balance via O-Plata.
+
+        balance_charge_usd: already debited from the internal balance by the
+        caller (tagged on the order for refund / referral bookkeeping)."""
         card = await self._resolve_card(db, user.id, card_id)
 
         if not card.aifory_card_id:
@@ -2690,10 +2760,12 @@ class CardService:
             amount=base_amount,
             fee=our_profit,
             status="pending",
-            description=f"Card top-up: ${amount:.2f} to card ...{card.aifory_card_id[-8:]}",
+            description=f"Card top-up: ${amount:.2f} to card ...{card.aifory_card_id[-8:]}" + self._balance_charge_tag(balance_charge_usd),
         )
         db.add(order)
         await db.flush()
+        if balance_charge_usd:
+            await self._award_balance_referral(db, user, order, "card_topup")
 
         topup_payment = await self._follow_payment(client_id, payment_uuid, "topup")
         topup_payment_state = str(topup_payment.get("state") or "").upper() if topup_payment else ""
@@ -2709,6 +2781,7 @@ class CardService:
             order.status = "completed"
         elif topup_payment_state in {"CANCELED", "FAILED", "REFUNDED", "DEPOSIT_FAILED", "WITHDRAWAL_FAILED", "EXPIRED"}:
             order.status = "failed"
+            await self._refund_balance_charge(db, user, order, f"пополнение карты не выполнено ({topup_payment_state})")
 
         # Only notify on terminal FAILURE states. Successful top-ups are announced
         # by the regular per-transaction notification from the transaction sync,
@@ -2730,7 +2803,7 @@ class CardService:
                 order.notified = True
             except Exception as _n:
                 logger.warning("Topup notification error: %s", _n)
-            
+
             # If payment was REFUNDED, O-Plata returned funds to user's wallet.
             # Transfer them back to parent to maintain balance consistency.
             if topup_payment_state == "REFUNDED":
@@ -2828,6 +2901,7 @@ class CardService:
         email: Optional[str],
         document_number: Optional[str],
         skip_balance_check: bool,
+        balance_charge_usd: Optional[Decimal] = None,
     ) -> None:
         async with AsyncSessionLocal() as db:
             try:
@@ -2846,6 +2920,7 @@ class CardService:
                     document_number=document_number,
                     skip_balance_check=skip_balance_check,
                     defer_follow_up=True,
+                    balance_charge_usd=balance_charge_usd,
                 )
                 await db.commit()
             except Exception as exc:
@@ -2857,6 +2932,21 @@ class CardService:
                     await db.rollback()
                 except Exception:
                     pass
+                # Paid from the internal balance and nothing was created at the
+                # provider (no order survived the rollback): give the money back.
+                if balance_charge_usd:
+                    try:
+                        user_result = await db.execute(select(User).where(User.id == user_id))
+                        user = user_result.scalar_one_or_none()
+                        if user:
+                            from app.services import wallet_service
+                            await wallet_service.credit(
+                                db, user, balance_charge_usd, "refund",
+                                f"Возврат: выпуск карты не выполнен ({str(exc)[:120]})",
+                            )
+                            await db.commit()
+                    except Exception as _r:
+                        logger.error("Balance refund after failed issue for user_id=%s: %s", user_id, _r)
                 try:
                     user_result = await db.execute(select(User).where(User.id == user_id))
                     user = user_result.scalar_one_or_none()
@@ -2914,6 +3004,7 @@ class CardService:
         email: Optional[str] = None,
         document_number: Optional[str] = None,
         skip_balance_check: bool = False,
+        balance_charge_usd: Optional[Decimal] = None,
     ) -> None:
         asyncio.create_task(
             self._run_issue_in_background(
@@ -2924,6 +3015,7 @@ class CardService:
                 email=email,
                 document_number=document_number,
                 skip_balance_check=skip_balance_check,
+                balance_charge_usd=balance_charge_usd,
             )
         )
 
@@ -2938,6 +3030,7 @@ class CardService:
         card_id: str,
         amount: float,
         skip_balance_check: bool,
+        balance_charge_usd: Optional[Decimal] = None,
     ) -> None:
         key = f"{user_id}:{card_id}"
         if key in self._deposits_in_flight:
@@ -2945,7 +3038,7 @@ class CardService:
             return
         self._deposits_in_flight.add(key)
         try:
-            await self._run_deposit_in_background_inner(user_id, card_id, amount, skip_balance_check)
+            await self._run_deposit_in_background_inner(user_id, card_id, amount, skip_balance_check, balance_charge_usd)
         finally:
             self._deposits_in_flight.discard(key)
 
@@ -2955,6 +3048,7 @@ class CardService:
         card_id: str,
         amount: float,
         skip_balance_check: bool,
+        balance_charge_usd: Optional[Decimal] = None,
     ) -> None:
         async with AsyncSessionLocal() as db:
             try:
@@ -2969,6 +3063,7 @@ class CardService:
                     card_id=card_id,
                     amount=amount,
                     skip_balance_check=skip_balance_check,
+                    balance_charge_usd=balance_charge_usd,
                 )
                 await db.commit()
             except Exception as exc:
@@ -2980,6 +3075,19 @@ class CardService:
                     await db.rollback()
                 except Exception:
                     pass
+                if balance_charge_usd:
+                    try:
+                        user_result = await db.execute(select(User).where(User.id == user_id))
+                        user = user_result.scalar_one_or_none()
+                        if user:
+                            from app.services import wallet_service
+                            await wallet_service.credit(
+                                db, user, balance_charge_usd, "refund",
+                                f"Возврат: пополнение карты не выполнено ({str(exc)[:120]})",
+                            )
+                            await db.commit()
+                    except Exception as _r:
+                        logger.error("Balance refund after failed deposit for user_id=%s: %s", user_id, _r)
                 try:
                     user_result = await db.execute(select(User).where(User.id == user_id))
                     user = user_result.scalar_one_or_none()
@@ -3044,6 +3152,8 @@ class CardService:
                 if order:
                     order.status = "completed" if success else "failed"
                     order.notified = True
+                    if not success:
+                        await self._refund_balance_charge(db, user, order, f"пополнение карты не выполнено ({final_state})")
                 # Successful top-ups are announced by the regular per-transaction
                 # notification from the transaction sync — only failures get a
                 # dedicated message here.
@@ -3094,6 +3204,7 @@ class CardService:
         card_id: str,
         amount: float,
         skip_balance_check: bool = False,
+        balance_charge_usd: Optional[Decimal] = None,
     ) -> None:
         asyncio.create_task(
             self._run_deposit_in_background(
@@ -3101,6 +3212,7 @@ class CardService:
                 card_id=card_id,
                 amount=amount,
                 skip_balance_check=skip_balance_check,
+                balance_charge_usd=balance_charge_usd,
             )
         )
 

@@ -45,6 +45,13 @@ class User(Base):
     # Bump only for users without live cards on the current client.
     client_seq = Column(Integer, nullable=False, default=0, server_default="0")
 
+    # Referral program. referral_code is the user's own invite code (part of
+    # the t.me/<bot>/<app>?startapp=<code> link); referrer_id is who invited
+    # THIS user — set once, on account creation only, never changed.
+    referral_code = Column(String(16), unique=True, nullable=True, index=True)
+    referrer_id = Column(BigInteger, nullable=True, index=True)
+    referred_at = Column(DateTime, nullable=True)
+
     cards = relationship("Card", back_populates="user", lazy="select")
     orders = relationship("Order", back_populates="user", lazy="select")
     topup_requests = relationship("BalanceTopUpRequest", back_populates="user", lazy="select")

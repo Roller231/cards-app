@@ -108,6 +108,15 @@ async def _ensure_user_from_start(db: AsyncSession, message: dict, chat_id: int)
     user = User(username=candidate, hashed_password=None, telegram_user_id=tg_id)
     db.add(user)
     await db.flush()
+    # "/start <payload>" from an invite link (t.me/<bot>?start=<code>): bind
+    # the inviter now — this is the user's very first contact with us.
+    try:
+        from app.services.wallet_service import attach_referrer
+        parts = (message.get("text") or "").split(maxsplit=1)
+        if len(parts) == 2:
+            await attach_referrer(db, user, parts[1])
+    except Exception as exc:
+        logger.warning("Referral attach on /start failed for tg_id=%s: %s", tg_id, exc)
     await db.commit()
     await db.refresh(user)
     logger.info("Created local user from /start: id=%s tg_id=%s username=%s", user.id, tg_id, candidate)
@@ -461,7 +470,12 @@ async def notify_sbp_payment(
         return
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc).strftime("%d.%m.%Y %H:%M UTC")
-    action = "карта будет выпущена" if purpose == "card_issue" else "карта будет пополнена"
+    if purpose == "card_issue":
+        action = "карта будет выпущена"
+    elif purpose == "balance_deposit":
+        action = "внутренний баланс будет пополнен"
+    else:
+        action = "карта будет пополнена"
     if success:
         header = await _get_setting(db, "BOT_NOTIFY_SBP_RECEIVED_HEADER", "✅ Платёж получен")
         text = (
@@ -481,6 +495,41 @@ async def notify_sbp_payment(
             f"🕐 {now}"
         )
     await send_notification(user.telegram_user_id, text)
+
+
+async def notify_balance_deposit(user: User, amount_usd: float, amount_rub: float, balance: float) -> None:
+    """Internal balance credited from an SBP payment."""
+    if not user.telegram_user_id:
+        return
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).strftime("%d.%m.%Y %H:%M UTC")
+    text = (
+        "<b>💰 Баланс пополнен</b>\n\n"
+        f"➕ Зачислено: <b>${amount_usd:.2f}</b> (оплачено {amount_rub:.0f} ₽)\n"
+        f"💼 Баланс: <b>${balance:.2f}</b>\n"
+        "Теперь можно выпускать и пополнять карты с баланса без комиссии СБП.\n"
+        f"🕐 {now}"
+    )
+    await send_notification(user.telegram_user_id, text)
+
+
+async def notify_referral_reward(
+    referrer: User, buyer: User, reward_usd: float, base_usd: float, label: str, balance: float,
+) -> None:
+    """The inviter earned a percentage of their referral's purchase."""
+    if not referrer.telegram_user_id:
+        return
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).strftime("%d.%m.%Y %H:%M UTC")
+    who = f"@{_html.escape(buyer.username)}" if buyer.username and not buyer.username.startswith("tg_") else "ваш реферал"
+    text = (
+        "<b>🎁 Реферальное начисление</b>\n\n"
+        f"👤 {who}: {label} на <b>${base_usd:.2f}</b>\n"
+        f"➕ Вам начислено: <b>${reward_usd:.2f}</b>\n"
+        f"💼 Баланс: <b>${balance:.2f}</b>\n"
+        f"🕐 {now}"
+    )
+    await send_notification(referrer.telegram_user_id, text)
 
 
 # ─── polling loop ──────────────────────────────────────────────────────────

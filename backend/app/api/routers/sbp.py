@@ -121,7 +121,7 @@ class KycRequest(BaseModel):
 
 class InvoiceCreateRequest(BaseModel):
     amount_rub: float
-    purpose: str = "balance_topup"  # "balance_topup" | "card_issue"
+    purpose: str = "balance_topup"  # "balance_topup" (card top-up) | "card_issue" | "balance_deposit" (internal balance)
     offer_id: Optional[str] = None  # required when purpose=card_issue
     card_id: Optional[str] = None   # required when purpose=balance_topup (local card UUID)
     amount_usd_requested: Optional[float] = None  # exact USD amount user wants deposited to card
@@ -180,20 +180,12 @@ async def get_public_rate():
 async def get_sbp_rate(db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)):
     """Rate formula (always applies): [Bitbanker index] × three admin-configured
     multipliers. Also returns the fixed fee applied to payments below threshold."""
+    from app.services.rate_service import RateUnavailable, apply_multipliers, get_bb_index
     try:
-        pred = await bitbanker_client.get_exchange_prediction(10000)
-        index = float(pred.get("approximate_rate") or 0)
-    except Exception as exc:
-        logger.warning("[SBP] rate: exchange prediction failed: %s", str(exc)[:200])
-        index = 0.0
-    if index <= 0:
-        raise HTTPException(status_code=502, detail="Курс временно недоступен. Попробуйте позже.")
-    rate = (
-        index
-        * (1 + settings.SBP_BITBANKER_FEE_PERCENT / 100)
-        * (1 + settings.SBP_OUR_FEE_PERCENT / 100)
-        * (1 + settings.SBP_CLARUS_FEE_PERCENT / 100)
-    )
+        index = await get_bb_index()
+    except RateUnavailable as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    rate = apply_multipliers(index)
     bb_fee, bb_fee_min = await _get_bb_fee_params()
 
     # Day-over-day change: lazily snapshot the first rate seen each MSK day,
@@ -410,8 +402,10 @@ async def create_invoice(
             status_code=400,
             detail=f"Максимальная сумма перевода по СБП — {SBP_MAX_AMOUNT_RUB:,} ₽.".replace(",", " "),
         )
-    if body.purpose not in ("balance_topup", "card_issue"):
-        raise HTTPException(status_code=400, detail="purpose must be balance_topup or card_issue")
+    if body.purpose not in ("balance_topup", "card_issue", "balance_deposit"):
+        raise HTTPException(status_code=400, detail="purpose must be balance_topup, card_issue or balance_deposit")
+    if body.purpose == "balance_deposit" and not (body.amount_usd_requested and float(body.amount_usd_requested) > 0):
+        raise HTTPException(status_code=400, detail="amount_usd_requested is required for balance_deposit")
 
     # Admin toggles: refuse payment for a disabled card type
     if body.purpose == "card_issue" and body.offer_id:
@@ -511,10 +505,12 @@ async def create_invoice(
     
     idempotency_key = f"inv-{current_user.id}-{_uuid.uuid4().hex[:16]}"
 
-    description = (
-        "Выпуск карты ProntoPay" if body.purpose == "card_issue"
-        else f"Пополнение баланса {int(body.amount_rub)} руб."
-    )
+    if body.purpose == "card_issue":
+        description = "Выпуск карты ProntoPay"
+    elif body.purpose == "balance_deposit":
+        description = f"Пополнение баланса ProntoPay {int(body.amount_rub)} руб."
+    else:
+        description = f"Пополнение баланса {int(body.amount_rub)} руб."
     try:
         # Discounted amount goes to Bitbanker; the bank grosses it back up by the
         # acquiring fee, so the user's QR ≈ body.amount_rub (what the app showed).
@@ -781,6 +777,11 @@ async def _trigger_post_payment_inner(invoice_id: int) -> None:
 
             from app.services.card_service import card_service
 
+            if invoice.purpose == "balance_deposit":
+                # Credited to the internal balance in _credit_user_balance --
+                # no provider action needed.
+                return
+
             if invoice.purpose == "balance_topup":
                 if not invoice.card_id:
                     logger.warning("[SBP] balance_topup invoice %s has no card_id — cannot deposit", invoice_id)
@@ -860,7 +861,18 @@ async def _trigger_post_payment_inner(invoice_id: int) -> None:
 
 
 async def _credit_user_balance(db: AsyncSession, invoice: BbInvoice, bb_payload: Dict[str, Any]) -> None:
-    """Credit user's local USD balance based on the exchange_deal in the Bitbanker response."""
+    """First-capture bookkeeping for a paid invoice.
+
+    * balance_deposit: credits the user's INTERNAL balance with the USD amount
+      the app showed (amount_usd_requested) and notifies the user.
+    * card_issue / balance_topup: the money buys a card / card top-up, the
+      internal balance is NOT touched (before this the balance was credited for
+      every payment and never spent -- phantom money). Only the referral reward
+      for the inviter is booked here.
+
+    invoice.amount_usd doubles as the "already processed" marker, so it is set
+    for every purpose.
+    """
     # Refresh to get latest state and avoid race condition
     await db.refresh(invoice)
     if invoice.amount_usd:
@@ -872,25 +884,65 @@ async def _credit_user_balance(db: AsyncSession, invoice: BbInvoice, bb_payload:
         for deal in exchange_deals:
             if str(deal.get("take_currency", "")).upper() == "USDT":
                 usd_received += Decimal(str(deal.get("volume_take_final") or deal.get("volume_take") or 0))
-    
+
+    # USD value of the payment at the APP rate (what the user was quoted)
+    usd_at_app_rate = Decimal("0")
+    try:
+        from app.services.rate_service import get_app_rate
+        _rate = Decimal(str(await get_app_rate()))
+        if _rate > 0:
+            usd_at_app_rate = (Decimal(str(invoice.amount_rub)) / _rate).quantize(Decimal("0.01"))
+    except Exception as exc:
+        logger.warning("[SBP] app rate unavailable while booking invoice_id=%s: %s", invoice.id, exc)
+
     if usd_received <= 0:
-        # Fallback: rough estimate from RUB amount
-        usd_received = invoice.amount_rub * RUB_TO_USD_FALLBACK
-        logger.info("[SBP] No exchange_deal in payload, using fallback rate. usd=%s", usd_received)
+        usd_received = usd_at_app_rate if usd_at_app_rate > 0 else invoice.amount_rub * RUB_TO_USD_FALLBACK
+        logger.info("[SBP] No exchange_deal in payload, using app-rate estimate usd=%s", usd_received)
 
     user_result = await db.execute(select(User).where(User.id == invoice.user_id))
     user = user_result.scalar_one_or_none()
-    if user:
-        user.balance = Decimal(str(user.balance or 0)) + usd_received
-        invoice.amount_usd = usd_received
-        logger.info("[SBP] Credited user_id=%s +%s USD (invoice_id=%s)", user.id, usd_received, invoice.id)
+    if not user:
+        return
+
+    from app.services import wallet_service
+
+    if invoice.purpose == "balance_deposit":
+        credit_usd = Decimal(str(invoice.amount_usd_requested or 0))
+        if credit_usd <= 0:
+            credit_usd = usd_received
+        invoice.amount_usd = credit_usd
+        await wallet_service.credit(
+            db, user, credit_usd, "deposit",
+            f"Пополнение баланса по СБП ({float(invoice.amount_rub):.0f} руб.)",
+            ref_invoice_id=invoice.id,
+        )
+        logger.info("[SBP] Internal balance credited user_id=%s +%s USD (invoice_id=%s)", user.id, credit_usd, invoice.id)
+        try:
+            from app.services.telegram_bot_service import notify_balance_deposit
+            await notify_balance_deposit(user, float(credit_usd), float(invoice.amount_rub), float(user.balance))
+        except Exception as exc:
+            logger.warning("[SBP] balance deposit notification failed for user_id=%s: %s", user.id, exc)
+        return
+
+    # card_issue / balance_topup: record the USD value for reporting only
+    invoice.amount_usd = usd_received
+    if invoice.purpose == "balance_topup":
+        paid_usd = Decimal(str(invoice.amount_usd_requested or 0)) or usd_at_app_rate or usd_received
+        kind = "card_topup"
+    else:
+        paid_usd = usd_at_app_rate if usd_at_app_rate > 0 else usd_received
+        kind = "card_issue"
+    try:
+        await wallet_service.award_referral(db, user, paid_usd, kind, ref_invoice_id=invoice.id)
+    except Exception as exc:
+        logger.warning("[SBP] referral reward failed for invoice_id=%s: %s", invoice.id, exc)
 
 
 # =====================  PROMO CODES (user side)  =====================
 
 class PromoValidateRequest(BaseModel):
     code: str
-    purpose: str = "balance_topup"      # balance_topup | card_issue
+    purpose: str = "balance_topup"      # balance_topup | card_issue | balance_deposit
     offer_id: Optional[str] = None      # for card_issue: resolves the card type
     amount_rub: Optional[float] = None  # undiscounted amount for a live preview
 
@@ -905,8 +957,8 @@ async def validate_promo(
     from app.services.promo_service import (
         PromoError, TYPE_LABELS, compute_discount_rub, describe_discount, get_valid_promo,
     )
-    if body.purpose not in ("balance_topup", "card_issue"):
-        raise HTTPException(status_code=400, detail="purpose must be balance_topup or card_issue")
+    if body.purpose not in ("balance_topup", "card_issue", "balance_deposit"):
+        raise HTTPException(status_code=400, detail="purpose must be balance_topup, card_issue or balance_deposit")
     _ct = _CN.get(body.offer_id) if body.offer_id else None
     try:
         promo = await get_valid_promo(db, body.code, current_user, body.purpose, _ct)

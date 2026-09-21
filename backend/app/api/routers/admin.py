@@ -69,6 +69,7 @@ SETTINGS_KEYS: Dict[str, Dict[str, Any]] = {
     "CARD_BILLING_ADDRESS": {"desc": "Биллинговый адрес карт (блок «Информация по карте»)", "type": str},
     "AUTO_RECOVER_ENABLED": {"desc": "Авто-дожим оплаченных инвойсов (повтор выпуска/пополнения при сбоях)", "type": bool},
     "ADMIN_ALERT_CHAT_ID": {"desc": "Telegram chat_id для алертов (несколько — через запятую: 123,456)", "type": str},
+    "REFERRAL_PERCENT": {"desc": "Реферальный процент: сколько % от покупок реферала (выпуск/пополнение карты, в $) получает пригласивший на внутренний баланс", "type": float},
     "ONLINE_CARD_VALIDITY_TEXT": {"desc": "Online card validity text", "type": str},
     "ONLINE_PLUS_CARD_VALIDITY_TEXT": {"desc": "Online+ card validity text", "type": str},
     "ONLINE_OPERATION_FEE_USD": {"desc": "Online card operation fee (USD)", "type": float},
@@ -103,6 +104,9 @@ def _user_dict(u: User, cards_count: int = 0) -> dict:
         "balance": float(u.balance),
         "is_active": u.is_active,
         "cards_count": cards_count,
+        "referral_code": u.referral_code,
+        "referrer_id": u.referrer_id,
+        "referred_at": u.referred_at.isoformat() if u.referred_at else None,
     }
 
 
@@ -245,12 +249,57 @@ async def update_user(user_id: int, body: UserUpdateRequest, db: AsyncSession = 
     if body.username is not None:
         user.username = body.username
     if body.balance is not None:
-        user.balance = Decimal(str(body.balance))
+        new_bal = Decimal(str(body.balance)).quantize(Decimal("0.01"))
+        delta = new_bal - Decimal(str(user.balance or 0))
+        if delta != 0:
+            from app.services import wallet_service
+            if delta > 0:
+                await wallet_service.credit(db, user, delta, "admin_adjust", "Изменено администратором")
+            else:
+                await wallet_service.debit(db, user, -delta, "admin_adjust", "Изменено администратором")
     if body.is_active is not None:
         user.is_active = body.is_active
     if body.telegram_user_id is not None:
         user.telegram_user_id = body.telegram_user_id
     return _user_dict(user)
+
+
+@router.get("/users/{user_id}/balance-history", summary="Internal balance ledger of a user")
+async def user_balance_history(user_id: int, limit: int = Query(100, ge=1, le=500), db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+    from app.services import wallet_service
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if not user:
+        raise HTTPException(404, "User not found")
+    items = await wallet_service.history(db, user_id, limit=limit)
+    return {"items": items, "balance": float(user.balance or 0)}
+
+
+@router.get("/users/{user_id}/referrals", summary="Users invited by this user + referrer info")
+async def user_referrals(user_id: int, db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+    from app.services import wallet_service
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if not user:
+        raise HTTPException(404, "User not found")
+    referrer = None
+    if user.referrer_id:
+        r = (await db.execute(select(User).where(User.id == user.referrer_id))).scalar_one_or_none()
+        if r:
+            referrer = {"id": r.id, "username": r.username, "telegram_user_id": r.telegram_user_id}
+    invited = (await db.execute(
+        select(User).where(User.referrer_id == user_id).order_by(User.id.desc())
+    )).scalars().all()
+    stats = await wallet_service.referral_stats(db, user_id)
+    return {
+        "referral_code": user.referral_code,
+        "referral_link": wallet_service.referral_link(user.referral_code) if user.referral_code else None,
+        "referrer": referrer,
+        "invited": [
+            {"id": u.id, "username": u.username, "telegram_user_id": u.telegram_user_id,
+             "referred_at": u.referred_at.isoformat() if u.referred_at else None}
+            for u in invited
+        ],
+        **stats,
+    }
 
 
 @router.post("/users/{user_id}/ban", summary="Ban user")

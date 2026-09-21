@@ -145,6 +145,7 @@ async def get_config(db: AsyncSession = Depends(get_db)):
         "card_issuance_price_pay_rub": price_pay_rub,
         "card_issuance_price_univ_rub": price_univ_rub,
         "card_billing_address": settings.CARD_BILLING_ADDRESS,
+        "referral_percent": settings.REFERRAL_PERCENT,
         # Промо-плашки на главной — все поля из админки
         "cards_promo": {
             "online": {
@@ -232,9 +233,12 @@ def _verify_telegram_init_data(init_data: str) -> dict:
         raise HTTPException(status_code=400, detail="No user data in initData")
 
     try:
-        return json.loads(user_json)
+        parsed = json.loads(user_json)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid user JSON in initData")
+    # startapp=<code> deep-link payload (signed together with the rest)
+    parsed["_start_param"] = params.get("start_param") or ""
+    return parsed
 
 
 @router.post(
@@ -269,6 +273,13 @@ async def telegram_webapp_auth(body: TelegramWebAppRequest, db: AsyncSession = D
         user = User(username=candidate, hashed_password=None, telegram_user_id=tg_id)
         db.add(user)
         await db.flush()
+        # Referral attribution happens ONLY here, for a brand-new account:
+        # an existing user opening an invite link is never re-attributed.
+        try:
+            from app.services.wallet_service import attach_referrer
+            await attach_referrer(db, user, tg_user.get("_start_param"))
+        except Exception as exc:
+            _auth_log.warning("Referral attach failed for tg_id=%s: %s", tg_id, exc)
 
     if not user.is_active:
         raise HTTPException(status_code=401, detail="User is inactive")
