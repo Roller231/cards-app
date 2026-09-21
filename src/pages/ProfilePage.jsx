@@ -238,10 +238,17 @@ export default function ProfilePage() {
         <Card padding="20px">
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{
-              width: 44, height: 44, borderRadius: 14, flexShrink: 0,
-              background: 'linear-gradient(135deg, #10B981 0%, #34D399 100%)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22,
-            }}>🎁</div>
+              width: 46, height: 46, borderRadius: 23, flexShrink: 0,
+              background: 'linear-gradient(135deg, #DC4D35 0%, #E8785F 100%)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              {/* "invite a friend": two people, same line style as the tab bar icons */}
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                <circle cx="9.5" cy="8" r="3.4" stroke="#FFFFFF" strokeWidth="1.9" />
+                <path d="M3.2 19.3c.8-3.2 3.3-5 6.3-5s5.5 1.8 6.3 5" stroke="#FFFFFF" strokeWidth="1.9" strokeLinecap="round" />
+                <path d="M18.5 8.2v5M16 10.7h5" stroke="#FFFFFF" strokeWidth="1.9" strokeLinecap="round" />
+              </svg>
+            </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: '#111827', fontFamily: font }}>Приглашайте друзей</div>
               <div style={{ fontSize: 13, color: '#6B7280', fontFamily: font, marginTop: 2, lineHeight: 1.4 }}>
@@ -259,7 +266,7 @@ export default function ProfilePage() {
             </div>
             <div style={{ flex: 1, background: '#F3F5F8', borderRadius: 12, padding: '10px 12px' }}>
               <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: font, fontWeight: 600 }}>Заработано</div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: '#10B981', fontFamily: font }}>{money(profile?.referral_earned_usd)}</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#111827', fontFamily: font }}>{money(profile?.referral_earned_usd)}</div>
             </div>
           </div>
 
