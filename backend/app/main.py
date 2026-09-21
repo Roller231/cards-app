@@ -273,8 +273,8 @@ def check_and_update_schema(conn):
             rows = conn.execute(text("SELECT id, balance FROM users WHERE balance <> 0")).fetchall()
             for uid, bal in rows:
                 conn.execute(
-                    text("INSERT INTO balance_transactions (user_id, type, amount, balance_after, description) "
-                         "VALUES (:uid, 'admin_adjust', :amt, 0, 'Сброс фантомного баланса (миграция внутреннего баланса)')"),
+                    text("INSERT INTO balance_transactions (user_id, type, amount, balance_after, description, created_at) "
+                         "VALUES (:uid, 'admin_adjust', :amt, 0, 'Сброс фантомного баланса (миграция внутреннего баланса)', NOW())"),
                     {"uid": uid, "amt": -float(bal)},
                 )
             conn.execute(text("UPDATE users SET balance = 0 WHERE balance <> 0"))
