@@ -470,11 +470,17 @@ class CardService:
         card: Card,
         order_status: str,
     ) -> None:
+        # Only orders still waiting for a card. A completed order whose card
+        # was later closed/deleted (card_id reset to NULL) must never adopt a
+        # NEW card: that left the real new issue order unlinked, so the
+        # materialization wait ran its full ~30 min and the user got no
+        # "card issued" notification.
         pending_result = await db.execute(
             select(Order).where(
                 Order.user_id == user_id,
                 Order.type == "issue",
                 Order.card_id.is_(None),
+                Order.status.in_(("pending", "processing")),
             ).order_by(Order.id.asc())
         )
         pending_orders = list(pending_result.scalars().all())

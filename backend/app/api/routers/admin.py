@@ -400,6 +400,11 @@ async def admin_issue_card(user_id: int, body: AdminIssueCardRequest, db: AsyncS
         async with AsyncSessionLocal() as bg_db:
             try:
                 bg_user = (await bg_db.execute(select(User).where(User.id == user_id))).scalar_one()
+                # defer_follow_up: commit the order right after the provider
+                # accepted the request and watch materialization in a separate
+                # background task with its own session. The synchronous path
+                # kept ONE transaction open for up to ~30 min, holding row
+                # locks (other syncs of the user failed with lock wait timeouts).
                 await card_service.issue_card(
                     db=bg_db,
                     user=bg_user,
@@ -408,9 +413,10 @@ async def admin_issue_card(user_id: int, body: AdminIssueCardRequest, db: AsyncS
                     holder_last_name=holder_last,
                     email=bg_user.email,
                     skip_balance_check=True,
+                    defer_follow_up=True,
                 )
                 await bg_db.commit()
-                logger.info("[ADMIN] Issue card completed for user_id=%s offer=%s", user_id, offer_id)
+                logger.info("[ADMIN] Issue card request accepted for user_id=%s offer=%s (follow-up in background)", user_id, offer_id)
             except Exception as exc:
                 logger.error("[ADMIN] Issue card failed for user_id=%s offer=%s: %s", user_id, offer_id, exc)
                 try:
