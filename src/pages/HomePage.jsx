@@ -11,6 +11,7 @@ import { useAuth } from '../context/AuthContext'
 import { cardBackgroundByOffer, McChip } from '../utils/cardAssets'
 import PromoCard, { usePromoCards } from '../components/PromoCard'
 import { TxIcon } from './HistoryPage'
+import { latestOperations } from '../utils/txList'
 import { BOTTOM_BAR_SPACE } from '../components/BottomBar'
 
 const PULL_THRESHOLD = 120
@@ -402,7 +403,7 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
             </>
           ) : (
             <div style={{ marginTop: 16 }}>
-              {transactions.slice(0, 3).map((tx, idx) => {
+              {latestOperations(transactions, 3).map((tx, idx, shown) => {
                 const isPositive = tx.amount > 0
                 const absAmount = Math.abs(tx.amount)
                 const formatted = absAmount.toLocaleString('en-US', {
@@ -418,7 +419,7 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
                     style={{
                       display: 'flex', alignItems: 'center', gap: 12,
                       paddingTop: 16, paddingBottom: 16,
-                      borderBottom: idx < 5 ? '1px solid #F3F5F8' : 'none',
+                      borderBottom: idx < shown.length - 1 ? '1px solid #F3F5F8' : 'none',
                     }}
                   >
                     <TxIcon type={tx.type} size={50} iconSize={24} radius={16} />

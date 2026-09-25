@@ -9,6 +9,7 @@ import TopUpModal from '../components/ui/TopUpModal'
 import Portal from '../components/ui/Portal'
 import { cardBackgroundByOffer, McChip } from '../utils/cardAssets'
 import { TxIcon } from './HistoryPage'
+import { latestOperations } from '../utils/txList'
 
 // Template billing identity shown in the "Данные карты" modal — same for all cards
 const CARD_DATA_TEMPLATE = [
@@ -558,7 +559,7 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
             </div>
           ) : (
             <div style={{ marginTop: 16 }}>
-              {cardTransactions.slice(0, 6).map((tx, idx) => {
+              {latestOperations(cardTransactions, 6).map((tx, idx, shown) => {
                 const isPositive = tx.amount > 0
                 const absAmount = Math.abs(tx.amount)
                 const formatted = absAmount.toLocaleString('en-US', {
@@ -577,7 +578,7 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
                       gap: 12,
                       paddingTop: 16,
                       paddingBottom: 16,
-                      borderBottom: idx < 5 ? '1px solid #F3F5F8' : 'none',
+                      borderBottom: idx < shown.length - 1 ? '1px solid #F3F5F8' : 'none',
                     }}
                   >
                     <TxIcon type={tx.type} size={50} iconSize={24} radius={16} />
