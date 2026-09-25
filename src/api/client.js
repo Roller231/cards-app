@@ -45,7 +45,9 @@ async function req(method, path, body) {
   }
 
   const text = await res.text()
-  return text ? JSON.parse(text) : {}
+  const data = text ? JSON.parse(text) : {}
+  if (req.onHeaders) req.onHeaders(path, res.headers)
+  return data
 }
 
 export const api = {
@@ -72,6 +74,20 @@ export const api = {
         payment_method: paymentMethod,
       }),
     list: () => req('GET', '/cards'),
+    // Same as list(), plus whether the provider sync finished in time
+    // (X-Cards-Synced). When it didn't, the balances may still be stale.
+    listWithSync: async () => {
+      let synced = true
+      req.onHeaders = (path, headers) => {
+        if (path === '/cards') synced = headers.get('X-Cards-Synced') !== '0'
+      }
+      try {
+        const cards = await req('GET', '/cards')
+        return { cards, synced }
+      } finally {
+        req.onHeaders = null
+      }
+    },
     requisites: (cardId) => req('GET', `/cards/${cardId}/requisites`),
     transactions: (cardId, limit = 50, offset = 0) =>
       req('GET', `/cards/${cardId}/transactions?limit=${limit}&offset=${offset}`),

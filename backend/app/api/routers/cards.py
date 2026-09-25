@@ -2,7 +2,7 @@ from decimal import Decimal, ROUND_HALF_UP
 import logging
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -192,6 +192,7 @@ async def get_issue_quote(
 
 @router.get("", response_model=List[CardResponse], summary="Get current user's cards (short sync with timeout, falls back to local)")
 async def get_cards(
+    response: Response,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -202,10 +203,14 @@ async def get_cards(
     # so freshly created cards usually appear on this very call. If O-Plata is
     # slow, fall through — the background task continues running and the next
     # /cards poll will see the result.
+    synced = False
     try:
-        sync_task = _asyncio.create_task(card_service._run_sync_in_background(current_user.id))
+        # Join the user's in-flight sync if there is one (another request or
+        # the app's own previous call may have started it).
+        sync_task = card_service.ensure_sync_task(current_user.id)
         try:
             await _asyncio.wait_for(_asyncio.shield(sync_task), timeout=5.0)
+            synced = True
         except _asyncio.TimeoutError:
             _log.info(
                 "sync_cards inline exceeded 5s for user_id=%s; continuing in background",
@@ -213,6 +218,15 @@ async def get_cards(
             )
     except Exception as exc:
         _log.warning("sync schedule failed for user_id=%s: %s", current_user.id, exc)
+    # End this request's transaction before reading the cards: it was opened
+    # by the auth lookup, and MySQL REPEATABLE READ would keep serving the
+    # snapshot from BEFORE the background sync committed the new balances.
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+    # Tells the app to ask again shortly when the provider was too slow.
+    response.headers["X-Cards-Synced"] = "1" if synced else "0"
     try:
         cards = await card_service.get_user_cards(db, current_user.id)
     except Exception as exc:

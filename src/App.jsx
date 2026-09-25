@@ -91,10 +91,25 @@ function AppInner() {
   const tgInitOnceRef = useRef(false)
 
   // Load cards from API; enrich cards missing last4 from their requisites
-  const refreshCards = useCallback(async () => {
-    setCardsLoading(true)
+  // Silent re-fetch when the provider sync didn't finish within the request
+  const refreshCardsRef = useRef(null)
+  const syncRetryTimerRef = useRef(null)
+  const syncRetriesRef = useRef(0)
+  const refreshCards = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setCardsLoading(true)
     try {
-      const cards = await api.cards.list()
+      const { cards, synced } = await api.cards.listWithSync()
+      // Provider was slow: the background sync keeps going — ask once more
+      // shortly so the fresh balances replace the cached ones by themselves.
+      if (synced) {
+        syncRetriesRef.current = 0
+      } else if (!syncRetryTimerRef.current && syncRetriesRef.current < 3) {
+        syncRetriesRef.current += 1
+        syncRetryTimerRef.current = setTimeout(() => {
+          syncRetryTimerRef.current = null
+          refreshCardsRef.current?.({ silent: true })
+        }, 3000)
+      }
       const mapped = cards.map((c) => ({
         ...c,
         title: 'Виртуальная карта',
@@ -118,9 +133,10 @@ function AppInner() {
       console.error('[Cards] failed to load cards:', e.message)
       return []
     } finally {
-      setCardsLoading(false)
+      if (!silent) setCardsLoading(false)
     }
   }, [])
+  refreshCardsRef.current = refreshCards
 
   // Load card offers — carries per-user max_issued_count / current_count
   // so issue buttons can be disabled when the O-Plata limit is reached

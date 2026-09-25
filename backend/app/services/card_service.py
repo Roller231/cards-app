@@ -397,6 +397,7 @@ class CardService:
     # post-issue follow-up poll run concurrently.
     _sync_locks: Dict[int, asyncio.Lock] = {}
     _sync_running: set = set()  # user_ids currently being synced
+    _sync_tasks: dict = {}      # user_id -> running background sync task
 
     @classmethod
     def _get_sync_lock(cls, user_id: int) -> asyncio.Lock:
@@ -2999,7 +3000,21 @@ class CardService:
                 self._sync_running.discard(user_id)
 
     def schedule_sync_in_background(self, user_id: int) -> None:
-        asyncio.create_task(self._run_sync_in_background(user_id=user_id))
+        self.ensure_sync_task(user_id)
+
+    def ensure_sync_task(self, user_id: int) -> "asyncio.Task":
+        """The user's running background sync, or a new one. Callers that want
+        fresh data JOIN an in-flight sync instead of getting an instant no-op
+        (which made /cards return stale balances while another sync ran)."""
+        task = self._sync_tasks.get(user_id)
+        if task is not None and not task.done():
+            return task
+        task = asyncio.create_task(self._run_sync_in_background(user_id=user_id))
+        self._sync_tasks[user_id] = task
+        task.add_done_callback(
+            lambda t, uid=user_id: self._sync_tasks.pop(uid, None) if self._sync_tasks.get(uid) is t else None
+        )
+        return task
 
     def schedule_issue_in_background(
         self,
