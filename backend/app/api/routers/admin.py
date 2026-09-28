@@ -76,7 +76,7 @@ SETTINGS_KEYS: Dict[str, Dict[str, Any]] = {
     "CHINA_MIN_CNY_ALIPAY": {"desc": "Минимальная сумма перевода в Alipay (¥)", "type": float},
     "CHINA_MIN_CNY_WECHAT": {"desc": "Минимальная сумма перевода в WeChat Pay (¥)", "type": float},
     "SUPPORT_CONTACT": {"desc": "Контакт поддержки для сообщений клиентам (например @exprontopay1)", "type": str},
-    "CHINA_BOT_TOKEN": {"desc": "Токен отдельного бота для уведомлений о заявках Китай (пусто = основной бот)", "type": str},
+    "CHINA_BOT_TOKEN": {"desc": "Токен отдельного бота для уведомлений о заявках Alipay/WeChat (пусто = основной бот)", "type": str},
     "SBP_BITBANKER_FEE_LABEL": {"desc": "Название комиссии Битбанкера в расшифровке курса", "type": str},
     "SBP_OUR_FEE_LABEL": {"desc": "Название нашей комиссии в расшифровке курса", "type": str},
     "SBP_CLARUS_FEE_LABEL": {"desc": "Название комиссии Clarus в расшифровке курса", "type": str},

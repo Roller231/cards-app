@@ -84,7 +84,7 @@ async def _china_bot_poll_loop() -> None:
                     async with httpx.AsyncClient(timeout=15) as client:
                         await client.post(f"https://api.telegram.org/bot{token}/sendMessage", json={
                             "chat_id": chat_id,
-                            "text": f"Бот уведомлений о заявках Alipay / WeChat Pay.\nВаш Telegram ID: {chat_id} — добавьте его в админке, раздел «Заявки Китай».",
+                            "text": f"Бот уведомлений о заявках Alipay / WeChat Pay.\nВаш Telegram ID: {chat_id} — добавьте его в админке, раздел «Заявки Alipay/WeChat».",
                         })
         except Exception as exc:
             logger.error("China bot poll loop error: %s", exc)

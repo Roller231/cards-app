@@ -372,7 +372,7 @@ async def on_request_paid(db: AsyncSession, request_id: int, invoice_id: int) ->
         logger.error("[CHINA] paid request #%s was NOT delivered to any manager (ids=%r)", r.id, settings.SERVICE_REQUEST_MANAGER_IDS)
         try:
             from app.services.recovery_service import _alert
-            await _alert(f"⚠️ Оплаченная заявка Китай №{r.id} не доставлена менеджерам — проверьте SERVICE_REQUEST_MANAGER_IDS / бота.")
+            await _alert(f"⚠️ Оплаченная заявка Alipay/WeChat №{r.id} не доставлена менеджерам — проверьте SERVICE_REQUEST_MANAGER_IDS / бота.")
         except Exception:
             pass
     try:

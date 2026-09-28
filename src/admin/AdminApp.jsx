@@ -252,7 +252,7 @@ const NAV = [
   { id: 'payments', icon: '💰', label: 'Платежи' },
   { id: 'analytics', icon: '📈', label: 'Аналитика' },
   { id: 'bot', icon: '🤖', label: 'Telegram Бот' },
-  { id: 'china', icon: '🧧', label: 'Заявки Китай' },
+  { id: 'china', icon: '🧧', label: 'Заявки Alipay/WeChat' },
   { id: 'promo', icon: '🎟️', label: 'Промокоды' },
   { id: 'faq', icon: '❓', label: 'FAQ' },
   { id: 'settings', icon: '⚙️', label: 'Настройки' },
