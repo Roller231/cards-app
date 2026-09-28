@@ -35,6 +35,10 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 # --------------- helpers ---------------
 
 SETTINGS_KEYS: Dict[str, Dict[str, Any]] = {
+    "MAINTENANCE_MODE": {"desc": "Технические работы: приложение закрыто, бот на любое сообщение отвечает текстом ниже", "type": bool},
+    "MAINTENANCE_TEXT": {"desc": "Текст о технических работах (приложение и бот)", "type": str},
+    "SBP_DISABLED": {"desc": "Отключить оплату по СБП (тех. работы у Битбанкера): счета не создаются, карты и баланс работают", "type": bool},
+    "SBP_DISABLED_TEXT": {"desc": "Текст при отключённой оплате по СБП", "type": str},
     "CARD_ONLINE_ENABLED": {"desc": "Карта Online — доступна для выпуска", "type": bool},
     "CARD_ONLINE_PLUS_ENABLED": {"desc": "Карта Online+Pay — доступна для выпуска", "type": bool},
     "CARD_PAY_ENABLED": {"desc": "Карта Pay (универсальная) — доступна для выпуска", "type": bool},

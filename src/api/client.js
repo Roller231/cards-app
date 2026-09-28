@@ -38,6 +38,10 @@ async function req(method, path, body) {
     try {
       const j = await res.json()
       detail = j.detail || JSON.stringify(j)
+      // Maintenance switched on while the app is open: show the screen
+      if (res.status === 503 && j.maintenance) {
+        try { window.dispatchEvent(new CustomEvent('pp-maintenance', { detail })) } catch {}
+      }
     } catch {}
     const err = new Error(detail)
     err.status = res.status

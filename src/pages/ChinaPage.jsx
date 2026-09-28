@@ -6,6 +6,7 @@ import Button from '../components/ui/Button'
 import SbpPaymentModal from '../components/ui/SbpPaymentModal'
 import { BOTTOM_BAR_SPACE } from '../components/BottomBar'
 import { metrikaGoal } from '../utils/metrika'
+import { useAuth } from '../context/AuthContext'
 
 const font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif'
 
@@ -52,6 +53,8 @@ function Row({ label, value, muted, strong, top }) {
  * and the recipient, pays in rubles by SBP, and the team sends the yuan.
  */
 export default function ChinaPage() {
+  const { appConfig } = useAuth()
+  const sbpOff = !!appConfig?.sbp_disabled
   const [service, setService] = useState('alipay')
   const [recipientType, setRecipientType] = useState('phone') // alipay: 'phone' | 'qr'; wechat: always 'qr'
   const [amount, setAmount] = useState('')
@@ -105,7 +108,7 @@ export default function ChinaPage() {
   const nameOk = /^[A-Za-z][A-Za-z' .-]*\s+[A-Za-z' .-]*[A-Za-z.]$/.test(name.trim())
   const phoneOk = phone.replace(/[^\d]/g, '').length >= 7
   const recipientOk = effectiveType === 'qr' ? !!qrFile : (phoneOk && nameOk)
-  const canSubmit = calc && !limitError && recipientOk && !sending
+  const canSubmit = !sbpOff && calc && !limitError && recipientOk && !sending
 
   const pickFile = (e) => {
     const f = e.target.files && e.target.files[0]
@@ -356,6 +359,11 @@ export default function ChinaPage() {
               )}
 
               {error && <div style={{ fontSize: 13, color: '#DC2626', fontFamily: font, lineHeight: 1.45 }}>{error}</div>}
+              {sbpOff && (
+                <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 12, padding: '12px 14px', fontSize: 13, color: '#991B1B', fontFamily: font, lineHeight: 1.5 }}>
+                  {appConfig.sbp_disabled_text}
+                </div>
+              )}
 
               <Button onClick={submit} disabled={!canSubmit} fullWidth>
                 {sending ? 'Создаём заявку…' : calc ? `Оплатить ${fmtRub(calc.total)}` : 'Перейти к оплате'}

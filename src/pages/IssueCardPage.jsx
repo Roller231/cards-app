@@ -14,7 +14,8 @@ const PAYMENT_METHODS = [
 ]
 
 function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
-  const { user, fetchMe } = useAuth()
+  const { user, fetchMe, appConfig } = useAuth()
+  const sbpOff = !!appConfig?.sbp_disabled
   const [offers, setOffers] = useState([])
   const [offersLoading, setOffersLoading] = useState(true)
   const [selectedCardType, setSelectedCardType] = useState('')
@@ -27,7 +28,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
   const [showSbpModal, setShowSbpModal] = useState(false)
   const [showKycModal, setShowKycModal] = useState(false)
   const [kycStatus, setKycStatus] = useState(null)
-  const [paymentMethod, setPaymentMethod] = useState('sbp') // 'sbp' | 'balance'
+  const [paymentMethod, setPaymentMethod] = useState(() => (appConfig?.sbp_disabled ? 'balance' : 'sbp')) // 'sbp' | 'balance'
   const [quote, setQuote] = useState(null) // /cards/issue-quote: { price_usd, balance_usd, enough, rate }
   const [promoExpanded, setPromoExpanded] = useState(false)
 
@@ -376,11 +377,11 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
               ? (quote
                   ? `Доступно ${balanceUsd.toFixed(2)} $ · списание ≈ ${Number(quote.price_usd).toFixed(2)} $`
                   : `Доступно ${balanceUsd.toFixed(2)} $ · без комиссии СБП`)
-              : method.description
+              : (sbpOff ? 'Временно недоступно — технические работы' : method.description)
             return (
               <div
                 key={method.id}
-                onClick={() => setPaymentMethod(method.id)}
+                onClick={() => { if (method.id === 'sbp' && sbpOff) return; setPaymentMethod(method.id) }}
                 className="transition-transform duration-150 active:scale-[0.99]"
                 style={{
                   backgroundColor: 'white',

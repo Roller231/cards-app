@@ -20,6 +20,7 @@ import Button from './Button'
 import Portal from './Portal'
 import KycModal from './KycModal'
 import { metrikaGoal } from '../../utils/metrika'
+import { useAuth } from '../../context/AuthContext'
 
 const POLL_INTERVAL_MS = 5000
 const font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif'
@@ -62,6 +63,7 @@ export default function SbpPaymentModal({
   serviceRequestId = null,
   skipSuccessScreen = false,
 }) {
+  const { appConfig } = useAuth()
   // screen: 'checking' | 'kyc' | 'confirm' | 'loading' | 'qr' | 'success' | 'error'
   const [screen, setScreen] = useState('checking')
   const [error, setError] = useState('')
@@ -182,6 +184,11 @@ export default function SbpPaymentModal({
   // wouldn't re-trigger the effect and left the modal stuck on "checking").
   const startFlow = useCallback(async () => {
     if (!amountRubProp) return
+    if (appConfig?.sbp_disabled) {
+      setError(appConfig.sbp_disabled_text || 'Оплата по СБП временно недоступна: ведутся технические работы.')
+      setScreen('error')
+      return
+    }
     setScreen('checking')
     setError('')
     setInvoice(null)
@@ -201,7 +208,7 @@ export default function SbpPaymentModal({
       setError(e.message || 'Ошибка создания счёта')
       setScreen('error')
     }
-  }, [amountRubProp, purpose])
+  }, [amountRubProp, purpose, appConfig?.sbp_disabled]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!isOpen) return
@@ -545,7 +552,7 @@ export default function SbpPaymentModal({
               <div style={{ fontSize: 15, color: '#DC2626', lineHeight: 1.5 }}>{error || 'Произошла ошибка'}</div>
               {/* Blocking errors (limits / support required) can't be retried —
                   show a Close button. Everything else retries the flow. */}
-              {/поддержк|лимит|заблокир/i.test(error || '') ? (
+              {/поддержк|лимит|заблокир|техническ/i.test(error || '') ? (
                 <Button onClick={onClose} fullWidth>Закрыть</Button>
               ) : (
                 <Button onClick={startFlow} fullWidth>Попробовать ещё раз</Button>

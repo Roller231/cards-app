@@ -379,6 +379,9 @@ async def create_invoice(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    if settings.SBP_DISABLED:
+        raise HTTPException(status_code=503, detail=settings.SBP_DISABLED_TEXT)
+
     # Promo code (if any) is validated and applied FIRST: every check and the
     # Bitbanker invoice below run on the discounted amount the user really pays.
     promo_row = None

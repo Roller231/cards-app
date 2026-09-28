@@ -22,6 +22,26 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# Maintenance mode: close the user API (the admin panel, the payment webhook
+# and public read-only endpoints keep working so in-flight payments settle).
+_MAINTENANCE_OPEN_PREFIXES = (
+    "/admin", "/sbp/webhook", "/auth/config", "/sbp/public-rate",
+    "/docs", "/redoc", "/openapi.json", "/uploads",
+)
+
+
+@app.middleware("http")
+async def _maintenance_gate(request, call_next):
+    if settings.MAINTENANCE_MODE and request.method != "OPTIONS":
+        path = request.url.path
+        if path.startswith("/api/"):
+            path = path[4:]
+        if not path.startswith(_MAINTENANCE_OPEN_PREFIXES):
+            from fastapi.responses import JSONResponse
+            return JSONResponse(status_code=503, content={"detail": settings.MAINTENANCE_TEXT, "maintenance": True})
+    return await call_next(request)
+
+
 # Set up CORS
 app.add_middleware(
     CORSMiddleware,

@@ -402,6 +402,8 @@ async def create_request(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    if settings.SBP_DISABLED:
+        raise HTTPException(503, settings.SBP_DISABLED_TEXT)
     service = (service or "").strip().lower()
     if service not in SERVICES:
         raise HTTPException(400, "Выберите сервис")

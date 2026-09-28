@@ -15,7 +15,8 @@ const QUICK_AMOUNTS = [20, 50, 100, 200]
  * fixed payment-system fee when the payment is below the threshold.
  */
 export default function BalanceDepositModal({ isOpen, onClose, onDeposited }) {
-  const { fetchMe } = useAuth()
+  const { fetchMe, appConfig } = useAuth()
+  const sbpOff = !!appConfig?.sbp_disabled
   const [amount, setAmount] = useState(0)
   const [amountInput, setAmountInput] = useState('')
   const [screen, setScreen] = useState('form') // 'form' | 'success'
@@ -172,6 +173,11 @@ export default function BalanceDepositModal({ isOpen, onClose, onDeposited }) {
                   )}
                 </div>
 
+                {sbpOff && (
+                  <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 12, padding: '12px 14px', fontSize: 13, color: '#991B1B', fontFamily: font, lineHeight: 1.5 }}>
+                    {appConfig.sbp_disabled_text}
+                  </div>
+                )}
                 <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 12, padding: '12px 14px', fontSize: 12, color: '#92400E', fontFamily: font, lineHeight: 1.55 }}>
                   <b>Лимиты СБП:</b> от 1 000 ₽ до 50 000 ₽ за перевод, не более 2 пополнений в сутки
                   (обновляется в 00:00 по Москве).
@@ -199,7 +205,7 @@ export default function BalanceDepositModal({ isOpen, onClose, onDeposited }) {
         <div style={{ padding: '12px 16px 24px 16px' }}>
           {screen === 'form' ? (
             <Button
-              disabled={!hasAmount || !payRub || rubTooSmall || rubTooBig}
+              disabled={sbpOff || !hasAmount || !payRub || rubTooSmall || rubTooBig}
               onClick={() => setShowSbpModal(true)}
               fullWidth
             >

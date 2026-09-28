@@ -21,6 +21,7 @@ const PULL_DEAD_ZONE = 30
 function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNavigateToChina, onNavigateToIssueCard, onCardClick, onNavigateToHistory, commissions = {}, cardsLoading = false, transactionsLoading = false, onRefresh, issueLimitReached = false, onlineAvailable = true, onlinePlusAvailable = true, payAvailable = true }) {
   const [expandedCard, setExpandedCard] = useState(null)
   const scrollRef = useDragScroll()
+  const { appConfig } = useAuth()
   const font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif'
 
   const totalBalance = userCards.reduce((sum, c) => sum + (Number(c.balance) || 0), 0)
@@ -143,6 +144,14 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
         transform: `translateY(${indicatorOffset}px)`,
         transition: (pull === 0 && !refreshing) ? 'transform 200ms ease' : 'none',
       }}>
+      {appConfig?.sbp_disabled && (
+        <Section>
+          <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 16, padding: '12px 14px', fontSize: 13, color: '#991B1B', fontFamily: font, lineHeight: 1.5 }}>
+            <b>Оплата по СБП временно недоступна.</b> {appConfig.sbp_disabled_text}
+          </div>
+        </Section>
+      )}
+
       <Section>
         <Card padding="24px 24px 0 24px">
           <div className="flex items-start justify-between">

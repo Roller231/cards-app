@@ -68,6 +68,16 @@ class Settings(BaseSettings):
     CHINA_MIN_CNY_WECHAT: float = 150.0
     # Support contact the user is sent to from the managers' "В поддержку" button
     SUPPORT_CONTACT: str = "@exprontopay1"
+
+    # Maintenance switches (admin panel):
+    # MAINTENANCE_MODE — the whole app is closed (user API answers 503, the app
+    #   shows a maintenance screen, the bot answers any message with the text);
+    # SBP_DISABLED — no new SBP invoices (Bitbanker maintenance); cards and the
+    #   internal balance keep working.
+    MAINTENANCE_MODE: bool = False
+    MAINTENANCE_TEXT: str = "Ведутся технические работы. Приложение временно недоступно — скоро всё заработает. Приносим извинения за неудобства."
+    SBP_DISABLED: bool = False
+    SBP_DISABLED_TEXT: str = "Оплата по СБП временно недоступна: у платёжного партнёра ведутся технические работы. Приносим свои извинения. Карты работают как обычно."
     # Optional separate bot for managers' notifications about paid China
     # requests (managers must /start it). Empty = the main bot is used.
     CHINA_BOT_TOKEN: str = ""

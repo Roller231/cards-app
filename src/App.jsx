@@ -98,6 +98,17 @@ function AppInner() {
   const { showToast } = useToast()
   const tgInitOnceRef = useRef(false)
 
+  // Maintenance: from the public config, or from any API call answering 503
+  const [maintenanceEvent, setMaintenanceEvent] = useState('')
+  useEffect(() => {
+    const onMaint = (e) => setMaintenanceEvent(e?.detail || 'Ведутся технические работы.')
+    window.addEventListener('pp-maintenance', onMaint)
+    return () => window.removeEventListener('pp-maintenance', onMaint)
+  }, [])
+  const maintenanceText = appConfig?.maintenance
+    ? (appConfig.maintenance_text || 'Ведутся технические работы.')
+    : maintenanceEvent
+
   // Load cards from API; enrich cards missing last4 from their requisites
   // Silent re-fetch when the provider sync didn't finish within the request
   const refreshCardsRef = useRef(null)
@@ -315,6 +326,31 @@ function AppInner() {
   const onlineAvailable = !offersLoaded || offers.some((o) => o.name === 'Online')
   const onlinePlusAvailable = !offersLoaded || offers.some((o) => o.name === 'Online+Pay')
   const payAvailable = !offersLoaded || offers.some((o) => o.name === 'Pay')
+
+  // Maintenance: the whole app is closed
+  if (maintenanceText) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100dvh', background: '#F3F5F8', padding: 32, textAlign: 'center', boxSizing: 'border-box' }}>
+        <div style={{
+          width: 72, height: 72, borderRadius: 36, marginBottom: 18,
+          background: 'linear-gradient(135deg, #DC4D35 0%, #E8785F 100%)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+          </svg>
+        </div>
+        <h2 style={{ margin: '0 0 10px', fontSize: 22, fontWeight: 700, color: '#111827' }}>Технические работы</h2>
+        <p style={{ margin: 0, fontSize: 15, lineHeight: 1.5, color: '#6b7280', maxWidth: 340 }}>{maintenanceText}</p>
+        <button
+          onClick={() => window.location.reload()}
+          style={{ marginTop: 24, border: 'none', background: '#DC4D35', color: '#fff', borderRadius: 12, padding: '14px 28px', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}
+        >
+          Обновить
+        </button>
+      </div>
+    )
+  }
 
   // Banned screen
   if (banned) {

@@ -576,6 +576,14 @@ async def poll_once() -> None:
         text = msg.get("text", "")
         chat_id = msg.get("chat", {}).get("id")
 
+        from app.core.config import settings as _settings
+        if _settings.MAINTENANCE_MODE and chat_id and (msg.get("chat") or {}).get("type") == "private":
+            try:
+                await send_notification(str(chat_id), f"🛠 {_html.escape(_settings.MAINTENANCE_TEXT)}")
+            except Exception:
+                logger.exception("Maintenance reply failed for chat %s", chat_id)
+            continue
+
         if chat_id and text.startswith("/start"):
             try:
                 async with AsyncSessionLocal() as db:

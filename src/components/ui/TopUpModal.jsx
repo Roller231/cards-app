@@ -12,7 +12,8 @@ const TOPUP_PAYMENT_METHODS = [
 ]
 
 function TopUpModal({ isOpen, onClose, card, onTopUp, initialMethod = 'sbp' }) {
-  const { user, fetchMe, commissions } = useAuth()
+  const { user, fetchMe, commissions, appConfig } = useAuth()
+  const sbpOff = !!appConfig?.sbp_disabled
   const [method, setMethod] = useState('sbp') // 'sbp' | 'balance'
   const [depositError, setDepositError] = useState('')
   const [amount, setAmount] = useState(0)
@@ -27,7 +28,7 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, initialMethod = 'sbp' }) {
 
   // Preselected payment method (e.g. internal balance from "Перевести на карту")
   useEffect(() => {
-    if (isOpen) setMethod(initialMethod || 'sbp')
+    if (isOpen) setMethod(sbpOff ? 'balance' : (initialMethod || 'sbp'))
   }, [isOpen, initialMethod])
 
   // Load the app exchange rate once on open
@@ -315,7 +316,7 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, initialMethod = 'sbp' }) {
                   return (
                     <div
                       key={m.id}
-                      onClick={() => setMethod(m.id)}
+                      onClick={() => { if (m.id === 'sbp' && sbpOff) return; setMethod(m.id) }}
                       className="transition-transform duration-150 active:scale-[0.99]"
                       style={{
                         backgroundColor: 'white',
@@ -340,7 +341,7 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, initialMethod = 'sbp' }) {
                         <div style={{ fontSize: 13, color: '#6B7280', marginTop: 4, fontFamily: font }}>
                           {m.id === 'balance'
                             ? `Доступно ${balanceUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $ · без комиссии СБП`
-                            : m.description}
+                            : (sbpOff ? 'Временно недоступно — технические работы' : m.description)}
                         </div>
                       </div>
                       <div style={{

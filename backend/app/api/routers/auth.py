@@ -145,6 +145,10 @@ async def get_config(db: AsyncSession = Depends(get_db)):
         "card_issuance_price_pay_rub": price_pay_rub,
         "card_issuance_price_univ_rub": price_univ_rub,
         "card_billing_address": settings.CARD_BILLING_ADDRESS,
+        "maintenance": bool(settings.MAINTENANCE_MODE),
+        "maintenance_text": settings.MAINTENANCE_TEXT,
+        "sbp_disabled": bool(settings.SBP_DISABLED),
+        "sbp_disabled_text": settings.SBP_DISABLED_TEXT,
         "referral_bonus_usd": settings.REFERRAL_INVITER_BONUS_USD,
         "referral_discount_percent": settings.REFERRAL_INVITEE_DISCOUNT_PERCENT,
         # Промо-плашки на главной — все поля из админки
