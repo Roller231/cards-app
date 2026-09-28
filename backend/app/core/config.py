@@ -63,6 +63,11 @@ class Settings(BaseSettings):
     SERVICE_REQUEST_MANAGER_IDS: str = ""
     # Yuan rate = Bitbanker exchange rate (RUB/USDT) / this divisor
     CHINA_CNY_DIVISOR: float = 6.6
+    # Minimum transfer in yuan per service
+    CHINA_MIN_CNY_ALIPAY: float = 150.0
+    CHINA_MIN_CNY_WECHAT: float = 150.0
+    # Support contact the user is sent to from the managers' "В поддержку" button
+    SUPPORT_CONTACT: str = "@exprontopay1"
     # Optional separate bot for managers' notifications about paid China
     # requests (managers must /start it). Empty = the main bot is used.
     CHINA_BOT_TOKEN: str = ""

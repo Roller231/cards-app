@@ -31,5 +31,8 @@ class ServiceRequest(Base):
     admin_comment = Column(Text, nullable=True)
     invoice_id = Column(BigInteger, nullable=True, index=True)   # bb_invoices.id that paid it
     paid_at = Column(DateTime, nullable=True)
+    # "chat_id:message_id,..." of the managers' Telegram messages (to update
+    # them after an action from the inline buttons or the admin panel)
+    manager_msgs = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

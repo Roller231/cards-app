@@ -100,6 +100,8 @@ function ServiceRequestsPage() {
   const [meta, setMeta] = useState(null)
   const [divisor, setDivisor] = useState('')
   const [botToken, setBotToken] = useState('')
+  const [minAlipay, setMinAlipay] = useState('')
+  const [minWechat, setMinWechat] = useState('')
 
   const openQr = async (id) => {
     try {
@@ -108,9 +110,13 @@ function ServiceRequestsPage() {
     } catch (e) { alert(e.message) }
   }
   const saveRateSettings = async () => {
-    const items = [{ key: 'CHINA_CNY_DIVISOR', value: divisor }]
+    const items = [
+      { key: 'CHINA_CNY_DIVISOR', value: divisor },
+      { key: 'CHINA_MIN_CNY_ALIPAY', value: minAlipay },
+      { key: 'CHINA_MIN_CNY_WECHAT', value: minWechat },
+    ]
     if (botToken.trim()) items.push({ key: 'CHINA_BOT_TOKEN', value: botToken.trim() })
-    try { await adminApi.settings.update(items); setBotToken(''); setMsg('Настройки курса / бота сохранены'); load() } catch (e) { setMsg(`Ошибка: ${e.message}`) }
+    try { await adminApi.settings.update(items); setBotToken(''); setMsg('Настройки курса, минималок и бота сохранены'); load() } catch (e) { setMsg(`Ошибка: ${e.message}`) }
   }
 
   const load = useCallback(async () => {
@@ -118,6 +124,7 @@ function ServiceRequestsPage() {
       const d = await adminApi.serviceRequests.list(filter)
       setItems(d.items || []); setCounts(d.counts || {})
       setMeta(d); setDivisor(v => v || String(d.divisor ?? ''))
+      setMinAlipay(v => v || String(d.min_alipay ?? '')); setMinWechat(v => v || String(d.min_wechat ?? ''))
       setManagers(m => (m === null ? (d.manager_ids || '') : m)); setManagersSaved(d.manager_ids || '')
     } catch (e) { setMsg(e.message) }
   }, [filter])
@@ -155,7 +162,7 @@ function ServiceRequestsPage() {
       <h2 style={{ margin: '0 0 16px', fontSize: 22, fontWeight: 700 }}>🧧 Заявки Alipay / WeChat Pay</h2>
 
       <div style={{ background: '#fff', borderRadius: 14, padding: 20, marginBottom: 16, boxShadow: '0 1px 3px rgba(0,0,0,.08)' }}>
-        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>Курс юаня</div>
+        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>Курс юаня и минимальные суммы</div>
         <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}>
           Курс = курс Битбанкера / делитель. В приложении показывается без комиссии Битбанкера, при оплате она добавляется отдельной строкой.
           {meta?.quote && <> Сейчас: <b>1 ¥ = {Number(meta.quote.base_rate).toFixed(2)} ₽</b>, к оплате {Number(meta.quote.rate).toFixed(2)} ₽ за 1 ¥.</>}
@@ -163,7 +170,13 @@ function ServiceRequestsPage() {
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <label style={{ fontSize: 13, color: '#374151' }}>Делитель</label>
           <input value={divisor} onChange={e => setDivisor(e.target.value)} style={{ width: 90, padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14 }} />
-          <label style={{ fontSize: 13, color: '#374151', marginLeft: 12 }}>Токен отдельного бота</label>
+          <label style={{ fontSize: 13, color: '#374151', marginLeft: 12 }}>Мин. Alipay, ¥</label>
+          <input value={minAlipay} onChange={e => setMinAlipay(e.target.value)} style={{ width: 80, padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14 }} />
+          <label style={{ fontSize: 13, color: '#374151' }}>Мин. WeChat, ¥</label>
+          <input value={minWechat} onChange={e => setMinWechat(e.target.value)} style={{ width: 80, padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14 }} />
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 10 }}>
+          <label style={{ fontSize: 13, color: '#374151' }}>Токен отдельного бота</label>
           <input value={botToken} onChange={e => setBotToken(e.target.value)} placeholder={meta?.separate_bot ? 'задан (введите новый, чтобы заменить)' : 'пусто — уведомления идут через основной бот'}
             style={{ flex: '1 1 260px', padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 13 }} />
           <Btn onClick={saveRateSettings}>Сохранить</Btn>
@@ -173,7 +186,7 @@ function ServiceRequestsPage() {
       <div style={{ background: '#fff', borderRadius: 14, padding: 20, marginBottom: 16, boxShadow: '0 1px 3px rgba(0,0,0,.08)' }}>
         <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>Менеджеры (Telegram ID через запятую)</div>
         <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}>
-          Каждая ОПЛАЧЕННАЯ заявка приходит им в Telegram (с QR-кодом получателя). Менеджер должен хотя бы раз написать этому боту /start, иначе Telegram не даст отправить сообщение.
+          Каждая ОПЛАЧЕННАЯ заявка приходит им в Telegram (с QR-кодом получателя) с кнопками «Выполнено», «Отменить», «Отправить клиента в поддержку» — клиенту сразу уходит сообщение, статус меняется и здесь. Менеджер должен хотя бы раз написать этому боту /start, иначе Telegram не даст отправить сообщение.
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <input value={managers ?? ''} onChange={e => setManagers(e.target.value)} placeholder="123456789, 987654321"

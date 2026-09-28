@@ -544,7 +544,7 @@ async def poll_once() -> None:
         return  # Bot not configured
 
     url = f"https://api.telegram.org/bot{tok}/getUpdates"
-    params = {"offset": _last_update_id + 1, "timeout": 25, "allowed_updates": ["message"]}
+    params = {"offset": _last_update_id + 1, "timeout": 25, "allowed_updates": ["message", "callback_query"]}
 
     try:
         async with httpx.AsyncClient(timeout=35) as client:
@@ -562,6 +562,16 @@ async def poll_once() -> None:
 
     for update in data.get("result", []):
         _last_update_id = update["update_id"]
+        cb = update.get("callback_query")
+        if cb:
+            # Managers' buttons for China requests (when no separate bot is set)
+            if str(cb.get("data") or "").startswith("sr:"):
+                try:
+                    from app.api.routers.services import handle_manager_callback
+                    await handle_manager_callback(cb)
+                except Exception:
+                    logger.exception("China request callback failed")
+            continue
         msg = update.get("message", {})
         text = msg.get("text", "")
         chat_id = msg.get("chat", {}).get("id")

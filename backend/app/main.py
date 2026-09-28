@@ -50,6 +50,47 @@ _UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=str(_UPLOADS_DIR)), name="uploads")
 
 
+async def _china_bot_poll_loop() -> None:
+    """Long-poll the optional dedicated managers bot (CHINA_BOT_TOKEN): inline
+    buttons of the China requests and a /start reply."""
+    import httpx
+    offset = 0
+    while True:
+        token = (settings.CHINA_BOT_TOKEN or "").strip()
+        if not token or token == (settings.TELEGRAM_BOT_TOKEN or "").strip():
+            await asyncio.sleep(30)
+            continue
+        try:
+            async with httpx.AsyncClient(timeout=35) as client:
+                r = await client.get(
+                    f"https://api.telegram.org/bot{token}/getUpdates",
+                    params={"offset": offset + 1, "timeout": 25, "allowed_updates": ["message", "callback_query"]},
+                )
+            data = r.json()
+            if not data.get("ok"):
+                logger.warning("China bot getUpdates not ok: %s", str(data)[:200])
+                await asyncio.sleep(10)
+                continue
+            for upd in data.get("result", []):
+                offset = upd["update_id"]
+                cb = upd.get("callback_query")
+                if cb and str(cb.get("data") or "").startswith("sr:"):
+                    from app.api.routers.services import handle_manager_callback
+                    await handle_manager_callback(cb)
+                    continue
+                msg = upd.get("message") or {}
+                if str(msg.get("text") or "").startswith("/start"):
+                    chat_id = (msg.get("chat") or {}).get("id")
+                    async with httpx.AsyncClient(timeout=15) as client:
+                        await client.post(f"https://api.telegram.org/bot{token}/sendMessage", json={
+                            "chat_id": chat_id,
+                            "text": f"Бот уведомлений о заявках Alipay / WeChat Pay.\nВаш Telegram ID: {chat_id} — добавьте его в админке, раздел «Заявки Китай».",
+                        })
+        except Exception as exc:
+            logger.error("China bot poll loop error: %s", exc)
+            await asyncio.sleep(5)
+
+
 async def _bot_poll_loop() -> None:
     """Long-poll Telegram getUpdates so the bot handles /start."""
     from app.services.telegram_bot_service import poll_once
@@ -284,6 +325,7 @@ def check_and_update_schema(conn):
             'qr_path': 'VARCHAR(255) NULL',
             'invoice_id': 'BIGINT NULL',
             'paid_at': 'DATETIME NULL',
+            'manager_msgs': 'TEXT NULL',
         }.items():
             if col_name not in sr_cols:
                 logger.info("Adding column '%s' to 'service_requests' table", col_name)
@@ -356,6 +398,7 @@ async def startup_db_client():
     asyncio.create_task(_cs.run_pending_auto_topups_worker())
     # Telegram bot long-polling (/start handler) and Gmail Apple Pay code polling
     asyncio.create_task(_bot_poll_loop())
+    asyncio.create_task(_china_bot_poll_loop())
     asyncio.create_task(_gmail_poll_loop())
     asyncio.create_task(_scheduled_broadcast_loop())
     asyncio.create_task(_auto_recover_loop())

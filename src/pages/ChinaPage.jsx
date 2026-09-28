@@ -90,7 +90,11 @@ export default function ChinaPage() {
     const fee = baseRub < Number(quote.small_payment_threshold_rub) ? Number(quote.small_payment_fee_rub) : 0
     return { baseRub, fee, total: baseRub + fee }
   }, [quote, amountNum])
-  const limitError = calc
+  const minCny = Number(quote?.min_cny?.[service] || 0)
+  const belowMin = minCny > 0 && amountNum > 0 && amountNum < minCny
+  const limitError = belowMin
+    ? `Минимальная сумма перевода в ${service === 'wechat' ? 'WeChat Pay' : 'Alipay'} — ${minCny.toLocaleString('ru-RU')} ¥.`
+    : calc
     ? (calc.total < quote.min_transfer_rub
         ? `Минимальная сумма оплаты по СБП — ${fmtRub(quote.min_transfer_rub)}. Увеличьте сумму в юанях.`
         : calc.total > quote.max_transfer_rub
@@ -224,6 +228,11 @@ export default function ChinaPage() {
                   />
                   <span style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)', fontSize: 20, fontWeight: 700, color: '#6B7280', fontFamily: font }}>¥</span>
                 </div>
+                {minCny > 0 && (
+                  <div style={{ fontSize: 12, color: belowMin ? '#DC2626' : '#9CA3AF', fontFamily: font, marginTop: 6 }}>
+                    Минимум {minCny.toLocaleString('ru-RU')} ¥
+                  </div>
+                )}
               </div>
 
               {/* Recipient */}

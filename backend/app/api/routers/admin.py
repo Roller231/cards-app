@@ -73,6 +73,9 @@ SETTINGS_KEYS: Dict[str, Dict[str, Any]] = {
     "REFERRAL_INVITER_BONUS_USD": {"desc": "Бонус пригласившему на внутренний баланс ($), когда карты выпущены у обоих", "type": float},
     "SERVICE_REQUEST_MANAGER_IDS": {"desc": "Telegram ID менеджеров для заявок Alipay / WeChat Pay (через запятую)", "type": str},
     "CHINA_CNY_DIVISOR": {"desc": "Курс юаня = курс Битбанкера / это число (например 6.6)", "type": float},
+    "CHINA_MIN_CNY_ALIPAY": {"desc": "Минимальная сумма перевода в Alipay (¥)", "type": float},
+    "CHINA_MIN_CNY_WECHAT": {"desc": "Минимальная сумма перевода в WeChat Pay (¥)", "type": float},
+    "SUPPORT_CONTACT": {"desc": "Контакт поддержки для сообщений клиентам (например @exprontopay1)", "type": str},
     "CHINA_BOT_TOKEN": {"desc": "Токен отдельного бота для уведомлений о заявках Китай (пусто = основной бот)", "type": str},
     "SBP_BITBANKER_FEE_LABEL": {"desc": "Название комиссии Битбанкера в расшифровке курса", "type": str},
     "SBP_OUR_FEE_LABEL": {"desc": "Название нашей комиссии в расшифровке курса", "type": str},
@@ -1720,6 +1723,7 @@ async def list_service_requests(
     return {
         "items": items, "counts": counts, "manager_ids": ", ".join(manager_chat_ids()),
         "divisor": settings.CHINA_CNY_DIVISOR, "separate_bot": bool((settings.CHINA_BOT_TOKEN or "").strip()),
+        "min_alipay": settings.CHINA_MIN_CNY_ALIPAY, "min_wechat": settings.CHINA_MIN_CNY_WECHAT,
         "quote": quote,
     }
 
@@ -1748,13 +1752,15 @@ async def update_service_request(
     r = (await db.execute(select(ServiceRequest).where(ServiceRequest.id == request_id))).scalar_one_or_none()
     if not r:
         raise HTTPException(404, "Заявка не найдена")
-    if body.status is not None:
-        if body.status not in STATUS_LABELS:
-            raise HTTPException(400, "Неизвестный статус")
-        r.status = body.status
     if body.admin_comment is not None:
         r.admin_comment = body.admin_comment.strip()[:2000] or None
-    await db.commit()
+        await db.commit()
+    if body.status is not None and body.status != r.status:
+        if body.status not in STATUS_LABELS:
+            raise HTTPException(400, "Неизвестный статус")
+        # Same path as the managers' Telegram buttons: user message + managers' messages updated
+        from app.api.routers.services import apply_status_change
+        await apply_status_change(db, r, body.status, "админка")
     await db.refresh(r)
     return request_dict(r)
 
