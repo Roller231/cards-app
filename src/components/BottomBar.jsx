@@ -43,7 +43,7 @@ function ChinaIcon({ active }) {
 
 const TABS = [
   { id: 'home', label: 'Главная', Icon: HomeIcon },
-  { id: 'china', label: 'Китай', Icon: ChinaIcon },
+  { id: 'china', label: 'Alipay/WeChat', Icon: ChinaIcon },
   { id: 'profile', label: 'Профиль', Icon: UserIcon },
 ]
 
@@ -157,6 +157,7 @@ export default function BottomBar({ active, onChange }) {
                     fontSize: 11,
                     fontWeight: 600,
                     letterSpacing: 0.1,
+                    whiteSpace: 'nowrap',
                     color: isActive ? '#FFFFFF' : '#6B7280',
                     transition: 'color 240ms ease',
                   }}
