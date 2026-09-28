@@ -95,6 +95,10 @@ export const api = {
       req('POST', `/cards/${cardId}/deposit`, { amount, payment_method: paymentMethod }),
     issueQuote: (offerId) => req('GET', `/cards/issue-quote?offer_id=${encodeURIComponent(offerId)}`),
   },
+  services: {
+    createRequest: ({ service, amount, currency, note }) => req('POST', '/services/requests', { service, amount, currency, note }),
+    myRequests: () => req('GET', '/services/requests'),
+  },
   profile: {
     get: () => req('GET', '/profile'),
     balanceHistory: (limit = 50, offset = 0) => req('GET', `/profile/balance/history?limit=${limit}&offset=${offset}`),

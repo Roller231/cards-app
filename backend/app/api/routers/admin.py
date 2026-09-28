@@ -71,6 +71,7 @@ SETTINGS_KEYS: Dict[str, Dict[str, Any]] = {
     "ADMIN_ALERT_CHAT_ID": {"desc": "Telegram chat_id для алертов (несколько — через запятую: 123,456)", "type": str},
     "REFERRAL_INVITEE_DISCOUNT_PERCENT": {"desc": "Скидка приглашённому на выпуск первой карты (%)", "type": float},
     "REFERRAL_INVITER_BONUS_USD": {"desc": "Бонус пригласившему на внутренний баланс ($), когда карты выпущены у обоих", "type": float},
+    "SERVICE_REQUEST_MANAGER_IDS": {"desc": "Telegram ID менеджеров для заявок Alipay / WeChat Pay (через запятую)", "type": str},
     "SBP_BITBANKER_FEE_LABEL": {"desc": "Название комиссии Битбанкера в расшифровке курса", "type": str},
     "SBP_OUR_FEE_LABEL": {"desc": "Название нашей комиссии в расшифровке курса", "type": str},
     "SBP_CLARUS_FEE_LABEL": {"desc": "Название комиссии Clarus в расшифровке курса", "type": str},
@@ -1680,3 +1681,73 @@ async def gmail_disconnect(db: AsyncSession = Depends(get_db), _=Depends(get_adm
     _gs._cached_access_token = None
     _gs._token_expires_at = 0
     return {"ok": True}
+
+
+# =====================  SERVICE REQUESTS (Alipay / WeChat Pay)  =====================
+
+class ServiceRequestUpdate(BaseModel):
+    status: Optional[str] = None
+    admin_comment: Optional[str] = None
+
+
+@router.get("/service-requests", summary="Payment service requests")
+async def list_service_requests(
+    status: str = "",
+    limit: int = Query(100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_admin),
+):
+    from app.api.routers.services import request_dict, manager_chat_ids
+    from app.models.service_request import ServiceRequest
+    q = select(ServiceRequest, User).join(User, User.id == ServiceRequest.user_id)
+    if status:
+        q = q.where(ServiceRequest.status == status)
+    rows = (await db.execute(q.order_by(ServiceRequest.id.desc()).limit(limit))).all()
+    counts = dict((await db.execute(
+        select(ServiceRequest.status, func.count(ServiceRequest.id)).group_by(ServiceRequest.status)
+    )).all())
+    items = []
+    for r, u in rows:
+        d = request_dict(r)
+        d.update({"user_id": u.id, "username": u.username, "telegram_user_id": u.telegram_user_id})
+        items.append(d)
+    return {"items": items, "counts": counts, "manager_ids": ", ".join(manager_chat_ids())}
+
+
+@router.put("/service-requests/{request_id}", summary="Update a payment service request")
+async def update_service_request(
+    request_id: int,
+    body: ServiceRequestUpdate,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_admin),
+):
+    from app.api.routers.services import STATUS_LABELS, request_dict
+    from app.models.service_request import ServiceRequest
+    r = (await db.execute(select(ServiceRequest).where(ServiceRequest.id == request_id))).scalar_one_or_none()
+    if not r:
+        raise HTTPException(404, "Заявка не найдена")
+    if body.status is not None:
+        if body.status not in STATUS_LABELS:
+            raise HTTPException(400, "Неизвестный статус")
+        r.status = body.status
+    if body.admin_comment is not None:
+        r.admin_comment = body.admin_comment.strip()[:2000] or None
+    await db.commit()
+    await db.refresh(r)
+    return request_dict(r)
+
+
+@router.post("/service-requests/test-notify", summary="Send a test message to the request managers")
+async def test_service_request_notify(_=Depends(get_admin)):
+    from app.api.routers.services import manager_chat_ids
+    from app.services.telegram_bot_service import send_notification
+    ids = manager_chat_ids()
+    if not ids:
+        raise HTTPException(400, "Не указаны Telegram ID менеджеров")
+    result = {}
+    for chat_id in ids:
+        try:
+            result[chat_id] = bool(await send_notification(chat_id, "🔔 Тест: сюда будут приходить заявки Alipay / WeChat Pay."))
+        except Exception:
+            result[chat_id] = False
+    return {"results": result}

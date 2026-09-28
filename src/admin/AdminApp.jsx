@@ -79,6 +79,110 @@ function LoginPage({ onLogin }) {
   )
 }
 
+// ─────────── SERVICE REQUESTS (Alipay / WeChat Pay) ───────────
+const SR_STATUSES = [
+  { id: 'new', label: 'Новая', color: '#3b82f6' },
+  { id: 'in_progress', label: 'В работе', color: '#f59e0b' },
+  { id: 'done', label: 'Выполнена', color: '#22c55e' },
+  { id: 'rejected', label: 'Отклонена', color: '#ef4444' },
+]
+const srStatus = (id) => SR_STATUSES.find(s => s.id === id) || { label: id, color: '#6b7280' }
+
+function ServiceRequestsPage() {
+  const [items, setItems] = useState([])
+  const [counts, setCounts] = useState({})
+  const [filter, setFilter] = useState('')
+  const [managers, setManagers] = useState(null)
+  const [managersSaved, setManagersSaved] = useState('')
+  const [msg, setMsg] = useState('')
+  const [comments, setComments] = useState({})
+
+  const load = useCallback(async () => {
+    try {
+      const d = await adminApi.serviceRequests.list(filter)
+      setItems(d.items || []); setCounts(d.counts || {})
+      setManagers(m => (m === null ? (d.manager_ids || '') : m)); setManagersSaved(d.manager_ids || '')
+    } catch (e) { setMsg(e.message) }
+  }, [filter])
+  useEffect(() => { load() }, [load])
+  useEffect(() => { const t = setInterval(load, 30000); return () => clearInterval(t) }, [load])
+
+  const saveManagers = async () => {
+    try {
+      await adminApi.settings.update([{ key: 'SERVICE_REQUEST_MANAGER_IDS', value: managers || '' }])
+      setManagersSaved(managers || ''); setMsg('Менеджеры сохранены')
+    } catch (e) { setMsg(`Ошибка: ${e.message}`) }
+  }
+  const testNotify = async () => {
+    try {
+      const r = await adminApi.serviceRequests.testNotify()
+      setMsg('Тест: ' + Object.entries(r.results).map(([id, ok]) => `${id} ${ok ? 'доставлено' : 'НЕ доставлено (менеджер должен написать боту /start)'}`).join('; '))
+    } catch (e) { setMsg(`Ошибка: ${e.message}`) }
+  }
+  const setStatus = async (r, status) => {
+    try { await adminApi.serviceRequests.update(r.id, { status }); load() } catch (e) { alert(e.message) }
+  }
+  const saveComment = async (r) => {
+    try { await adminApi.serviceRequests.update(r.id, { admin_comment: comments[r.id] ?? r.admin_comment ?? '' }); load() } catch (e) { alert(e.message) }
+  }
+  const total = Object.values(counts).reduce((a, b) => a + b, 0)
+
+  return (
+    <div>
+      <h2 style={{ margin: '0 0 16px', fontSize: 22, fontWeight: 700 }}>🧧 Заявки Alipay / WeChat Pay</h2>
+
+      <div style={{ background: '#fff', borderRadius: 14, padding: 20, marginBottom: 16, boxShadow: '0 1px 3px rgba(0,0,0,.08)' }}>
+        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>Менеджеры (Telegram ID через запятую)</div>
+        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}>
+          Каждая новая заявка приходит им в Telegram от бота. Менеджер должен хотя бы раз написать боту /start, иначе Telegram не даст отправить сообщение.
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <input value={managers ?? ''} onChange={e => setManagers(e.target.value)} placeholder="123456789, 987654321"
+            style={{ flex: '1 1 280px', padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14 }} />
+          <Btn onClick={saveManagers} disabled={(managers ?? '') === managersSaved}>Сохранить</Btn>
+          <Btn variant="ghost" onClick={testNotify}>Тестовое уведомление</Btn>
+        </div>
+        {msg && <div style={{ marginTop: 10, fontSize: 13, color: '#374151' }}>{msg}</div>}
+      </div>
+
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+        {[{ id: '', label: `Все (${total})` }, ...SR_STATUSES.map(s => ({ id: s.id, label: `${s.label} (${counts[s.id] || 0})` }))].map(f => (
+          <div key={f.id || 'all'} onClick={() => setFilter(f.id)}
+            style={{ padding: '6px 14px', borderRadius: 99, cursor: 'pointer', fontSize: 13, fontWeight: 600,
+              background: filter === f.id ? '#6366f1' : '#e5e7eb', color: filter === f.id ? '#fff' : '#374151' }}>{f.label}</div>
+        ))}
+      </div>
+
+      <Table columns={[
+        { key: 'id', label: '№' },
+        { key: 'created_at', label: 'Дата (UTC)', render: r => r.created_at?.slice(0, 16).replace('T', ' ') },
+        { key: 'user', label: 'Пользователь', render: r => (
+          <div>
+            <div style={{ fontWeight: 600 }}>{r.username}</div>
+            <div style={{ fontSize: 11, color: '#9ca3af' }}>#{r.user_id} · TG {r.telegram_user_id || '—'}</div>
+          </div>
+        ) },
+        { key: 'service_label', label: 'Сервис' },
+        { key: 'amount', label: 'Сумма', render: r => <b>{Number(r.amount).toLocaleString('ru-RU')} {r.currency}</b> },
+        { key: 'note', label: 'Примечание', render: r => <div style={{ whiteSpace: 'pre-wrap', maxWidth: 260, color: '#374151' }}>{r.note || '—'}</div> },
+        { key: 'status', label: 'Статус', render: r => (
+          <select value={r.status} onChange={e => setStatus(r, e.target.value)}
+            style={{ padding: '4px 8px', borderRadius: 8, border: `1px solid ${srStatus(r.status).color}`, color: srStatus(r.status).color, fontWeight: 600, background: '#fff' }}>
+            {SR_STATUSES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+        ) },
+        { key: 'admin_comment', label: 'Комментарий менеджера', render: r => (
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input value={comments[r.id] ?? r.admin_comment ?? ''} onChange={e => setComments({ ...comments, [r.id]: e.target.value })}
+              style={{ width: 180, padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12 }} />
+            <Btn small onClick={() => saveComment(r)}>OK</Btn>
+          </div>
+        ) },
+      ]} rows={items} />
+    </div>
+  )
+}
+
 // ─────────── SIDEBAR ───────────
 const NAV = [
   { id: 'dashboard', icon: '📊', label: 'Дашборд' },
@@ -87,6 +191,7 @@ const NAV = [
   { id: 'payments', icon: '💰', label: 'Платежи' },
   { id: 'analytics', icon: '📈', label: 'Аналитика' },
   { id: 'bot', icon: '🤖', label: 'Telegram Бот' },
+  { id: 'china', icon: '🧧', label: 'Заявки Китай' },
   { id: 'promo', icon: '🎟️', label: 'Промокоды' },
   { id: 'faq', icon: '❓', label: 'FAQ' },
   { id: 'settings', icon: '⚙️', label: 'Настройки' },
@@ -1836,6 +1941,7 @@ export default function AdminApp() {
     case 'payments': content = <PaymentsPage />; break
     case 'analytics': content = <AnalyticsPage />; break
     case 'bot': content = <BotPage />; break
+    case 'china': content = <ServiceRequestsPage />; break
     case 'promo': content = <PromoPage />; break
     case 'faq': content = <FAQPage />; break
     case 'settings': content = <SettingsPage />; break

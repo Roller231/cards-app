@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routers import auth, admin, cards, faq, orders, balance, sbp, kyc, profile
+from app.api.routers import auth, admin, cards, faq, orders, balance, sbp, kyc, profile, services
 from app.core.config import settings
 from app.core.database import engine
 from app.models import Base
@@ -41,6 +41,7 @@ app.include_router(balance.router)
 app.include_router(sbp.router)
 app.include_router(kyc.router)
 app.include_router(profile.router)
+app.include_router(services.router)
 
 
 # Static uploads (bot welcome image, broadcast images)

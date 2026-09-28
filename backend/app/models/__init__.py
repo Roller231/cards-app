@@ -10,10 +10,11 @@ from app.models.promo import PromoCode, PromoRedemption
 from app.models.broadcast import BroadcastPreset, ScheduledBroadcast
 from app.models.rate_snapshot import RateSnapshot
 from app.models.balance_tx import BalanceTransaction
+from app.models.service_request import ServiceRequest
 from app.core.database import Base
 
 __all__ = [
     "Base", "User", "Card", "Order", "BalanceTopUpRequest", "AdminSetting", "FAQ",
     "PendingAutoTopup", "BbInvoice", "PromoCode", "PromoRedemption",
-    "BroadcastPreset", "ScheduledBroadcast", "RateSnapshot", "BalanceTransaction",
+    "BroadcastPreset", "ScheduledBroadcast", "RateSnapshot", "BalanceTransaction", "ServiceRequest",
 ]

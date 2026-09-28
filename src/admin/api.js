@@ -128,6 +128,11 @@ const adminApi = {
     getNotificationSettings: () => req('GET', '/admin/bot/notification-settings'),
     updateNotificationSettings: (data) => req('PUT', '/admin/bot/notification-settings', data),
   },
+  serviceRequests: {
+    list: (status = '') => req('GET', `/admin/service-requests?status=${encodeURIComponent(status)}`),
+    update: (id, data) => req('PUT', `/admin/service-requests/${id}`, data),
+    testNotify: () => req('POST', '/admin/service-requests/test-notify'),
+  },
   promo: {
     list: () => req('GET', '/admin/promo-codes'),
     create: (data) => req('POST', '/admin/promo-codes', data),

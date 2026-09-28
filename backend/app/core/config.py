@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     REFERRAL_INVITEE_DISCOUNT_PERCENT: float = 10.0
     REFERRAL_INVITER_BONUS_USD: float = 3.0
 
+    # Telegram chat ids of managers who receive Alipay / WeChat Pay requests
+    # (comma-separated). Editable in the admin panel.
+    SERVICE_REQUEST_MANAGER_IDS: str = ""
+
     # Names of the fees that turn the exchange (Bitbanker) rate into the rate
     # the user actually pays — shown as a breakdown before every payment.
     SBP_BITBANKER_FEE_LABEL: str = "Комиссия платёжной системы СБП"
