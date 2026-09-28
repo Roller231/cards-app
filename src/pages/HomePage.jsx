@@ -18,7 +18,7 @@ const PULL_THRESHOLD = 120
 const PULL_MAX = 180
 const PULL_DEAD_ZONE = 30
 
-function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNavigateToIssueCard, onCardClick, onNavigateToHistory, commissions = {}, cardsLoading = false, transactionsLoading = false, onRefresh, issueLimitReached = false, onlineAvailable = true, onlinePlusAvailable = true, payAvailable = true }) {
+function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNavigateToChina, onNavigateToIssueCard, onCardClick, onNavigateToHistory, commissions = {}, cardsLoading = false, transactionsLoading = false, onRefresh, issueLimitReached = false, onlineAvailable = true, onlinePlusAvailable = true, payAvailable = true }) {
   const [expandedCard, setExpandedCard] = useState(null)
   const scrollRef = useDragScroll()
   const font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif'
@@ -33,10 +33,14 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
 
   // Live SBP exchange rate for the bottom widget (rate + day-over-day change)
   const [rateInfo, setRateInfo] = useState(null)
+  const [cnyRate, setCnyRate] = useState(null)  // yuan rate (Alipay / WeChat transfers), no fees
   useEffect(() => {
     let cancelled = false
     api.sbp.rate()
       .then((r) => { if (!cancelled && r?.rate) setRateInfo(r) })
+      .catch(() => {})
+    api.services.rate()
+      .then((r) => { if (!cancelled && r?.base_rate) setCnyRate(Number(r.base_rate)) })
       .catch(() => {})
     return () => { cancelled = true }
   }, [])
@@ -484,6 +488,55 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
                   {Number(rateInfo.base_rate ?? rateInfo.rate).toFixed(2)} ₽
                 </div>
                 {typeof rateInfo.change_pct === 'number' ? (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 3,
+                    padding: '3px 8px', borderRadius: 8,
+                    background: rateInfo.change_pct > 0 ? '#FEF2F2' : '#ECFDF5',
+                    color: rateInfo.change_pct > 0 ? '#DC2626' : '#059669',
+                    fontSize: 12, fontWeight: 700, fontFamily: font,
+                  }}>
+                    <span style={{ fontSize: 10 }}>{rateInfo.change_pct > 0 ? '▲' : '▼'}</span>
+                    {rateInfo.change_pct > 0 ? '+' : ''}{rateInfo.change_pct.toFixed(2)}%
+                    <span style={{ fontWeight: 400, opacity: 0.75 }}>за день</span>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: font }}>сегодня</div>
+                )}
+              </div>
+            </div>
+          </Card>
+        </Section>
+      )}
+
+      {/* Yuan rate: derived from the same exchange rate (/ divisor), so the
+          day-over-day change is the dollar one. Tap -> the China tab. */}
+      {cnyRate && (
+        <Section>
+          <Card padding="18px 20px">
+            <div
+              onClick={() => onNavigateToChina && onNavigateToChina()}
+              style={{ display: 'flex', alignItems: 'center', gap: 14, cursor: onNavigateToChina ? 'pointer' : 'default' }}
+            >
+              <div style={{
+                width: 46, height: 46, borderRadius: 23, flexShrink: 0,
+                background: 'linear-gradient(135deg, #DC4D35 0%, #E8785F 100%)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <span style={{ fontSize: 18, fontWeight: 700, color: '#FFFFFF', fontFamily: font }}>¥</span>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 600, color: '#111827', fontFamily: font }}>
+                  Китайский юань
+                </div>
+                <div style={{ fontSize: 12, color: '#6B7280', fontFamily: font, marginTop: 1 }}>
+                  Переводы на Alipay и WeChat Pay
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+                <div style={{ fontSize: 19, fontWeight: 700, color: '#111827', fontFamily: font }}>
+                  {cnyRate.toFixed(2)} ₽
+                </div>
+                {typeof rateInfo?.change_pct === 'number' ? (
                   <div style={{
                     display: 'flex', alignItems: 'center', gap: 3,
                     padding: '3px 8px', borderRadius: 8,

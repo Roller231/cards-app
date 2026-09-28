@@ -167,9 +167,12 @@ async def get_public_rate():
         * (1 + settings.SBP_CLARUS_FEE_PERCENT / 100)
     )
     msk_now = datetime.now(_dt_timezone(timedelta(hours=3)))
+    _div = float(settings.CHINA_CNY_DIVISOR or 0)
     data = {
         "rate": round(rate, 2),
         "base_rate": round(index, 2),
+        # Yuan rate for Alipay / WeChat transfers (without the Bitbanker fee)
+        "cny_rate": round(index / _div, 2) if _div > 0 else None,
         "date_msk": msk_now.strftime("%d.%m.%Y"),
         "updated_at_msk": msk_now.strftime("%d.%m.%Y %H:%M"),
         "issue_price_rub": settings.CARD_ISSUANCE_PRICE_RUB,

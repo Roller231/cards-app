@@ -136,6 +136,33 @@
     .paymarks { display: flex; gap: 8px; margin-top: 16px; align-items: center; }
     .paymarks img { height: 22px; width: auto; }
 
+    /* China */
+    .china-card {
+      margin-top: 36px; border-radius: 24px; overflow: hidden;
+      display: grid; grid-template-columns: 1.2fr .8fr; background: #fff;
+      border: 1.5px solid #E5E7EB; box-shadow: 0 12px 40px rgba(26,31,54,.08);
+    }
+    @media (max-width: 860px) { .china-card { grid-template-columns: 1fr; } }
+    .china-main { padding: 32px; }
+    .china-logos { display: flex; gap: 10px; }
+    .china-logos span {
+      width: 44px; height: 44px; border-radius: 12px; color: #fff; font-size: 22px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .china-main h3 { margin-top: 18px; font-size: 22px; font-weight: 800; letter-spacing: -0.01em; }
+    .china-main ul { margin: 14px 0 0; padding: 0; list-style: none; }
+    .china-main li { display: flex; gap: 9px; align-items: flex-start; font-size: 15px; padding: 6px 0; color: #374151; }
+    .china-main li::before { content: ""; width: 7px; height: 7px; border-radius: 4px; background: var(--accent); margin-top: 8px; flex-shrink: 0; }
+    .china-rate {
+      background: linear-gradient(135deg, var(--accent) 0%, #E8785F 100%); color: #fff; padding: 32px;
+      display: flex; flex-direction: column; justify-content: center; gap: 6px;
+    }
+    .china-rate .lbl { font-size: 13px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; opacity: .85; }
+    .china-rate .val { font-size: 44px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
+    .china-rate .val small { font-size: 22px; font-weight: 700; opacity: .9; }
+    .china-rate .sub { font-size: 13.5px; opacity: .9; max-width: 34ch; }
+    .china-rate .btn { margin-top: 18px; background: #fff; color: var(--ink); }
+    .china-rate .btn:hover { background: #F3F4F6; }
     /* Steps */
     .steps-sec { background: var(--soft); }
     .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 36px; }
@@ -212,6 +239,7 @@
       </a>
       <nav class="nav-links">
         <a href="#products">Карты</a>
+        <a href="#china">Китай</a>
         <a href="#how">Как открыть</a>
         <a href="#trust">Безопасность</a>
         <a href="#faq">Вопросы</a>
@@ -329,6 +357,37 @@
     </div>
   </section>
 
+  <!-- CHINA -->
+  <section id="china">
+    <div class="wrap">
+      <div class="sec-head">
+        <h2>Переводы в Китай: Alipay и WeChat Pay</h2>
+        <p>Отправьте юани на Alipay или WeChat Pay прямо из Telegram — оплата в рублях по СБП с любой российской карты.</p>
+      </div>
+      <div class="china-card">
+        <div class="china-main">
+          <div class="china-logos">
+            <span style="background:#1677FF">支</span>
+            <span style="background:#07C160">微</span>
+          </div>
+          <h3>Как это работает</h3>
+          <ul>
+            <li>Alipay — по номеру телефона и имени получателя или по его QR-коду</li>
+            <li>WeChat Pay — по QR-коду получателя</li>
+            <li>Сумма указывается в юанях, итог в рублях видно до оплаты</li>
+            <li>Оплата по СБП — перевод получателю выполняется после оплаты</li>
+          </ul>
+        </div>
+        <div class="china-rate">
+          <div class="lbl">Курс юаня сегодня</div>
+          <div class="val"><span data-cny-rate>—</span> <small>₽/¥</small></div>
+          <div class="sub">Комиссия платёжной системы добавляется при оплате — полная расшифровка показывается до оплаты.</div>
+          <a class="btn" href="https://t.me/exprontopay_bot/exprontopay?startapp=china" onclick="try{ym(111788180,'reachGoal','landing_bot_click',{place:'china'})}catch(e){}">Перевести в Китай</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- HOW -->
   <section id="how" class="steps-sec">
     <div class="wrap">
@@ -389,6 +448,13 @@
           любой вопрос можно задать в <a class="link" href="https://t.me/exprontopay1">поддержке</a>.</p>
       </div>
       <div class="faq-list">
+        <details>
+          <summary>Можно ли перевести деньги в Китай?<span class="pl">+</span></summary>
+          <div class="a">
+            <p>Да. В мини-приложении откройте вкладку «Китай», выберите Alipay или WeChat Pay, укажите сумму в юанях и получателя (номер телефона и имя в Alipay или QR-код для получения) и оплатите по СБП.</p>
+            <p>Курс юаня сегодня: <b><span data-cny-rate>—</span> ₽/¥</b>. Комиссия платёжной системы и итоговая сумма показываются до оплаты.</p>
+          </div>
+        </details>
         <details open>
           <summary>Какой у вас курс?<span class="pl">+</span></summary>
           <div class="a">
@@ -496,6 +562,7 @@
     // Live rate from the app backend (same rate users pay), cached server-side.
     (function () {
       var els = document.querySelectorAll('[data-rate]');
+      var cnyEls = document.querySelectorAll('[data-cny-rate]');
       var dates = document.querySelectorAll('[data-rate-date]');
       fetch('https://prontopay.pro/api/sbp/public-rate', { cache: 'no-store' })
         .then(function (r) { return r.ok ? r.json() : null; })
@@ -503,10 +570,17 @@
           if (!d || !d.rate) throw new Error('no rate');
           var v = Number(d.base_rate || d.rate).toFixed(2).replace('.', ',');
           els.forEach(function (e) { e.textContent = v; });
+          if (d.cny_rate) {
+            var c = Number(d.cny_rate).toFixed(2).replace('.', ',');
+            cnyEls.forEach(function (e) { e.textContent = c; });
+          } else {
+            cnyEls.forEach(function (e) { e.textContent = 'см. в приложении'; });
+          }
           dates.forEach(function (e) { e.textContent = d.date_msk || 'сегодня'; });
         })
         .catch(function () {
           els.forEach(function (e) { e.textContent = 'см. в приложении'; });
+          cnyEls.forEach(function (e) { e.textContent = 'см. в приложении'; });
         });
     })();
   </script>

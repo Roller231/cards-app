@@ -66,6 +66,10 @@ function mapAiforyTx(tx, card) {
 function AppInner() {
   const { user, loading: authLoading, banned, authError, appConfig, commissions, fetchMe } = useAuth()
   const [currentPage, setCurrentPage] = useState(() => {
+    // Deep link t.me/<bot>/<app>?startapp=china opens the China tab directly
+    try {
+      if (window?.Telegram?.WebApp?.initDataUnsafe?.start_param === 'china') return 'china'
+    } catch {}
     try {
       return localStorage.getItem('pp_seen_welcome') ? 'home' : 'welcome'
     } catch {
@@ -373,6 +377,7 @@ function AppInner() {
             if (cards.length > 0) await refreshTransactions(cards)
           }}
           onNavigateToFAQ={() => setCurrentPage('faq')}
+          onNavigateToChina={() => setCurrentPage('china')}
           onNavigateToIssueCard={(cardType = null) => {
             setCardTypeToIssue(cardType)
             setCurrentPage('issue-card')
