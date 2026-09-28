@@ -12,7 +12,6 @@ import { cardBackgroundByOffer, McChip } from '../utils/cardAssets'
 import PromoCard, { usePromoCards } from '../components/PromoCard'
 import { TxIcon } from './HistoryPage'
 import { latestOperations } from '../utils/txList'
-import VpnBanner from '../components/VpnBanner'
 import { BOTTOM_BAR_SPACE } from '../components/BottomBar'
 
 const PULL_THRESHOLD = 120
@@ -505,10 +504,7 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
         </Section>
       )}
 
-      {/* Partner VPN banner — last block on the screen */}
-      <Section>
-        <VpnBanner />
-      </Section>
+      {/* Partner VPN banner — hidden for now (component kept in components/VpnBanner) */}
 
       </div>
     </div>
