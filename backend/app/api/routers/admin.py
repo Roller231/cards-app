@@ -72,6 +72,8 @@ SETTINGS_KEYS: Dict[str, Dict[str, Any]] = {
     "REFERRAL_INVITEE_DISCOUNT_PERCENT": {"desc": "Скидка приглашённому на выпуск первой карты (%)", "type": float},
     "REFERRAL_INVITER_BONUS_USD": {"desc": "Бонус пригласившему на внутренний баланс ($), когда карты выпущены у обоих", "type": float},
     "SERVICE_REQUEST_MANAGER_IDS": {"desc": "Telegram ID менеджеров для заявок Alipay / WeChat Pay (через запятую)", "type": str},
+    "CHINA_CNY_DIVISOR": {"desc": "Курс юаня = курс Битбанкера / это число (например 6.6)", "type": float},
+    "CHINA_BOT_TOKEN": {"desc": "Токен отдельного бота для уведомлений о заявках Китай (пусто = основной бот)", "type": str},
     "SBP_BITBANKER_FEE_LABEL": {"desc": "Название комиссии Битбанкера в расшифровке курса", "type": str},
     "SBP_OUR_FEE_LABEL": {"desc": "Название нашей комиссии в расшифровке курса", "type": str},
     "SBP_CLARUS_FEE_LABEL": {"desc": "Название комиссии Clarus в расшифровке курса", "type": str},
@@ -1697,7 +1699,7 @@ async def list_service_requests(
     db: AsyncSession = Depends(get_db),
     _=Depends(get_admin),
 ):
-    from app.api.routers.services import request_dict, manager_chat_ids
+    from app.api.routers.services import request_dict, manager_chat_ids, cny_quote
     from app.models.service_request import ServiceRequest
     q = select(ServiceRequest, User).join(User, User.id == ServiceRequest.user_id)
     if status:
@@ -1711,7 +1713,27 @@ async def list_service_requests(
         d = request_dict(r)
         d.update({"user_id": u.id, "username": u.username, "telegram_user_id": u.telegram_user_id})
         items.append(d)
-    return {"items": items, "counts": counts, "manager_ids": ", ".join(manager_chat_ids())}
+    try:
+        quote = await cny_quote()
+    except Exception:
+        quote = None
+    return {
+        "items": items, "counts": counts, "manager_ids": ", ".join(manager_chat_ids()),
+        "divisor": settings.CHINA_CNY_DIVISOR, "separate_bot": bool((settings.CHINA_BOT_TOKEN or "").strip()),
+        "quote": quote,
+    }
+
+
+@router.get("/service-requests/{request_id}/qr", summary="QR image of a request")
+async def service_request_qr(request_id: int, db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+    from fastapi.responses import FileResponse
+    from app.api.routers.services import qr_file
+    from app.models.service_request import ServiceRequest
+    r = (await db.execute(select(ServiceRequest).where(ServiceRequest.id == request_id))).scalar_one_or_none()
+    f = qr_file(r) if r else None
+    if not f:
+        raise HTTPException(404, "QR не найден")
+    return FileResponse(f)
 
 
 @router.put("/service-requests/{request_id}", summary="Update a payment service request")
@@ -1739,15 +1761,8 @@ async def update_service_request(
 
 @router.post("/service-requests/test-notify", summary="Send a test message to the request managers")
 async def test_service_request_notify(_=Depends(get_admin)):
-    from app.api.routers.services import manager_chat_ids
-    from app.services.telegram_bot_service import send_notification
-    ids = manager_chat_ids()
-    if not ids:
+    from app.api.routers.services import manager_chat_ids, send_to_managers
+    if not manager_chat_ids():
         raise HTTPException(400, "Не указаны Telegram ID менеджеров")
-    result = {}
-    for chat_id in ids:
-        try:
-            result[chat_id] = bool(await send_notification(chat_id, "🔔 Тест: сюда будут приходить заявки Alipay / WeChat Pay."))
-        except Exception:
-            result[chat_id] = False
-    return {"results": result}
+    results = await send_to_managers("🔔 Тест: сюда будут приходить оплаченные заявки Alipay / WeChat Pay.")
+    return {"results": results}

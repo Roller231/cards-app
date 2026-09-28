@@ -96,7 +96,33 @@ export const api = {
     issueQuote: (offerId) => req('GET', `/cards/issue-quote?offer_id=${encodeURIComponent(offerId)}`),
   },
   services: {
-    createRequest: ({ service, amount, currency, note }) => req('POST', '/services/requests', { service, amount, currency, note }),
+    rate: () => req('GET', '/services/rate'),
+    // multipart: the recipient QR image travels as a file
+    createRequest: async ({ service, amount, recipientType, phone, name, note, qrFile }) => {
+      const fd = new FormData()
+      fd.append('service', service)
+      fd.append('amount', String(amount))
+      fd.append('recipient_type', recipientType)
+      if (phone) fd.append('recipient_phone', phone)
+      if (name) fd.append('recipient_name', name)
+      if (note) fd.append('note', note)
+      if (qrFile) fd.append('qr', qrFile)
+      const token = getToken()
+      const res = await fetch(`${BASE}/services/requests`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: fd,
+      })
+      const text = await res.text()
+      let data = {}
+      try { data = text ? JSON.parse(text) : {} } catch {}
+      if (!res.ok) {
+        const err = new Error(data.detail || res.statusText)
+        err.status = res.status
+        throw err
+      }
+      return data
+    },
     myRequests: () => req('GET', '/services/requests'),
   },
   profile: {
@@ -108,8 +134,8 @@ export const api = {
     rate: () => req('GET', '/sbp/rate'),
     prediction: () => req('GET', '/sbp/prediction'),
     exchangePrediction: (amountRub) => req('GET', `/sbp/exchange-prediction?amount_rub=${amountRub}`),
-    createInvoice: (amountRub, purpose = 'balance_topup', offerId = null, cardId = null, amountUsdRequested = null, promoCode = null) =>
-      req('POST', '/sbp/invoice', { amount_rub: amountRub, purpose, offer_id: offerId, card_id: cardId, amount_usd_requested: amountUsdRequested, promo_code: promoCode }),
+    createInvoice: (amountRub, purpose = 'balance_topup', offerId = null, cardId = null, amountUsdRequested = null, promoCode = null, serviceRequestId = null) =>
+      req('POST', '/sbp/invoice', { amount_rub: amountRub, purpose, offer_id: offerId, card_id: cardId, amount_usd_requested: amountUsdRequested, promo_code: promoCode, service_request_id: serviceRequestId }),
     validatePromo: (code, purpose = 'balance_topup', offerId = null, amountRub = null) =>
       req('POST', '/sbp/promo/validate', { code, purpose, offer_id: offerId, amount_rub: amountRub }),
     updatePhone: (phone) => req('POST', '/sbp/phone', { phone }),

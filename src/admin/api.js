@@ -132,6 +132,11 @@ const adminApi = {
     list: (status = '') => req('GET', `/admin/service-requests?status=${encodeURIComponent(status)}`),
     update: (id, data) => req('PUT', `/admin/service-requests/${id}`, data),
     testNotify: () => req('POST', '/admin/service-requests/test-notify'),
+    qr: async (id) => {
+      const res = await fetch(`${BASE}/admin/service-requests/${id}/qr`, { headers: { Authorization: `Bearer ${getAdminToken()}` } })
+      if (!res.ok) throw new Error('QR не найден')
+      return res.blob()
+    },
   },
   promo: {
     list: () => req('GET', '/admin/promo-codes'),

@@ -23,6 +23,7 @@ class BbInvoice(Base):
     purpose = Column(String(32), nullable=False, default="balance_topup")  # balance_topup | card_issue
     offer_id = Column(String(256), nullable=True)                     # card offer_id for card_issue purpose
     card_id = Column(String(256), nullable=True)                      # local card UUID for balance_topup purpose
+    service_request_id = Column(BigInteger, nullable=True, index=True)  # china_payment: service_requests.id
     amount_rub = Column(Numeric(18, 2), nullable=False)               # RUB amount paid
     amount_usd_requested = Column(Numeric(18, 6), nullable=True)      # exact USD amount user wants on card
     amount_usd = Column(Numeric(18, 6), nullable=True)                # USD credited to user (after conversion)

@@ -61,6 +61,11 @@ class Settings(BaseSettings):
     # Telegram chat ids of managers who receive Alipay / WeChat Pay requests
     # (comma-separated). Editable in the admin panel.
     SERVICE_REQUEST_MANAGER_IDS: str = ""
+    # Yuan rate = Bitbanker exchange rate (RUB/USDT) / this divisor
+    CHINA_CNY_DIVISOR: float = 6.6
+    # Optional separate bot for managers' notifications about paid China
+    # requests (managers must /start it). Empty = the main bot is used.
+    CHINA_BOT_TOKEN: str = ""
 
     # Names of the fees that turn the exchange (Bitbanker) rate into the rate
     # the user actually pays — shown as a breakdown before every payment.

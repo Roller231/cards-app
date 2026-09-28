@@ -474,6 +474,8 @@ async def notify_sbp_payment(
         action = "карта будет выпущена"
     elif purpose == "balance_deposit":
         action = "внутренний баланс будет пополнен"
+    elif purpose == "china_payment":
+        action = "мы переведём юани получателю"
     else:
         action = "карта будет пополнена"
     if success:

@@ -237,6 +237,60 @@ def check_and_update_schema(conn):
             conn.execute(text("CREATE UNIQUE INDEX ux_users_referral_code ON users (referral_code);"))
             conn.execute(text("CREATE INDEX ix_users_referrer_id ON users (referrer_id);"))
 
+    # Check for offer_id column in bb_invoices table
+    if 'bb_invoices' in inspector.get_table_names():
+        inv_cols = [col['name'] for col in inspector.get_columns('bb_invoices')]
+        if 'offer_id' not in inv_cols:
+            logger.info("Adding column 'offer_id' to 'bb_invoices' table")
+            conn.execute(text("ALTER TABLE bb_invoices ADD COLUMN offer_id VARCHAR(256) NULL;"))
+        if 'card_id' not in inv_cols:
+            logger.info("Adding column 'card_id' to 'bb_invoices' table")
+            conn.execute(text("ALTER TABLE bb_invoices ADD COLUMN card_id VARCHAR(256) NULL;"))
+        if 'amount_usd_requested' not in inv_cols:
+            logger.info("Adding column 'amount_usd_requested' to 'bb_invoices' table")
+            conn.execute(text("ALTER TABLE bb_invoices ADD COLUMN amount_usd_requested DECIMAL(18,6) NULL;"))
+        if 'created_at' not in inv_cols:
+            logger.info("Adding column 'created_at' to 'bb_invoices' table")
+            conn.execute(text("ALTER TABLE bb_invoices ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP;"))
+            # Backdate existing invoices so they don't count against today's QR limit
+            conn.execute(text("UPDATE bb_invoices SET created_at = DATE_SUB(NOW(), INTERVAL 2 DAY);"))
+        if 'service_request_id' not in inv_cols:
+            logger.info("Adding column 'service_request_id' to 'bb_invoices' table")
+            conn.execute(text("ALTER TABLE bb_invoices ADD COLUMN service_request_id BIGINT NULL;"))
+            conn.execute(text("CREATE INDEX ix_bb_invoices_service_request_id ON bb_invoices (service_request_id);"))
+        if 'recover_attempts' not in inv_cols:
+            logger.info("Adding auto-recovery columns to 'bb_invoices' table")
+            conn.execute(text("ALTER TABLE bb_invoices ADD COLUMN recover_attempts INT NOT NULL DEFAULT 0;"))
+            conn.execute(text("ALTER TABLE bb_invoices ADD COLUMN last_recover_at DATETIME NULL;"))
+
+    if 'orders' in inspector.get_table_names():
+        ord_cols = [col['name'] for col in inspector.get_columns('orders')]
+        if 'notified' not in ord_cols:
+            logger.info("Adding column 'notified' to 'orders' table")
+            conn.execute(text("ALTER TABLE orders ADD COLUMN notified TINYINT(1) NOT NULL DEFAULT 0;"))
+            # Mark all existing completed/failed orders as already notified to prevent duplicate notifications
+            conn.execute(text("UPDATE orders SET notified = 1 WHERE status IN ('completed', 'failed');"))
+            logger.info("Marked existing completed/failed orders as notified")
+
+    # service_requests was first created without the payment columns
+    if 'service_requests' in inspector.get_table_names():
+        sr_cols = [col['name'] for col in inspector.get_columns('service_requests')]
+        for col_name, col_def in {
+            'amount_rub': 'DECIMAL(18,2) NULL',
+            'rate_rub': 'DECIMAL(18,4) NULL',
+            'recipient_type': 'VARCHAR(8) NULL',
+            'recipient_phone': 'VARCHAR(32) NULL',
+            'recipient_name': 'VARCHAR(100) NULL',
+            'qr_path': 'VARCHAR(255) NULL',
+            'invoice_id': 'BIGINT NULL',
+            'paid_at': 'DATETIME NULL',
+        }.items():
+            if col_name not in sr_cols:
+                logger.info("Adding column '%s' to 'service_requests' table", col_name)
+                conn.execute(text(f"ALTER TABLE service_requests ADD COLUMN {col_name} {col_def};"))
+        if 'amount_rub' not in sr_cols:
+            conn.execute(text("ALTER TABLE service_requests MODIFY status VARCHAR(20) NOT NULL DEFAULT 'awaiting_payment';"))
+
     # Internal balance ledger (the table itself is created by create_all /
     # the block below). ONE-TIME reset of users.balance, guarded by an
     # admin_settings marker: until now every paid SBP invoice was credited to

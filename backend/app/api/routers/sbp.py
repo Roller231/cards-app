@@ -126,6 +126,7 @@ class InvoiceCreateRequest(BaseModel):
     card_id: Optional[str] = None   # required when purpose=balance_topup (local card UUID)
     amount_usd_requested: Optional[float] = None  # exact USD amount user wants deposited to card
     promo_code: Optional[str] = None  # optional promo code; discount is applied server-side
+    service_request_id: Optional[int] = None  # purpose=china_payment: the Alipay/WeChat request
 
 
 # ---------------------------------------------------------------------------
@@ -411,8 +412,24 @@ async def create_invoice(
             status_code=400,
             detail=f"Максимальная сумма перевода по СБП — {SBP_MAX_AMOUNT_RUB:,} ₽.".replace(",", " "),
         )
-    if body.purpose not in ("balance_topup", "card_issue", "balance_deposit"):
-        raise HTTPException(status_code=400, detail="purpose must be balance_topup, card_issue or balance_deposit")
+    if body.purpose not in ("balance_topup", "card_issue", "balance_deposit", "china_payment"):
+        raise HTTPException(status_code=400, detail="purpose must be balance_topup, card_issue, balance_deposit or china_payment")
+    # Alipay / WeChat payment: the amount is fixed by the request itself
+    china_request = None
+    if body.purpose == "china_payment":
+        if promo_row is not None:
+            raise HTTPException(status_code=400, detail="Промокоды не действуют на оплату Alipay / WeChat Pay")
+        from app.models.service_request import ServiceRequest
+        china_request = (await db.execute(select(ServiceRequest).where(
+            ServiceRequest.id == (body.service_request_id or 0),
+            ServiceRequest.user_id == current_user.id,
+        ))).scalar_one_or_none()
+        if not china_request:
+            raise HTTPException(status_code=404, detail="Заявка не найдена")
+        if china_request.status != "awaiting_payment":
+            raise HTTPException(status_code=400, detail="Заявка уже оплачена или закрыта")
+        if abs(float(china_request.amount_rub or 0) - float(body.amount_rub)) > 1:
+            raise HTTPException(status_code=400, detail="Сумма не совпадает с заявкой. Обновите страницу.")
     if body.purpose == "balance_deposit" and not (body.amount_usd_requested and float(body.amount_usd_requested) > 0):
         raise HTTPException(status_code=400, detail="amount_usd_requested is required for balance_deposit")
 
@@ -532,6 +549,8 @@ async def create_invoice(
 
     if body.purpose == "card_issue":
         description = "Выпуск карты ProntoPay"
+    elif body.purpose == "china_payment":
+        description = f"Оплата Alipay / WeChat Pay, заявка {body.service_request_id}"
     elif body.purpose == "balance_deposit":
         description = f"Пополнение баланса ProntoPay {int(body.amount_rub)} руб."
     else:
@@ -566,6 +585,7 @@ async def create_invoice(
         purpose=body.purpose,
         offer_id=body.offer_id,
         card_id=body.card_id,
+        service_request_id=china_request.id if china_request is not None else None,
         amount_usd_requested=Decimal(str(body.amount_usd_requested)) if body.amount_usd_requested else None,
         amount_rub=Decimal(str(body.amount_rub)),
         status=status,
@@ -802,9 +822,9 @@ async def _trigger_post_payment_inner(invoice_id: int) -> None:
 
             from app.services.card_service import card_service
 
-            if invoice.purpose == "balance_deposit":
-                # Credited to the internal balance in _credit_user_balance --
-                # no provider action needed.
+            if invoice.purpose in ("balance_deposit", "china_payment"):
+                # Handled in _credit_user_balance (balance credit / managers
+                # notified) -- no provider action needed.
                 return
 
             if invoice.purpose == "balance_topup":
@@ -947,6 +967,14 @@ async def _credit_user_balance(db: AsyncSession, invoice: BbInvoice, bb_payload:
             await notify_balance_deposit(user, float(credit_usd), float(invoice.amount_rub), float(user.balance))
         except Exception as exc:
             logger.warning("[SBP] balance deposit notification failed for user_id=%s: %s", user.id, exc)
+        return
+
+    if invoice.purpose == "china_payment":
+        invoice.amount_usd = usd_received
+        if invoice.service_request_id:
+            await db.commit()
+            from app.api.routers.services import on_request_paid
+            await on_request_paid(db, int(invoice.service_request_id), invoice.id)
         return
 
     # card_issue / balance_topup: record the USD value for reporting only.

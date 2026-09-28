@@ -12,7 +12,7 @@
  *   onClose        — () => void
  *   onPaid         — (invoiceData) => void  called when status becomes captured/authorized
  *   amountRub      — number  exact amount in RUB (from admin settings or user input)
- *   purpose        — 'balance_topup' (card top-up) | 'card_issue' | 'balance_deposit' (internal balance)
+ *   purpose        — 'balance_topup' (card top-up) | 'card_issue' | 'balance_deposit' (internal balance) | 'china_payment' (Alipay / WeChat)
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import api from '../../api/client'
@@ -59,6 +59,7 @@ export default function SbpPaymentModal({
   offerId = null,
   cardId = null,
   amountUsdRequested = null,
+  serviceRequestId = null,
   skipSuccessScreen = false,
 }) {
   // screen: 'checking' | 'kyc' | 'confirm' | 'loading' | 'qr' | 'success' | 'error'
@@ -161,6 +162,7 @@ export default function SbpPaymentModal({
       const res = await api.sbp.createInvoice(
         rubAmount, purpose, offerId, cardId, amountUsdRequested,
         promoInfo?.valid ? promoInfo.code : null,
+        serviceRequestId,
       )
       setInvoice(res)
       setScreen('qr')
@@ -390,8 +392,8 @@ export default function SbpPaymentModal({
                 )}
               </div>
 
-              {/* Promo code */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {/* Promo code (not for Alipay / WeChat transfers) */}
+              <div style={{ display: purpose === 'china_payment' ? 'none' : 'flex', flexDirection: 'column', gap: 6 }}>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <input
                     type="text"
@@ -529,7 +531,9 @@ export default function SbpPaymentModal({
                   ? 'Карта выпускается — обычно это занимает до 5 минут.'
                   : purpose === 'balance_deposit'
                     ? 'Средства зачислятся на внутренний баланс в течение минуты.'
-                    : 'Карта будет пополнена в течение нескольких минут.'}
+                    : purpose === 'china_payment'
+                      ? 'Переводим юани получателю.'
+                      : 'Карта будет пополнена в течение нескольких минут.'}
               </div>
               <Button onClick={onClose} fullWidth>Закрыть</Button>
             </div>

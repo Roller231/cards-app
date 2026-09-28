@@ -81,10 +81,11 @@ function LoginPage({ onLogin }) {
 
 // ─────────── SERVICE REQUESTS (Alipay / WeChat Pay) ───────────
 const SR_STATUSES = [
-  { id: 'new', label: 'Новая', color: '#3b82f6' },
+  { id: 'paid', label: 'Оплачена', color: '#3b82f6' },
   { id: 'in_progress', label: 'В работе', color: '#f59e0b' },
   { id: 'done', label: 'Выполнена', color: '#22c55e' },
   { id: 'rejected', label: 'Отклонена', color: '#ef4444' },
+  { id: 'awaiting_payment', label: 'Не оплачена', color: '#9ca3af' },
 ]
 const srStatus = (id) => SR_STATUSES.find(s => s.id === id) || { label: id, color: '#6b7280' }
 
@@ -96,11 +97,27 @@ function ServiceRequestsPage() {
   const [managersSaved, setManagersSaved] = useState('')
   const [msg, setMsg] = useState('')
   const [comments, setComments] = useState({})
+  const [meta, setMeta] = useState(null)
+  const [divisor, setDivisor] = useState('')
+  const [botToken, setBotToken] = useState('')
+
+  const openQr = async (id) => {
+    try {
+      const blob = await adminApi.serviceRequests.qr(id)
+      window.open(URL.createObjectURL(blob), '_blank')
+    } catch (e) { alert(e.message) }
+  }
+  const saveRateSettings = async () => {
+    const items = [{ key: 'CHINA_CNY_DIVISOR', value: divisor }]
+    if (botToken.trim()) items.push({ key: 'CHINA_BOT_TOKEN', value: botToken.trim() })
+    try { await adminApi.settings.update(items); setBotToken(''); setMsg('Настройки курса / бота сохранены'); load() } catch (e) { setMsg(`Ошибка: ${e.message}`) }
+  }
 
   const load = useCallback(async () => {
     try {
       const d = await adminApi.serviceRequests.list(filter)
       setItems(d.items || []); setCounts(d.counts || {})
+      setMeta(d); setDivisor(v => v || String(d.divisor ?? ''))
       setManagers(m => (m === null ? (d.manager_ids || '') : m)); setManagersSaved(d.manager_ids || '')
     } catch (e) { setMsg(e.message) }
   }, [filter])
@@ -132,9 +149,25 @@ function ServiceRequestsPage() {
       <h2 style={{ margin: '0 0 16px', fontSize: 22, fontWeight: 700 }}>🧧 Заявки Alipay / WeChat Pay</h2>
 
       <div style={{ background: '#fff', borderRadius: 14, padding: 20, marginBottom: 16, boxShadow: '0 1px 3px rgba(0,0,0,.08)' }}>
+        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>Курс юаня</div>
+        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}>
+          Курс = курс Битбанкера / делитель. В приложении показывается без комиссии Битбанкера, при оплате она добавляется отдельной строкой.
+          {meta?.quote && <> Сейчас: <b>1 ¥ = {Number(meta.quote.base_rate).toFixed(2)} ₽</b>, к оплате {Number(meta.quote.rate).toFixed(2)} ₽ за 1 ¥.</>}
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <label style={{ fontSize: 13, color: '#374151' }}>Делитель</label>
+          <input value={divisor} onChange={e => setDivisor(e.target.value)} style={{ width: 90, padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14 }} />
+          <label style={{ fontSize: 13, color: '#374151', marginLeft: 12 }}>Токен отдельного бота</label>
+          <input value={botToken} onChange={e => setBotToken(e.target.value)} placeholder={meta?.separate_bot ? 'задан (введите новый, чтобы заменить)' : 'пусто — уведомления идут через основной бот'}
+            style={{ flex: '1 1 260px', padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 13 }} />
+          <Btn onClick={saveRateSettings}>Сохранить</Btn>
+        </div>
+      </div>
+
+      <div style={{ background: '#fff', borderRadius: 14, padding: 20, marginBottom: 16, boxShadow: '0 1px 3px rgba(0,0,0,.08)' }}>
         <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>Менеджеры (Telegram ID через запятую)</div>
         <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}>
-          Каждая новая заявка приходит им в Telegram от бота. Менеджер должен хотя бы раз написать боту /start, иначе Telegram не даст отправить сообщение.
+          Каждая ОПЛАЧЕННАЯ заявка приходит им в Telegram (с QR-кодом получателя). Менеджер должен хотя бы раз написать этому боту /start, иначе Telegram не даст отправить сообщение.
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <input value={managers ?? ''} onChange={e => setManagers(e.target.value)} placeholder="123456789, 987654321"
@@ -163,7 +196,15 @@ function ServiceRequestsPage() {
           </div>
         ) },
         { key: 'service_label', label: 'Сервис' },
-        { key: 'amount', label: 'Сумма', render: r => <b>{Number(r.amount).toLocaleString('ru-RU')} {r.currency}</b> },
+        { key: 'amount', label: 'Сумма', render: r => (
+          <div>
+            <b>{Number(r.amount).toLocaleString('ru-RU')} ¥</b>
+            <div style={{ fontSize: 11, color: '#9ca3af' }}>{r.amount_rub ? `${Number(r.amount_rub).toLocaleString('ru-RU')} ₽ · курс ${Number(r.rate_rub || 0).toFixed(2)}` : ''}</div>
+          </div>
+        ) },
+        { key: 'recipient', label: 'Получатель', render: r => r.recipient_type === 'phone'
+          ? <div><div style={{ fontWeight: 600 }}>{r.recipient_phone}</div><div style={{ fontSize: 12, color: '#6b7280' }}>{r.recipient_name}</div></div>
+          : r.has_qr ? <Btn small variant="ghost" onClick={() => openQr(r.id)}>Открыть QR</Btn> : '—' },
         { key: 'note', label: 'Примечание', render: r => <div style={{ whiteSpace: 'pre-wrap', maxWidth: 260, color: '#374151' }}>{r.note || '—'}</div> },
         { key: 'status', label: 'Статус', render: r => (
           <select value={r.status} onChange={e => setStatus(r, e.target.value)}
