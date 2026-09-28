@@ -131,6 +131,7 @@ const adminApi = {
   serviceRequests: {
     list: (status = '') => req('GET', `/admin/service-requests?status=${encodeURIComponent(status)}`),
     update: (id, data) => req('PUT', `/admin/service-requests/${id}`, data),
+    remove: (id) => req('DELETE', `/admin/service-requests/${id}`),
     testNotify: () => req('POST', '/admin/service-requests/test-notify'),
     qr: async (id) => {
       const res = await fetch(`${BASE}/admin/service-requests/${id}/qr`, { headers: { Authorization: `Bearer ${getAdminToken()}` } })

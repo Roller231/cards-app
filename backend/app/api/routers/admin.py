@@ -1759,6 +1759,25 @@ async def update_service_request(
     return request_dict(r)
 
 
+@router.delete("/service-requests/{request_id}", summary="Delete a payment service request")
+async def delete_service_request(request_id: int, db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+    from app.api.routers.services import qr_file
+    from app.models.service_request import ServiceRequest
+    r = (await db.execute(select(ServiceRequest).where(ServiceRequest.id == request_id))).scalar_one_or_none()
+    if not r:
+        raise HTTPException(404, "Заявка не найдена")
+    f = qr_file(r)
+    await db.delete(r)
+    await db.commit()
+    if f:
+        try:
+            f.unlink()
+        except Exception as exc:
+            logger.warning("[CHINA] could not delete QR file %s: %s", f, exc)
+    logger.info("[ADMIN] service request #%s deleted", request_id)
+    return {"ok": True}
+
+
 @router.post("/service-requests/test-notify", summary="Send a test message to the request managers")
 async def test_service_request_notify(_=Depends(get_admin)):
     from app.api.routers.services import manager_chat_ids, send_to_managers

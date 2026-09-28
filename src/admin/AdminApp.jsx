@@ -139,6 +139,14 @@ function ServiceRequestsPage() {
   const setStatus = async (r, status) => {
     try { await adminApi.serviceRequests.update(r.id, { status }); load() } catch (e) { alert(e.message) }
   }
+  const removeRequest = async (r) => {
+    const paid = ['paid', 'in_progress', 'done'].includes(r.status)
+    const warn = paid ? '
+
+Внимание: заявка оплачена клиентом — запись о ней пропадёт из админки.' : ''
+    if (!confirm(`Удалить заявку №${r.id} (${Number(r.amount).toLocaleString('ru-RU')} ¥, ${r.username})?${warn}`)) return
+    try { await adminApi.serviceRequests.remove(r.id); load() } catch (e) { alert(e.message) }
+  }
   const saveComment = async (r) => {
     try { await adminApi.serviceRequests.update(r.id, { admin_comment: comments[r.id] ?? r.admin_comment ?? '' }); load() } catch (e) { alert(e.message) }
   }
@@ -219,6 +227,7 @@ function ServiceRequestsPage() {
             <Btn small onClick={() => saveComment(r)}>OK</Btn>
           </div>
         ) },
+        { key: 'actions', label: '', render: r => <Btn small variant="danger" onClick={() => removeRequest(r)}>Удалить</Btn> },
       ]} rows={items} />
     </div>
   )
