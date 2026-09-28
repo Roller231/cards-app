@@ -348,11 +348,6 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
         </Section>
       ))}
 
-      {/* Partner VPN banner */}
-      <Section>
-        <VpnBanner />
-      </Section>
-
       <Section>
         <Card padding="20px" style={{ minHeight: 250 }}>
           <div className="flex items-center justify-between" style={{ marginBottom: 0 }}>
@@ -509,6 +504,11 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
           </Card>
         </Section>
       )}
+
+      {/* Partner VPN banner — last block on the screen */}
+      <Section>
+        <VpnBanner />
+      </Section>
 
       </div>
     </div>
