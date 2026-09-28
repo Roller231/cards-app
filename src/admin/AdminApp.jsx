@@ -141,9 +141,7 @@ function ServiceRequestsPage() {
   }
   const removeRequest = async (r) => {
     const paid = ['paid', 'in_progress', 'done'].includes(r.status)
-    const warn = paid ? '
-
-Внимание: заявка оплачена клиентом — запись о ней пропадёт из админки.' : ''
+    const warn = paid ? ' Внимание: заявка оплачена клиентом — запись о ней пропадёт из админки.' : ''
     if (!confirm(`Удалить заявку №${r.id} (${Number(r.amount).toLocaleString('ru-RU')} ¥, ${r.username})?${warn}`)) return
     try { await adminApi.serviceRequests.remove(r.id); load() } catch (e) { alert(e.message) }
   }
