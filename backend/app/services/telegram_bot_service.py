@@ -513,20 +513,19 @@ async def notify_balance_deposit(user: User, amount_usd: float, amount_rub: floa
     await send_notification(user.telegram_user_id, text)
 
 
-async def notify_referral_reward(
-    referrer: User, buyer: User, reward_usd: float, base_usd: float, label: str, balance: float,
-) -> None:
-    """The inviter earned a percentage of their referral's purchase."""
+async def notify_referral_reward(referrer: User, referred: User, bonus_usd: float, balance: float) -> None:
+    """The inviter earned the fixed bonus: both of them now have cards."""
     if not referrer.telegram_user_id:
         return
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc).strftime("%d.%m.%Y %H:%M UTC")
-    who = f"@{_html.escape(buyer.username)}" if buyer.username and not buyer.username.startswith("tg_") else "ваш реферал"
+    who = f"@{_html.escape(referred.username)}" if referred.username and not referred.username.startswith("tg_") else "Ваш друг"
     text = (
-        "<b>🎁 Реферальное начисление</b>\n\n"
-        f"👤 {who}: {label} на <b>${base_usd:.2f}</b>\n"
-        f"➕ Вам начислено: <b>${reward_usd:.2f}</b>\n"
+        "<b>🎁 Бонус за приглашение</b>\n\n"
+        f"👤 {who} выпустил карту по вашей ссылке.\n"
+        f"➕ Вам начислено: <b>${bonus_usd:.2f}</b>\n"
         f"💼 Баланс: <b>${balance:.2f}</b>\n"
+        "Перевести на карту: карта → «Пополнить» → «Внутренний баланс».\n"
         f"🕐 {now}"
     )
     await send_notification(referrer.telegram_user_id, text)

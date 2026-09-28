@@ -168,6 +168,7 @@ async def get_public_rate():
     msk_now = datetime.now(_dt_timezone(timedelta(hours=3)))
     data = {
         "rate": round(rate, 2),
+        "base_rate": round(index, 2),
         "date_msk": msk_now.strftime("%d.%m.%Y"),
         "updated_at_msk": msk_now.strftime("%d.%m.%Y %H:%M"),
         "issue_price_rub": settings.CARD_ISSUANCE_PRICE_RUB,
@@ -213,9 +214,17 @@ async def get_sbp_rate(db: AsyncSession = Depends(get_db), _: User = Depends(get
 
     return {
         "index": round(index, 4),
+        # Exchange rate without any fees -- what the app shows as "the rate".
+        "base_rate": round(index, 2),
         "rate": round(rate, 4),
         "prev_rate": prev_rate,
         "change_pct": change_pct,
+        # How the exchange rate becomes the payment rate (shown before paying)
+        "fees": [
+            {"label": settings.SBP_BITBANKER_FEE_LABEL, "percent": settings.SBP_BITBANKER_FEE_PERCENT},
+            {"label": settings.SBP_OUR_FEE_LABEL, "percent": settings.SBP_OUR_FEE_PERCENT},
+            {"label": settings.SBP_CLARUS_FEE_LABEL, "percent": settings.SBP_CLARUS_FEE_PERCENT},
+        ],
         "small_payment_fee_rub": settings.SBP_SMALL_PAYMENT_FEE_RUB,
         "small_payment_threshold_rub": settings.SBP_SMALL_PAYMENT_THRESHOLD_RUB,
         "min_transfer_rub": _min_transfer_rub(bb_fee, bb_fee_min),
@@ -407,6 +416,22 @@ async def create_invoice(
     if body.purpose == "balance_deposit" and not (body.amount_usd_requested and float(body.amount_usd_requested) > 0):
         raise HTTPException(status_code=400, detail="amount_usd_requested is required for balance_deposit")
 
+    # The card issue price comes from the admin settings, never from the app:
+    # the amount before promo must cover the (invitee-discounted) price.
+    if body.purpose == "card_issue":
+        if not body.offer_id:
+            raise HTTPException(status_code=400, detail="offer_id is required for card_issue")
+        from app.api.routers.cards import _issue_price_rub
+        from app.services.wallet_service import apply_discount_rub, invitee_discount_percent
+        _expected = apply_discount_rub(
+            await _issue_price_rub(db, body.offer_id),
+            await invitee_discount_percent(db, current_user),
+        )
+        if promo_amount_before + 1 < _expected:
+            logger.warning("[SBP] card_issue amount %s below price %s for user_id=%s offer=%s",
+                           promo_amount_before, _expected, current_user.id, body.offer_id)
+            raise HTTPException(status_code=400, detail="Сумма не совпадает с ценой выпуска. Обновите страницу и попробуйте ещё раз.")
+
     # Admin toggles: refuse payment for a disabled card type
     if body.purpose == "card_issue" and body.offer_id:
         from app.services.card_service import CARD_NAME_BY_OFFER, _is_univ_email_ok, _is_univ_ravana
@@ -452,7 +477,7 @@ async def create_invoice(
         )
 
     ext_ref = _external_ref(current_user)
-    
+
     # Register client with KYC data — use real NeuroVision data if available, else env fallback
     if current_user.kyc_status != "success" or not current_user.kyc_passport:
         raise HTTPException(
@@ -472,7 +497,7 @@ async def create_invoice(
     except Exception as e:
         if settings.DETAILED_DEV_LOGS:
             logger.info("[SBP] Client not found: %s | %s", ext_ref, str(e)[:100])
-    
+
     # Step 2: Register client if doesn't exist
     if not client_exists:
         try:
@@ -490,19 +515,19 @@ async def create_invoice(
             )
             is_verified = reg_result.get("is_verified_for_sbp", False)
             if settings.DETAILED_DEV_LOGS:
-                logger.info("[SBP] Client registered: %s | is_verified_for_sbp=%s", 
+                logger.info("[SBP] Client registered: %s | is_verified_for_sbp=%s",
                            ext_ref, is_verified)
         except Exception as e:
             logger.error("[SBP] Client registration failed: %s | %s", ext_ref, str(e)[:400])
             raise HTTPException(status_code=502, detail=humanize_bb_error(e))
-    
+
     # Block invoice creation if client not verified by Bitbanker
     if not is_verified:
         raise HTTPException(
             status_code=403,
             detail="Верификация ещё обрабатывается. Пожалуйста, подождите несколько минут и попробуйте снова. Если проблема сохраняется, обратитесь в поддержку."
         )
-    
+
     idempotency_key = f"inv-{current_user.id}-{_uuid.uuid4().hex[:16]}"
 
     if body.purpose == "card_issue":
@@ -924,18 +949,10 @@ async def _credit_user_balance(db: AsyncSession, invoice: BbInvoice, bb_payload:
             logger.warning("[SBP] balance deposit notification failed for user_id=%s: %s", user.id, exc)
         return
 
-    # card_issue / balance_topup: record the USD value for reporting only
+    # card_issue / balance_topup: record the USD value for reporting only.
+    # (Referral bonuses are fixed and granted when cards exist -- see
+    # wallet_service.check_referral_bonuses_for.)
     invoice.amount_usd = usd_received
-    if invoice.purpose == "balance_topup":
-        paid_usd = Decimal(str(invoice.amount_usd_requested or 0)) or usd_at_app_rate or usd_received
-        kind = "card_topup"
-    else:
-        paid_usd = usd_at_app_rate if usd_at_app_rate > 0 else usd_received
-        kind = "card_issue"
-    try:
-        await wallet_service.award_referral(db, user, paid_usd, kind, ref_invoice_id=invoice.id)
-    except Exception as exc:
-        logger.warning("[SBP] referral reward failed for invoice_id=%s: %s", invoice.id, exc)
 
 
 # =====================  PROMO CODES (user side)  =====================

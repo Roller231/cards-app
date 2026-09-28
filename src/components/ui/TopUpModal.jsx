@@ -4,13 +4,14 @@ import Button from './Button'
 import Portal from './Portal'
 import SbpPaymentModal from './SbpPaymentModal'
 import { useAuth } from '../../context/AuthContext'
+import RateBreakdown from './RateBreakdown'
 
 const TOPUP_PAYMENT_METHODS = [
   { id: 'sbp', label: 'СБП', description: 'Мгновенное пополнение через Систему Быстрых Платежей', iconSrc: '/images/sbp.png' },
   { id: 'balance', label: 'Внутренний баланс', description: 'Списание с баланса ProntoPay — без комиссии СБП', icon: '💼' },
 ]
 
-function TopUpModal({ isOpen, onClose, card, onTopUp }) {
+function TopUpModal({ isOpen, onClose, card, onTopUp, initialMethod = 'sbp' }) {
   const { user, fetchMe, commissions } = useAuth()
   const [method, setMethod] = useState('sbp') // 'sbp' | 'balance'
   const [depositError, setDepositError] = useState('')
@@ -23,6 +24,11 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
   const [rateInfo, setRateInfo] = useState(null)  // { index, rate, small_payment_fee_rub, small_payment_threshold_rub }
   const [rateError, setRateError] = useState(false)
   const amountInputRef = useRef(null)
+
+  // Preselected payment method (e.g. internal balance from "Перевести на карту")
+  useEffect(() => {
+    if (isOpen) setMethod(initialMethod || 'sbp')
+  }, [isOpen, initialMethod])
 
   // Load the app exchange rate once on open
   useEffect(() => {
@@ -247,33 +253,19 @@ function TopUpModal({ isOpen, onClose, card, onTopUp }) {
               {/* RUB total block (SBP only) */}
               {method === 'sbp' && (
               <div style={{ backgroundColor: 'white', borderRadius: 12, padding: '14px 16px' }}>
-                <label style={{ fontSize: 13, fontWeight: 600, color: '#6B7280', fontFamily: font, display: 'block', marginBottom: 8 }}>
+                <label style={{ fontSize: 13, fontWeight: 600, color: '#6B7280', fontFamily: font, display: 'block', marginBottom: 10 }}>
                   Сумма к оплате
                 </label>
-                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: 15, fontWeight: 600, color: '#111827', fontFamily: font }}>
-                    {!amount
-                      ? '—'
-                      : rateError
-                        ? 'недоступно'
-                        : payRub !== null
-                          ? `${payRub.toLocaleString('ru-RU')} ₽`
-                          : 'загружаем курс…'
-                    }
-                  </span>
-                  {rate && amount > 0 && (
-                    <span style={{ fontSize: 12, color: '#9CA3AF', fontFamily: font }}>
-                      курс {rate.toFixed(2)} ₽/$
-                    </span>
-                  )}
-                </div>
-                {feeApplied > 0 && (
-                  <div style={{ fontSize: 12, color: '#6B7280', fontFamily: font, marginTop: 8, lineHeight: 1.5 }}>
-                    Включая комиссию платёжной системы {smallFee.toLocaleString('ru-RU')} ₽ —
-                    она применяется к платежам до {smallThreshold.toLocaleString('ru-RU')} ₽.
-                    При сумме от {smallThreshold.toLocaleString('ru-RU')} ₽ комиссии нет.
-                  </div>
-                )}
+                <RateBreakdown
+                  rateInfo={rateInfo}
+                  amountUsd={amount}
+                  baseRub={baseRub}
+                  feeApplied={feeApplied}
+                  smallFee={smallFee}
+                  smallThreshold={smallThreshold}
+                  payRub={payRub}
+                  rateError={rateError}
+                />
                 {rubLimitError && (
                   <div style={{ fontSize: 12, color: '#DC2626', fontFamily: font, marginTop: 8, lineHeight: 1.5 }}>
                     {rubLimitError}

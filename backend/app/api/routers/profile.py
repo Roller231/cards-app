@@ -29,8 +29,12 @@ async def get_profile(
         "kyc_status": current_user.kyc_status,
         "referral_code": code,
         "referral_link": wallet_service.referral_link(code),
-        "referral_percent": settings.REFERRAL_PERCENT,
+        "referral_bonus_usd": settings.REFERRAL_INVITER_BONUS_USD,
+        "referral_discount_percent": settings.REFERRAL_INVITEE_DISCOUNT_PERCENT,
         "referred": bool(current_user.referrer_id),
+        # this user's own invitee discount on the first card (0 if used / not invited)
+        "my_issue_discount_percent": await wallet_service.invitee_discount_percent(db, current_user),
+        "has_card": await wallet_service.has_issued_card(db, current_user.id),
         **stats,
     }
 

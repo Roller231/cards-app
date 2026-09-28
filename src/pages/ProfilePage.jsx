@@ -6,6 +6,7 @@ import BalanceDepositModal from '../components/ui/BalanceDepositModal'
 import { BOTTOM_BAR_SPACE } from '../components/BottomBar'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../components/ui/ToastProvider'
+import Portal from '../components/ui/Portal'
 
 const font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif'
 
@@ -60,7 +61,7 @@ function CopyIcon({ color = '#DC4D35' }) {
   )
 }
 
-export default function ProfilePage() {
+export default function ProfilePage({ userCards = [], onTransferToCard }) {
   const { user, fetchMe, appConfig } = useAuth()
   const { showToast } = useToast()
 
@@ -124,7 +125,29 @@ export default function ProfilePage() {
   }
 
   const balance = Number(profile?.balance ?? user?.balance ?? 0)
-  const refPercent = Number(profile?.referral_percent ?? appConfig?.referral_percent ?? 0)
+  const refBonus = Number(profile?.referral_bonus_usd ?? appConfig?.referral_bonus_usd ?? 0)
+  const refDiscount = Number(profile?.referral_discount_percent ?? appConfig?.referral_discount_percent ?? 0)
+  const myDiscount = Number(profile?.my_issue_discount_percent || 0)
+
+  // "Перевести на карту": internal balance -> card top-up with the balance
+  // option preselected. One card: go straight there; several: pick one.
+  const activeCards = (userCards || []).filter((c) => c.status === 'active' && c.aifory_card_id)
+  const [showCardPicker, setShowCardPicker] = useState(false)
+  const startTransfer = () => {
+    if (balance <= 0) {
+      showToast({ title: 'На балансе пока нет средств' })
+      return
+    }
+    if (activeCards.length === 0) {
+      showToast({ title: 'Сначала выпустите карту' })
+      return
+    }
+    if (activeCards.length === 1) {
+      onTransferToCard && onTransferToCard(activeCards[0])
+      return
+    }
+    setShowCardPicker(true)
+  }
   const refLink = profile?.referral_link || ''
 
   const copyId = async () => {
@@ -226,9 +249,23 @@ export default function ProfilePage() {
               + Пополнить
             </button>
           </div>
-          <div style={{ marginTop: 14, background: '#F3F5F8', borderRadius: 12, padding: '10px 12px', fontSize: 12, color: '#6B7280', fontFamily: font, lineHeight: 1.5 }}>
-            Пополняется по СБП по тому же курсу. Оплата выпуска и пополнения карт с баланса — без комиссии СБП,
-            только по цене услуги.
+          <button
+            onClick={startTransfer}
+            className="transition-transform duration-150 active:scale-[0.98]"
+            style={{
+              marginTop: 14, width: '100%', border: 'none', cursor: 'pointer', borderRadius: 12, padding: '12px 0',
+              background: '#F3F5F8', color: '#111827', fontSize: 14, fontWeight: 600, fontFamily: font,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <path d="M4 12h14M13 6l6 6-6 6" stroke="#111827" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Перевести на карту
+          </button>
+          <div style={{ marginTop: 10, background: '#F3F5F8', borderRadius: 12, padding: '10px 12px', fontSize: 12, color: '#6B7280', fontFamily: font, lineHeight: 1.5 }}>
+            Средства с баланса можно перевести на вашу виртуальную карту: выберите карту, нажмите «Пополнить»
+            и способ оплаты «Внутренний баланс». Пополняется по СБП, выпуск и пополнение карт с баланса — без комиссии СБП.
           </div>
         </Card>
       </Section>
@@ -236,6 +273,11 @@ export default function ProfilePage() {
       {/* Referral program */}
       <Section>
         <Card padding="20px">
+          {myDiscount > 0 && (
+            <div style={{ marginBottom: 14, background: '#FDECE9', color: '#B4361F', borderRadius: 12, padding: '10px 12px', fontSize: 13, fontWeight: 600, fontFamily: font, lineHeight: 1.4 }}>
+              Вы пришли по приглашению — скидка {myDiscount}% на выпуск первой карты уже учтена в цене.
+            </div>
+          )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{
               width: 46, height: 46, borderRadius: 23, flexShrink: 0,
@@ -252,9 +294,7 @@ export default function ProfilePage() {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: '#111827', fontFamily: font }}>Приглашайте друзей</div>
               <div style={{ fontSize: 13, color: '#6B7280', fontFamily: font, marginTop: 2, lineHeight: 1.4 }}>
-                {refPercent > 0
-                  ? `Получайте ${refPercent}% от каждой покупки друга — выпуска и пополнения карт — на внутренний баланс.`
-                  : 'Делитесь ссылкой — бонусы за покупки друзей зачисляются на внутренний баланс.'}
+                {`Другу — скидка ${refDiscount}% на выпуск карты, вам — ${refBonus.toLocaleString('en-US', { maximumFractionDigits: 2 })} $ на баланс.`}
               </div>
             </div>
           </div>
@@ -263,6 +303,11 @@ export default function ProfilePage() {
             <div style={{ flex: 1, background: '#F3F5F8', borderRadius: 12, padding: '10px 12px' }}>
               <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: font, fontWeight: 600 }}>Приглашено</div>
               <div style={{ fontSize: 18, fontWeight: 700, color: '#111827', fontFamily: font }}>{profile?.referrals_count ?? 0}</div>
+              {(profile?.referrals_waiting ?? 0) > 0 && (
+                <div style={{ fontSize: 11, color: '#6B7280', fontFamily: font, marginTop: 2 }}>
+                  ждут выпуска карты: {profile.referrals_waiting}
+                </div>
+              )}
             </div>
             <div style={{ flex: 1, background: '#F3F5F8', borderRadius: 12, padding: '10px 12px' }}>
               <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: font, fontWeight: 600 }}>Заработано</div>
@@ -300,7 +345,9 @@ export default function ProfilePage() {
             </button>
           </div>
           <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: font, marginTop: 10, lineHeight: 1.5 }}>
-            Бонус начисляется только за новых пользователей, которые впервые откроют приложение по вашей ссылке.
+            Бонус начисляется, когда и вы, и друг выпустите карты, и сразу доступен для перевода на карту.
+            Считаются только новые пользователи, впервые открывшие приложение по вашей ссылке.
+            {profile && !profile.has_card ? ' Выпустите свою карту, чтобы получать бонусы.' : ''}
           </div>
         </Card>
       </Section>
@@ -413,6 +460,43 @@ export default function ProfilePage() {
           )}
         </Card>
       </Section>
+
+      {showCardPicker && (
+        <Portal>
+          <div
+            onClick={() => setShowCardPicker(false)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: '100%', maxWidth: 430, background: '#FFFFFF', borderRadius: '20px 20px 0 0',
+                padding: '20px 16px calc(var(--tg-safe-bottom) + 24px)', fontFamily: font,
+              }}
+            >
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#111827', marginBottom: 4 }}>На какую карту перевести?</div>
+              <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 14 }}>
+                Доступно {money(balance)} · откроется пополнение с оплатой с баланса
+              </div>
+              {activeCards.map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => { setShowCardPicker(false); onTransferToCard && onTransferToCard(c) }}
+                  className="transition-transform duration-150 active:scale-[0.98]"
+                  style={{
+                    width: '100%', border: 'none', cursor: 'pointer', background: '#F3F5F8', borderRadius: 12,
+                    padding: '14px 16px', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    fontFamily: font,
+                  }}
+                >
+                  <span style={{ fontSize: 15, fontWeight: 600, color: '#111827' }}>Карта •••• {c.last4 || '—'}</span>
+                  <span style={{ fontSize: 13, color: '#6B7280' }}>{money(c.balance)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </Portal>
+      )}
 
       <BalanceDepositModal
         isOpen={showDeposit}

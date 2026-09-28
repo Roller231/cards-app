@@ -191,6 +191,104 @@ async def attach_referrer(db: AsyncSession, new_user: User, start_param: Optiona
     return referrer
 
 
+async def has_issued_card(db: AsyncSession, user_id: int) -> bool:
+    """The user has (or had) a real card: a completed issue order, or a card
+    materialized at the provider. A later closed card still counts."""
+    from app.models.card import Card
+    from app.models.order import Order
+    done = (await db.execute(
+        select(Order.id).where(
+            Order.user_id == user_id, Order.type == "issue", Order.status == "completed",
+        ).limit(1)
+    )).scalar_one_or_none()
+    if done:
+        return True
+    card = (await db.execute(
+        select(Card.id).where(Card.user_id == user_id, Card.aifory_card_id.is_not(None)).limit(1)
+    )).scalar_one_or_none()
+    return bool(card)
+
+
+async def invitee_discount_percent(db: AsyncSession, user: User) -> float:
+    """Discount on card issuance for an invited user: only for the FIRST card
+    (no issue order that is completed or still in progress)."""
+    pct = float(settings.REFERRAL_INVITEE_DISCOUNT_PERCENT or 0)
+    if not user.referrer_id or pct <= 0:
+        return 0.0
+    from app.models.order import Order
+    started = (await db.execute(
+        select(Order.id).where(
+            Order.user_id == user.id, Order.type == "issue",
+            Order.status.in_(("completed", "pending", "processing")),
+        ).limit(1)
+    )).scalar_one_or_none()
+    if started:
+        return 0.0
+    return pct
+
+
+def apply_discount_rub(price_rub: float, pct: float) -> float:
+    """Discounted RUB price, whole rubles (same rounding in app and backend)."""
+    if pct <= 0:
+        return float(price_rub)
+    return float(round(float(price_rub) * (1 - pct / 100.0)))
+
+
+async def _bonus_awarded(db: AsyncSession, referred_id: int) -> bool:
+    return bool((await db.execute(
+        select(BalanceTransaction.id).where(
+            BalanceTransaction.type == "referral",
+            BalanceTransaction.ref_user_id == referred_id,
+        ).limit(1)
+    )).scalar_one_or_none())
+
+
+async def try_award_referral_bonus(db: AsyncSession, referred: User) -> Optional[BalanceTransaction]:
+    """Fixed bonus for the inviter once BOTH the inviter and the invited user
+    have a card. One bonus per invited user (idempotent)."""
+    if not referred.referrer_id:
+        return None
+    bonus = q2(settings.REFERRAL_INVITER_BONUS_USD or 0)
+    if bonus <= 0:
+        return None
+    if await _bonus_awarded(db, referred.id):
+        return None
+    referrer = (await db.execute(select(User).where(User.id == referred.referrer_id))).scalar_one_or_none()
+    if not referrer or not referrer.is_active:
+        return None
+    if not await has_issued_card(db, referred.id) or not await has_issued_card(db, referrer.id):
+        return None
+    row = await credit(
+        db, referrer, bonus, "referral",
+        f"Бонус за приглашение @{referred.username}",
+        ref_user_id=referred.id,
+    )
+    logger.info("[REF] bonus %s USD to user_id=%s for referred user_id=%s", bonus, referrer.id, referred.id)
+    try:
+        from app.services.telegram_bot_service import notify_referral_reward
+        await notify_referral_reward(referrer, referred, float(bonus), float(referrer.balance))
+    except Exception as exc:
+        logger.warning("[REF] bonus notification failed for user_id=%s: %s", referrer.id, exc)
+    return row
+
+
+async def check_referral_bonuses_for(db: AsyncSession, user: User) -> None:
+    """Called after the user's cards are synced: the user may have just got a
+    card, which can unlock a bonus either as the invited one or as the inviter
+    of people who already have cards."""
+    if user.referrer_id:
+        await try_award_referral_bonus(db, user)
+    awarded_ids = select(BalanceTransaction.ref_user_id).where(
+        BalanceTransaction.type == "referral", BalanceTransaction.ref_user_id.is_not(None),
+    )
+    waiting = (await db.execute(
+        select(User).where(User.referrer_id == user.id, User.id.not_in(awarded_ids))
+    )).scalars().all()
+    if waiting and await has_issued_card(db, user.id):
+        for referred in waiting:
+            await try_award_referral_bonus(db, referred)
+
+
 async def referral_stats(db: AsyncSession, user_id: int) -> dict:
     count = (await db.execute(select(func.count(User.id)).where(User.referrer_id == user_id))).scalar() or 0
     earned = (await db.execute(
@@ -198,58 +296,14 @@ async def referral_stats(db: AsyncSession, user_id: int) -> dict:
             BalanceTransaction.user_id == user_id, BalanceTransaction.type == "referral",
         )
     )).scalar() or 0
-    return {"referrals_count": int(count), "referral_earned_usd": float(q2(earned))}
-
-
-async def award_referral(
-    db: AsyncSession,
-    buyer: User,
-    paid_usd,
-    kind: str,
-    ref_invoice_id: Optional[int] = None,
-    ref_order_id: Optional[int] = None,
-) -> Optional[BalanceTransaction]:
-    """Credit the buyer's inviter with REFERRAL_PERCENT of `paid_usd`.
-    kind: 'card_issue' | 'card_topup' (human label for the ledger / message).
-    Idempotent per invoice / order reference."""
-    if not buyer.referrer_id:
-        return None
-    pct = Decimal(str(settings.REFERRAL_PERCENT or 0))
-    base = q2(paid_usd)
-    if pct <= 0 or base <= 0:
-        return None
-    reward = q2(base * pct / Decimal("100"))
-    if reward <= 0:
-        return None
-
-    # Idempotency: one reward per paid thing
-    dup_q = select(BalanceTransaction.id).where(
-        BalanceTransaction.type == "referral",
-        BalanceTransaction.ref_user_id == buyer.id,
-    )
-    if ref_invoice_id:
-        dup_q = dup_q.where(BalanceTransaction.ref_invoice_id == ref_invoice_id)
-    elif ref_order_id:
-        dup_q = dup_q.where(BalanceTransaction.ref_order_id == ref_order_id)
-    else:
-        dup_q = None
-    if dup_q is not None and (await db.execute(dup_q.limit(1))).scalar_one_or_none():
-        return None
-
-    referrer = (await db.execute(select(User).where(User.id == buyer.referrer_id))).scalar_one_or_none()
-    if not referrer or not referrer.is_active:
-        return None
-
-    label = "выпуск карты" if kind == "card_issue" else "пополнение карты"
-    pct_str = f"{pct.normalize():f}"
-    row = await credit(
-        db, referrer, reward, "referral",
-        f"Реферал @{buyer.username}: {label} ${base:.2f} x {pct_str}%",
-        ref_invoice_id=ref_invoice_id, ref_order_id=ref_order_id, ref_user_id=buyer.id,
-    )
-    try:
-        from app.services.telegram_bot_service import notify_referral_reward
-        await notify_referral_reward(referrer, buyer, float(reward), float(base), label, float(referrer.balance))
-    except Exception as exc:
-        logger.warning("[REF] reward notification failed for user_id=%s: %s", referrer.id, exc)
-    return row
+    rewarded = (await db.execute(
+        select(func.count(BalanceTransaction.id)).where(
+            BalanceTransaction.user_id == user_id, BalanceTransaction.type == "referral",
+        )
+    )).scalar() or 0
+    return {
+        "referrals_count": int(count),
+        "referrals_rewarded": int(rewarded),
+        "referrals_waiting": max(int(count) - int(rewarded), 0),
+        "referral_earned_usd": float(q2(earned)),
+    }

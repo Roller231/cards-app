@@ -12,6 +12,7 @@ import { cardBackgroundByOffer, McChip } from '../utils/cardAssets'
 import PromoCard, { usePromoCards } from '../components/PromoCard'
 import { TxIcon } from './HistoryPage'
 import { latestOperations } from '../utils/txList'
+import VpnBanner from '../components/VpnBanner'
 import { BOTTOM_BAR_SPACE } from '../components/BottomBar'
 
 const PULL_THRESHOLD = 120
@@ -347,6 +348,11 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
         </Section>
       ))}
 
+      {/* Partner VPN banner */}
+      <Section>
+        <VpnBanner />
+      </Section>
+
       <Section>
         <Card padding="20px" style={{ minHeight: 250 }}>
           <div className="flex items-center justify-between" style={{ marginBottom: 0 }}>
@@ -456,7 +462,8 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
         </Card>
       </Section>
 
-      {/* Exchange rate widget: current app rate + day-over-day change badge */}
+      {/* Exchange rate widget: exchange rate WITHOUT fees (product test:
+          the fees are itemised at payment) + day-over-day change badge */}
       {rateInfo?.rate && (
         <Section>
           <Card padding="18px 20px">
@@ -474,13 +481,13 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
                   Доллар США
                 </div>
                 <div style={{ fontSize: 12, color: '#6B7280', fontFamily: font, marginTop: 1 }}>
-                  Итоговый курс пополнения по СБП
+                  Курс на сегодня
                 </div>
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
                 <div style={{ fontSize: 19, fontWeight: 700, color: '#111827', fontFamily: font }}>
-                  {Number(rateInfo.rate).toFixed(2)} ₽
+                  {Number(rateInfo.base_rate ?? rateInfo.rate).toFixed(2)} ₽
                 </div>
                 {typeof rateInfo.change_pct === 'number' ? (
                   <div style={{

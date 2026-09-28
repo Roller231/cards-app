@@ -1833,16 +1833,6 @@ class CardService:
         except Exception as exc:
             logger.error("Balance refund failed for user_id=%s order_id=%s: %s", user.id, getattr(order, "id", None), exc)
 
-    async def _award_balance_referral(self, db: AsyncSession, user: User, order: Order, kind: str) -> None:
-        charge = self._balance_charge_of(order)
-        if charge <= 0:
-            return
-        try:
-            from app.services import wallet_service
-            await wallet_service.award_referral(db, user, charge, kind, ref_order_id=order.id)
-        except Exception as exc:
-            logger.warning("Referral reward (balance %s) failed for user_id=%s order_id=%s: %s", kind, user.id, order.id, exc)
-
     # ------------------------------------------------------------------
     # Issue card
     # ------------------------------------------------------------------
@@ -2097,8 +2087,6 @@ class CardService:
         db.add(order)
         await db.flush()
         order.status = "processing"
-        if balance_charge_usd:
-            await self._award_balance_referral(db, user, order, "card_issue")
         if eager_placeholder_commit or defer_follow_up:
             await db.commit()
             logger.info(
@@ -2307,7 +2295,14 @@ class CardService:
         """
         lock = self._get_sync_lock(user.id)
         async with lock:
-            return await self._sync_cards_impl(db, user)
+            cards = await self._sync_cards_impl(db, user)
+            # A fresh card may unlock a referral bonus (both sides need a card)
+            try:
+                from app.services.wallet_service import check_referral_bonuses_for
+                await check_referral_bonuses_for(db, user)
+            except Exception as exc:
+                logger.warning("Referral bonus check failed for user_id=%s: %s", user.id, exc)
+            return cards
 
     async def _sync_cards_impl(self, db: AsyncSession, user: User) -> List[Card]:
         # A user's cards may live on TWO O-Plata clients: the regular one
@@ -2771,8 +2766,6 @@ class CardService:
         )
         db.add(order)
         await db.flush()
-        if balance_charge_usd:
-            await self._award_balance_referral(db, user, order, "card_topup")
 
         topup_payment = await self._follow_payment(client_id, payment_uuid, "topup")
         topup_payment_state = str(topup_payment.get("state") or "").upper() if topup_payment else ""

@@ -1,6 +1,6 @@
 from decimal import Decimal, ROUND_HALF_UP
 import logging
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,7 +26,7 @@ router = APIRouter(prefix="/cards", tags=["cards"])
 
 
 @router.get("/issuance-price", summary="Get card issuance price from admin settings")
-async def get_issuance_price(db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)):
+async def get_issuance_price(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
     from sqlalchemy import select as _select
     from app.models.admin_setting import AdminSetting
 
@@ -38,11 +38,14 @@ async def get_issuance_price(db: AsyncSession = Depends(get_db), _: User = Depen
     price_pay_rub = float(rows.get("CARD_ISSUANCE_PRICE_PAY_RUB") or settings.CARD_ISSUANCE_PRICE_PAY_RUB)
     price_univ_rub = float(rows.get("CARD_ISSUANCE_PRICE_UNIV_RUB") or settings.CARD_ISSUANCE_PRICE_UNIV_RUB)
 
+    from app.services.wallet_service import invitee_discount_percent
     return {
         "price_rub": price_rub,
         "price_pay_rub": price_pay_rub,
         "price_univ_rub": price_univ_rub,
         "initial_balance": 0.0,
+        # Invited users get this discount on their first card (0 otherwise)
+        "referral_discount_percent": await invitee_discount_percent(db, current_user),
     }
 
 
@@ -99,7 +102,7 @@ async def issue_card(
             detail="Оплата по СБП проходит через счёт (QR); здесь доступна только оплата с баланса.",
         )
 
-    quote = await _balance_issue_quote(db, body.offer_id)
+    quote = await _balance_issue_quote(db, body.offer_id, current_user)
     required = quote["price_usd"]
     from app.services import wallet_service
     try:
@@ -159,18 +162,20 @@ async def _issue_price_rub(db: AsyncSession, offer_id: str) -> float:
         return float(fallback)
 
 
-async def _balance_issue_quote(db: AsyncSession, offer_id: str) -> dict:
+async def _balance_issue_quote(db: AsyncSession, offer_id: str, user: Optional[User] = None) -> dict:
     """What a card issuance costs from the internal balance: the RUB price
-    converted at the app rate. No SBP fixed fee -- it was already paid when
-    the balance was topped up."""
+    (minus the invitee discount) converted at the app rate. No SBP fixed fee
+    -- it was already paid when the balance was topped up."""
     from app.services.rate_service import RateUnavailable, get_app_rate
-    price_rub = await _issue_price_rub(db, offer_id)
+    from app.services.wallet_service import apply_discount_rub, invitee_discount_percent
+    discount = await invitee_discount_percent(db, user) if user is not None else 0.0
+    price_rub = apply_discount_rub(await _issue_price_rub(db, offer_id), discount)
     try:
         rate = Decimal(str(await get_app_rate()))
     except RateUnavailable as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     price_usd = (Decimal(str(price_rub)) / rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    return {"price_rub": price_rub, "rate": float(rate), "price_usd": price_usd}
+    return {"price_rub": price_rub, "rate": float(rate), "price_usd": price_usd, "discount_percent": discount}
 
 
 @router.get("/issue-quote", summary="Price of issuing a card from the internal balance (USD at the app rate)")
@@ -179,9 +184,10 @@ async def get_issue_quote(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    q = await _balance_issue_quote(db, offer_id)
+    q = await _balance_issue_quote(db, offer_id, current_user)
     return {
         "offer_id": offer_id,
+        "discount_percent": q["discount_percent"],
         "price_rub": q["price_rub"],
         "rate": q["rate"],
         "price_usd": float(q["price_usd"]),

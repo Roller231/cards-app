@@ -4,6 +4,7 @@ import Button from './Button'
 import Portal from './Portal'
 import SbpPaymentModal from './SbpPaymentModal'
 import { useAuth } from '../../context/AuthContext'
+import RateBreakdown from './RateBreakdown'
 
 const font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif'
 const QUICK_AMOUNTS = [20, 50, 100, 200]
@@ -148,23 +149,19 @@ export default function BalanceDepositModal({ isOpen, onClose, onDeposited }) {
 
                 {/* RUB total */}
                 <div style={{ backgroundColor: 'white', borderRadius: 12, padding: '14px 16px' }}>
-                  <label style={{ fontSize: 13, fontWeight: 600, color: '#6B7280', fontFamily: font, display: 'block', marginBottom: 8 }}>
-                    К оплате по СБП
+                  <label style={{ fontSize: 13, fontWeight: 600, color: '#6B7280', fontFamily: font, display: 'block', marginBottom: 10 }}>
+                    Сумма к оплате
                   </label>
-                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: 15, fontWeight: 600, color: '#111827', fontFamily: font }}>
-                      {!amount ? '—' : rateError ? 'недоступно' : payRub !== null ? `${payRub.toLocaleString('ru-RU')} ₽` : 'загружаем курс…'}
-                    </span>
-                    {rate && (
-                      <span style={{ fontSize: 12, color: '#9CA3AF', fontFamily: font }}>курс {rate.toFixed(2)} ₽/$</span>
-                    )}
-                  </div>
-                  {feeApplied > 0 && (
-                    <div style={{ fontSize: 12, color: '#6B7280', fontFamily: font, marginTop: 8, lineHeight: 1.5 }}>
-                      Включая комиссию платёжной системы {smallFee.toLocaleString('ru-RU')} ₽ — она применяется
-                      к платежам до {smallThreshold.toLocaleString('ru-RU')} ₽. При сумме от {smallThreshold.toLocaleString('ru-RU')} ₽ комиссии нет.
-                    </div>
-                  )}
+                  <RateBreakdown
+                    rateInfo={rateInfo}
+                    amountUsd={amount}
+                    baseRub={baseRub}
+                    feeApplied={feeApplied}
+                    smallFee={smallFee}
+                    smallThreshold={smallThreshold}
+                    payRub={payRub}
+                    rateError={rateError}
+                  />
                   {rubLimitError && (
                     <div style={{ fontSize: 12, color: '#DC2626', fontFamily: font, marginTop: 8, lineHeight: 1.5 }}>{rubLimitError}</div>
                   )}

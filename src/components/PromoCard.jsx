@@ -27,7 +27,7 @@ export function usePromoCards({ onlineAvailable = true, onlinePlusAvailable = tr
   useEffect(() => {
     let cancelled = false
     api.sbp.rate()
-      .then((r) => { if (!cancelled && r && r.rate) setSbpRate(Number(r.rate)) })
+      .then((r) => { if (!cancelled && r && r.rate) setSbpRate(Number(r.base_rate ?? r.rate)) })
       .catch(() => {})
     return () => { cancelled = true }
   }, [])
@@ -130,7 +130,7 @@ export default function PromoCard({ pc, expanded, onToggle, issueLimitReached = 
               <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>
                 {pc.sbpRate ? `${Number(pc.sbpRate).toFixed(2)} ₽` : '—'}
               </div>
-              <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Курс СБП за 1 $</div>
+              <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Курс за 1 $</div>
             </div>
             <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
               <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>{pc.topup} %</div>

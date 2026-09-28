@@ -8,6 +8,7 @@ import FAQPage from './pages/FAQPage'
 import HistoryPage from './pages/HistoryPage'
 import HomePage from './pages/HomePage'
 import ProfilePage from './pages/ProfilePage'
+import ChinaPage from './pages/ChinaPage'
 import BottomBar from './components/BottomBar'
 import IssueCardPage from './pages/IssueCardPage'
 import WelcomePage from './pages/WelcomePage'
@@ -73,6 +74,9 @@ function AppInner() {
   })
   const [cardTypeToIssue, setCardTypeToIssue] = useState(null)
   const [selectedCard, setSelectedCard] = useState(null)
+  // Opens the card's top-up sheet with this payment method preselected
+  // ("Перевести на карту" from the internal balance in Profile)
+  const [topUpPreset, setTopUpPreset] = useState(null)
 
   // Virtual pageviews: pages here are React state, not URLs, so Metrika needs
   // an explicit hit on every page switch.
@@ -384,7 +388,17 @@ function AppInner() {
           }}
         />
       )}
-      {currentPage === 'profile' && <ProfilePage />}
+      {currentPage === 'profile' && (
+        <ProfilePage
+          userCards={userCards}
+          onTransferToCard={(card) => {
+            setSelectedCard(card)
+            setTopUpPreset('balance')
+            setCurrentPage('card-detail')
+          }}
+        />
+      )}
+      {currentPage === 'china' && <ChinaPage />}
       {currentPage === 'faq' && <FAQPage onBack={() => setCurrentPage('home')} />}
       {currentPage === 'history' && (
         <HistoryPage
@@ -419,6 +433,8 @@ function AppInner() {
             setCurrentPage('home')
           }}
           onTopUp={handleDeposited}
+          topUpPreset={topUpPreset}
+          onTopUpPresetUsed={() => setTopUpPreset(null)}
           onNavigateToHistory={(cardLast4) => {
             setHistoryFixedCardLast4(cardLast4)
             setHistoryReturnCardId(selectedCard?.id || null)
@@ -427,7 +443,7 @@ function AppInner() {
           getCommissionForCardType={getCommissionForCardType}
         />
       )}
-      {(currentPage === 'home' || currentPage === 'profile') && (
+      {(currentPage === 'home' || currentPage === 'profile' || currentPage === 'china') && (
         <BottomBar active={currentPage} onChange={(page) => setCurrentPage(page)} />
       )}
     </Layout>

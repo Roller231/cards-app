@@ -31,8 +31,19 @@ function UserIcon({ active }) {
   )
 }
 
+function ChinaIcon({ active }) {
+  const c = active ? '#FFFFFF' : '#6B7280'
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+      <rect x="4" y="3.5" width="16" height="17" rx="4" stroke={c} strokeWidth="1.9" fill={active ? 'rgba(255,255,255,0.22)' : 'none'} />
+      <path d="M8.5 8l3.5 4 3.5-4M12 12v5M9 13.3h6M9 15.8h6" stroke={c} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 const TABS = [
   { id: 'home', label: 'Главная', Icon: HomeIcon },
+  { id: 'china', label: 'Китай', Icon: ChinaIcon },
   { id: 'profile', label: 'Профиль', Icon: UserIcon },
 ]
 

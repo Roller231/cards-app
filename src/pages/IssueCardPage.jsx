@@ -88,11 +88,14 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
 
   // Select price based on the INTERNAL card type code (not the display name)
   const _name = (selectedCard?.name || '').trim()
-  const price = _name === 'Online+Pay' || _name === 'Online + Pay'
+  const fullPrice = _name === 'Online+Pay' || _name === 'Online + Pay'
     ? (Number(issuancePrice?.price_pay_rub) || 1999)
     : _name === 'Pay'
       ? (Number(issuancePrice?.price_univ_rub) || 1999)
       : (Number(issuancePrice?.price_rub) || 999)
+  // Invited users: discount on the first card (backend checks the same rule)
+  const refDiscount = Number(issuancePrice?.referral_discount_percent) || 0
+  const price = refDiscount > 0 ? Math.round(fullPrice * (1 - refDiscount / 100)) : fullPrice
 
   const initialBalance = issuancePrice?.initial_balance || 0
   const maxCards = selectedCard?.max_issued_count || 999
@@ -280,8 +283,20 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
               >
                 Стоимость выпуска карты
               </label>
-              <div style={{ fontSize: 24, fontWeight: 700, color: '#111827', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif' }}>
-                {price.toLocaleString('ru-RU')} ₽
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+                <div style={{ fontSize: 24, fontWeight: 700, color: '#111827', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif' }}>
+                  {price.toLocaleString('ru-RU')} ₽
+                </div>
+                {refDiscount > 0 && (
+                  <>
+                    <div style={{ fontSize: 15, color: '#9CA3AF', textDecoration: 'line-through', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif' }}>
+                      {fullPrice.toLocaleString('ru-RU')} ₽
+                    </div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#DC4D35', background: '#FDECE9', borderRadius: 8, padding: '3px 8px', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif' }}>
+                      −{refDiscount}% по приглашению
+                    </div>
+                  </>
+                )}
               </div>
             </div>
             <div

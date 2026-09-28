@@ -736,7 +736,7 @@ const SETTING_GROUPS = [
   {
     title: '📈 Курс и комиссии СБП',
     desc: 'Формула курса: индекс Битбанкера × (1 + %ББ) × (1 + %наш) × (1 + %Clarus). Минимальная комиссия ББ — фолбэк на случай недоступности их API.',
-    keys: ['SBP_BITBANKER_FEE_PERCENT', 'SBP_OUR_FEE_PERCENT', 'SBP_CLARUS_FEE_PERCENT', 'SBP_BB_MIN_FEE_RUB'],
+    keys: ['SBP_BITBANKER_FEE_PERCENT', 'SBP_OUR_FEE_PERCENT', 'SBP_CLARUS_FEE_PERCENT', 'SBP_BB_MIN_FEE_RUB', 'SBP_BITBANKER_FEE_LABEL', 'SBP_OUR_FEE_LABEL', 'SBP_CLARUS_FEE_LABEL'],
   },
   {
     title: '🏷 Витрина карт',
@@ -764,8 +764,8 @@ const SETTING_GROUPS = [
   },
   {
     title: '🎁 Рефералка и внутренний баланс',
-    desc: 'Пригласивший получает процент от покупок реферала (выпуск и пополнение карт, считается от суммы в $) на внутренний баланс. Реферал привязывается только к новым пользователям и один раз.',
-    keys: ['REFERRAL_PERCENT'],
+    desc: 'Приглашённому — скидка на выпуск первой карты. Пригласившему — фиксированный бонус на внутренний баланс, когда карты выпущены у обоих. Реферал привязывается только к новым пользователям и один раз.',
+    keys: ['REFERRAL_INVITEE_DISCOUNT_PERCENT', 'REFERRAL_INVITER_BONUS_USD'],
   },
   {
     title: '⚙️ Прочее',

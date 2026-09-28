@@ -52,9 +52,17 @@ class Settings(BaseSettings):
     ADMIN_ALERT_CHAT_ID: str = ""
     SBP_SMALL_PAYMENT_THRESHOLD_RUB: float = 10000.0
 
-    # Referral program: the inviter gets this % of every purchase (card issue,
-    # card top-up) their referral pays for, credited to the internal balance.
-    REFERRAL_PERCENT: float = 5.0
+    # Referral program: the invited user gets a discount on their FIRST card
+    # issuance; the inviter gets a fixed bonus on the internal balance once
+    # BOTH of them have issued a card.
+    REFERRAL_INVITEE_DISCOUNT_PERCENT: float = 10.0
+    REFERRAL_INVITER_BONUS_USD: float = 3.0
+
+    # Names of the fees that turn the exchange (Bitbanker) rate into the rate
+    # the user actually pays — shown as a breakdown before every payment.
+    SBP_BITBANKER_FEE_LABEL: str = "Комиссия платёжной системы СБП"
+    SBP_OUR_FEE_LABEL: str = "Сервисный сбор"
+    SBP_CLARUS_FEE_LABEL: str = "Комиссия банка-партнёра за конвертацию"
     # Bot / mini-app names used to build the invite deep link
     # (https://t.me/<bot>/<app>?startapp=<code>).
     TELEGRAM_BOT_USERNAME: str = "exprontopay_bot"
@@ -88,7 +96,7 @@ class Settings(BaseSettings):
     CARD_PAY_PROMO_BADGE: str = "Бесплатное обслуживание"
     CARD_PAY_PROMO_PAYS: str = "Booking, Airbnb, Zoom, Google One, Spotify, YouTube, покупки в магазинах и пр."
     CARD_PAY_PROMO_BIN: str = "США"
-    
+
     ADMIN_EMAIL: str = "exprontopay@gmail.com"
     ADMIN_PASSWORD: str = "exprontoPay2026."
 

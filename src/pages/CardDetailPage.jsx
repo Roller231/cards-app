@@ -19,7 +19,7 @@ const CARD_DATA_TEMPLATE = [
   { label: 'Почтовый адрес', value: '310160' },
 ]
 
-function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateToHistory, getCommissionForCardType }) {
+function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateToHistory, getCommissionForCardType, topUpPreset = null, onTopUpPresetUsed }) {
   const [showCardNumber, setShowCardNumber] = useState(false)
   const [isTopUpModalOpen, setIsTopUpModalOpen] = useState(false)
   const [requisites, setRequisites] = useState(null)  // { pan, expiry, cvv, holder }
@@ -29,6 +29,17 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
   const [txLoading, setTxLoading] = useState(false)
   const { showToast } = useToast()
   const isCardActive = card?.status === 'active'
+  const [topUpMethod, setTopUpMethod] = useState('sbp')
+
+  // Came here via "Перевести на карту": open the top-up sheet right away with
+  // the internal balance preselected (no separate transfer screen).
+  useEffect(() => {
+    if (!topUpPreset || !isCardActive) return
+    setTopUpMethod(topUpPreset)
+    const t = setTimeout(() => setIsTopUpModalOpen(true), 250)
+    onTopUpPresetUsed && onTopUpPresetUsed()
+    return () => clearTimeout(t)
+  }, [topUpPreset, isCardActive]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load transactions for this card on mount
   useEffect(() => {
@@ -447,7 +458,7 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
       {/* Top-up Button */}
       <Section>
         <Button
-          onClick={() => isCardActive && setIsTopUpModalOpen(true)}
+          onClick={() => { if (!isCardActive) return; setTopUpMethod('sbp'); setIsTopUpModalOpen(true) }}
           disabled={!isCardActive}
           fullWidth
           style={{ borderRadius: 12, padding: '16px' }}
@@ -619,6 +630,7 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
         isOpen={isTopUpModalOpen}
         onClose={() => setIsTopUpModalOpen(false)}
         card={card}
+        initialMethod={topUpMethod}
         onTopUp={onTopUp}
       />
 
