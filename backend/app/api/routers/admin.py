@@ -38,6 +38,7 @@ SETTINGS_KEYS: Dict[str, Dict[str, Any]] = {
     "MAINTENANCE_MODE": {"desc": "Технические работы: приложение закрыто, бот на любое сообщение отвечает текстом ниже", "type": bool},
     "MAINTENANCE_TEXT": {"desc": "Текст о технических работах (приложение и бот)", "type": str},
     "SBP_DISABLED": {"desc": "Отключить оплату по СБП (тех. работы у Битбанкера): счета не создаются, карты и баланс работают", "type": bool},
+    "TX_WATCH_INTERVAL_SEC": {"desc": "Как часто проверять новые операции по картам для уведомлений (секунды, минимум 60)", "type": int},
     "SBP_DISABLED_TEXT": {"desc": "Текст при отключённой оплате по СБП", "type": str},
     "CARD_ONLINE_ENABLED": {"desc": "Карта Online — доступна для выпуска", "type": bool},
     "CARD_ONLINE_PLUS_ENABLED": {"desc": "Карта Online+Pay — доступна для выпуска", "type": bool},

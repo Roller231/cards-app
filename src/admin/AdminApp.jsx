@@ -941,7 +941,7 @@ const SETTING_GROUPS = [
   {
     title: '⚙️ Прочее',
     desc: '',
-    keys: ['CARD_BILLING_ADDRESS'],
+    keys: ['CARD_BILLING_ADDRESS', 'TX_WATCH_INTERVAL_SEC'],
   },
 ]
 

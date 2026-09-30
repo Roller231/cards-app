@@ -74,6 +74,8 @@ class Settings(BaseSettings):
     #   shows a maintenance screen, the bot answers any message with the text);
     # SBP_DISABLED — no new SBP invoices (Bitbanker maintenance); cards and the
     #   internal balance keep working.
+    # How often the background watcher checks cards for new transactions (sec)
+    TX_WATCH_INTERVAL_SEC: int = 300
     MAINTENANCE_MODE: bool = False
     MAINTENANCE_TEXT: str = "Ведутся технические работы. Приложение временно недоступно — скоро всё заработает. Приносим извинения за неудобства."
     SBP_DISABLED: bool = False

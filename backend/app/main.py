@@ -128,8 +128,8 @@ async def _bot_poll_loop() -> None:
 
 
 async def _transaction_watch_loop() -> None:
-    """Notify card owners about new transactions within a minute, without
-    waiting for them to open the app."""
+    """Notify card owners about new transactions every TX_WATCH_INTERVAL_SEC
+    (5 min by default), without waiting for them to open the app."""
     from app.services.card_service import card_service as _cs
     await asyncio.sleep(20)
     while True:
@@ -137,7 +137,7 @@ async def _transaction_watch_loop() -> None:
             await _cs.watch_transactions_once()
         except Exception as exc:
             logger.error("Transaction watch loop error: %s", exc)
-        await asyncio.sleep(60)
+        await asyncio.sleep(max(60, int(settings.TX_WATCH_INTERVAL_SEC or 300)))
 
 
 async def _auto_recover_loop() -> None:
