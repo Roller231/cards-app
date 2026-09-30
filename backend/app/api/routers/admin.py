@@ -69,6 +69,7 @@ SETTINGS_KEYS: Dict[str, Dict[str, Any]] = {
     "CARD_PAY_PROMO_BIN": {"desc": "Pay: страна BIN", "type": str},
     "SBP_BITBANKER_FEE_PERCENT": {"desc": "Процент Битбанкера в курсе (2.1 → множитель 1.021)", "type": float},
     "SBP_OUR_FEE_PERCENT": {"desc": "Наш процент в курсе (1.9 → множитель 1.019)", "type": float},
+    "SBP_BB_CONVERSION_FEE_PERCENT": {"desc": "Комиссия Битбанкера за конвертацию RUB→USDT (%), входит в «Комиссию за пополнение»", "type": float},
     "SBP_CLARUS_FEE_PERCENT": {"desc": "Процент Clarus в курсе (2.8 → множитель 1.028)", "type": float},
     "SBP_BB_MIN_FEE_RUB": {"desc": "Мин. комиссия Битбанкера за QR (₽) — фолбэк, если их API недоступен (сейчас 21, будет 210)", "type": float},
     "CARD_BILLING_ADDRESS": {"desc": "Биллинговый адрес карт (блок «Информация по карте»)", "type": str},

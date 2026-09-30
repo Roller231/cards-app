@@ -29,6 +29,7 @@ def apply_multipliers(index: float) -> float:
         * (1 + settings.SBP_BITBANKER_FEE_PERCENT / 100)
         * (1 + settings.SBP_OUR_FEE_PERCENT / 100)
         * (1 + settings.SBP_CLARUS_FEE_PERCENT / 100)
+        * (1 + settings.SBP_BB_CONVERSION_FEE_PERCENT / 100)
     )
 
 

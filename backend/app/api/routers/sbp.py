@@ -160,12 +160,8 @@ async def get_public_rate():
         if _public_rate_cache["data"]:
             return _public_rate_cache["data"]  # stale beats nothing for a landing page
         raise HTTPException(status_code=502, detail="Курс временно недоступен")
-    rate = (
-        index
-        * (1 + settings.SBP_BITBANKER_FEE_PERCENT / 100)
-        * (1 + settings.SBP_OUR_FEE_PERCENT / 100)
-        * (1 + settings.SBP_CLARUS_FEE_PERCENT / 100)
-    )
+    from app.services.rate_service import apply_multipliers
+    rate = apply_multipliers(index)
     msk_now = datetime.now(_dt_timezone(timedelta(hours=3)))
     _div = float(settings.CHINA_CNY_DIVISOR or 0)
     data = {
@@ -184,7 +180,12 @@ async def get_public_rate():
 def topup_fee_percent() -> float:
     """Our fee and Clarus compounded into one percent (the rate multiplies
     them), shown to users as a single "Комиссия за пополнение"."""
-    combined = (1 + settings.SBP_OUR_FEE_PERCENT / 100) * (1 + settings.SBP_CLARUS_FEE_PERCENT / 100) - 1
+    combined = (
+        (1 + settings.SBP_OUR_FEE_PERCENT / 100)
+        * (1 + settings.SBP_CLARUS_FEE_PERCENT / 100)
+        * (1 + settings.SBP_BB_CONVERSION_FEE_PERCENT / 100)
+        - 1
+    )
     return round(combined * 100, 2)
 
 
