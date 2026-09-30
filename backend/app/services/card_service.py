@@ -2581,41 +2581,120 @@ class CardService:
         transactions = [_normalize_card_transaction(t) for t in transactions if isinstance(t, dict)]
         transactions = _expand_transaction_fees(transactions)
 
-        # Notify about latest transaction if new
-        if transactions and user and user.telegram_user_id:
-            latest_txn = transactions[0]
-            last_notified_id = getattr(card, "last_notified_transaction_id", None)
-            txn_id = str(latest_txn.get("uuid") or latest_txn.get("id") or "")
-            if txn_id and last_notified_id != txn_id:
-                try:
-                    await notify_card_transaction(
-                        db=db, user=user,
-                        card_last4=card.last4 or "",
-                        # Card-currency settlement amount, not the merchant-currency one
-                        amount=float(latest_txn.get("display_amount") or latest_txn.get("amount") or 0),
-                        currency=str(latest_txn.get("display_currency") or latest_txn.get("currency") or "USD"),
-                        merchant=str(latest_txn.get("merchantName") or latest_txn.get("description") or ""),
-                        date=str(latest_txn.get("transactionAt") or latest_txn.get("createdAt") or ""),
-                        status=str(latest_txn.get("status") or ""),
-                    )
-                    if hasattr(card, "last_notified_transaction_id"):
-                        card.last_notified_transaction_id = txn_id
-                        # Persist in a separate session to avoid contaminating the caller's session
-                        try:
-                            from app.core.database import AsyncSessionLocal
-                            from sqlalchemy import update as _sa_update
-                            from app.models.card import Card as _Card
-                            async with AsyncSessionLocal() as _sess:
-                                await _sess.execute(
-                                    _sa_update(_Card).where(_Card.id == card.id).values(last_notified_transaction_id=txn_id)
-                                )
-                                await _sess.commit()
-                        except Exception as _pe:
-                            logger.debug("last_notified_transaction_id persist error: %s", _pe)
-                except Exception as _n:
-                    logger.debug("Transaction notification error: %s", _n)
+        # Notify about every transaction newer than the last notified one
+        try:
+            await self._notify_new_transactions(user, card, transactions)
+        except Exception as _n:
+            logger.debug("Transaction notification error: %s", _n)
 
         return transactions
+
+    # ------------------------------------------------------------------
+    # Card transaction notifications (app visits + background watcher)
+    # ------------------------------------------------------------------
+
+    _tx_notify_locks: dict = {}
+    TX_NOTIFY_MAX_PER_PASS = 5
+    TX_NOTIFY_FRESH_HOURS = 2
+
+    @staticmethod
+    def _tx_is_recent(tx: Dict[str, Any], hours: float) -> bool:
+        from datetime import datetime, timezone, timedelta
+        raw = str(tx.get("transactionAt") or tx.get("createdAt") or "")
+        if not raw:
+            return False
+        try:
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return datetime.now(timezone.utc) - dt < timedelta(hours=hours)
+        except Exception:
+            return False
+
+    async def _notify_new_transactions(self, user: Optional[User], card: Card, transactions: List[Dict[str, Any]]) -> None:
+        """Telegram notification for every card transaction newer than the
+        card's last_notified_transaction_id (newest-first list from the
+        provider, fee rows ignored). Serialised per card and the marker is
+        re-read from the DB, so the watcher and an app visit never notify the
+        same transaction twice."""
+        if not user or not user.telegram_user_id or not transactions:
+            return
+        real = [t for t in transactions if t.get("tx_type") != "fee"]
+        ids = [str(t.get("uuid") or t.get("id") or "") for t in real]
+        if not real or not ids[0]:
+            return
+        lock = self._tx_notify_locks.setdefault(card.id, asyncio.Lock())
+        async with lock:
+            async with AsyncSessionLocal() as sess:
+                marker = (await sess.execute(
+                    select(Card.last_notified_transaction_id).where(Card.id == card.id)
+                )).scalar_one_or_none()
+            if marker == ids[0]:
+                return
+            if marker and marker in ids:
+                new = real[:ids.index(marker)]
+            else:
+                # First notification for this card, or the marker fell off the
+                # page / disappeared: only recent operations, never old history.
+                new = [t for t in real if self._tx_is_recent(t, self.TX_NOTIFY_FRESH_HOURS)]
+                if not marker:
+                    new = new[:1]
+            new = new[:self.TX_NOTIFY_MAX_PER_PASS]
+            async with AsyncSessionLocal() as nsess:
+                for tx in reversed(new):  # oldest first
+                  try:
+                      await notify_card_transaction(
+                          db=nsess, user=user,
+                          card_last4=card.last4 or "",
+                          # Card-currency settlement amount, not the merchant-currency one
+                          amount=float(tx.get("display_amount") or tx.get("amount") or 0),
+                          currency=str(tx.get("display_currency") or tx.get("currency") or "USD"),
+                          merchant=str(tx.get("merchantName") or tx.get("description") or ""),
+                          date=str(tx.get("transactionAt") or tx.get("createdAt") or ""),
+                          status=str(tx.get("status") or ""),
+                      )
+                  except Exception as exc:
+                      logger.warning("Transaction notification failed for card %s: %s", card.id, exc)
+            card.last_notified_transaction_id = ids[0]
+            async with AsyncSessionLocal() as sess:
+                from sqlalchemy import update as _sa_update
+                await sess.execute(
+                    _sa_update(Card).where(Card.id == card.id).values(last_notified_transaction_id=ids[0])
+                )
+                await sess.commit()
+            if new:
+                logger.info("Card %s (user_id=%s): notified %d new transaction(s)", card.id, user.id, len(new))
+
+    async def watch_transactions_once(self) -> None:
+        """Background pass: check every active card for new transactions and
+        notify the owner right away (not only when they open the app)."""
+        async with AsyncSessionLocal() as db:
+            rows = (await db.execute(
+                select(Card, User).join(User, User.id == Card.user_id).where(
+                    Card.aifory_card_id.is_not(None),
+                    Card.offer_id.is_not(None),
+                    User.telegram_user_id.is_not(None),
+                    User.is_active == True,  # noqa: E712
+                )
+            )).all()
+        rows = [(c, u) for c, u in rows if _card_is_active(c.status)]
+        sem = asyncio.Semaphore(4)
+
+        async def one(card: Card, user: User) -> None:
+            async with sem:
+                try:
+                    client_id = _client_id_for_ravana(user, card.offer_id)
+                    resp = await oplata_client.get_card_transaction_list(
+                        client_id=client_id, card_id=card.aifory_card_id,
+                        ravana_server_id=card.offer_id, page_number=0, page_size=10,
+                    )
+                    txs = resp.get("data") or resp.get("content") or (resp if isinstance(resp, list) else [])
+                    txs = [_normalize_card_transaction(t) for t in txs if isinstance(t, dict)]
+                    await self._notify_new_transactions(user, card, txs)
+                except Exception as exc:
+                    logger.debug("Transaction watch failed for card %s: %s", card.id, str(exc)[:200])
+
+        await asyncio.gather(*(one(c, u) for c, u in rows))
 
     # ------------------------------------------------------------------
     # Deposit (top-up card balance via O-Plata)

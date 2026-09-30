@@ -127,6 +127,19 @@ async def _bot_poll_loop() -> None:
             await asyncio.sleep(5)
 
 
+async def _transaction_watch_loop() -> None:
+    """Notify card owners about new transactions within a minute, without
+    waiting for them to open the app."""
+    from app.services.card_service import card_service as _cs
+    await asyncio.sleep(20)
+    while True:
+        try:
+            await _cs.watch_transactions_once()
+        except Exception as exc:
+            logger.error("Transaction watch loop error: %s", exc)
+        await asyncio.sleep(60)
+
+
 async def _auto_recover_loop() -> None:
     """Re-trigger paid invoices whose card issue / deposit never landed."""
     from app.services.recovery_service import scan_and_recover
@@ -422,6 +435,7 @@ async def startup_db_client():
     asyncio.create_task(_gmail_poll_loop())
     asyncio.create_task(_scheduled_broadcast_loop())
     asyncio.create_task(_auto_recover_loop())
+    asyncio.create_task(_transaction_watch_loop())
     logger.info("Database tables created (if not existed) and schema updated")
 
 
