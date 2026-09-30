@@ -181,6 +181,13 @@ async def get_public_rate():
     return data
 
 
+def topup_fee_percent() -> float:
+    """Our fee and Clarus compounded into one percent (the rate multiplies
+    them), shown to users as a single "Комиссия за пополнение"."""
+    combined = (1 + settings.SBP_OUR_FEE_PERCENT / 100) * (1 + settings.SBP_CLARUS_FEE_PERCENT / 100) - 1
+    return round(combined * 100, 2)
+
+
 @router.get("/rate", summary="App exchange rate: BB index × bitbFee × myFee × clarusFee")
 async def get_sbp_rate(db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)):
     """Rate formula (always applies): [Bitbanker index] × three admin-configured
@@ -226,9 +233,10 @@ async def get_sbp_rate(db: AsyncSession = Depends(get_db), _: User = Depends(get
         # How the exchange rate becomes the payment rate (shown before paying)
         "fees": [
             {"label": settings.SBP_BITBANKER_FEE_LABEL, "percent": settings.SBP_BITBANKER_FEE_PERCENT},
-            {"label": settings.SBP_OUR_FEE_LABEL, "percent": settings.SBP_OUR_FEE_PERCENT},
-            {"label": settings.SBP_CLARUS_FEE_LABEL, "percent": settings.SBP_CLARUS_FEE_PERCENT},
+            {"label": settings.SBP_TOPUP_FEE_LABEL, "percent": topup_fee_percent()},
         ],
+        # Same combined percent for the "Комиссия за пополнение" card tiles
+        "topup_fee_percent": topup_fee_percent(),
         "small_payment_fee_rub": settings.SBP_SMALL_PAYMENT_FEE_RUB,
         "small_payment_threshold_rub": settings.SBP_SMALL_PAYMENT_THRESHOLD_RUB,
         "min_transfer_rub": _min_transfer_rub(bb_fee, bb_fee_min),

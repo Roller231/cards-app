@@ -89,6 +89,9 @@ class Settings(BaseSettings):
     SBP_BITBANKER_FEE_LABEL: str = "Комиссия платёжной системы СБП"
     SBP_OUR_FEE_LABEL: str = "Сервисный сбор"
     SBP_CLARUS_FEE_LABEL: str = "Комиссия банка-партнёра за конвертацию"
+    # Our fee + Clarus are shown to users as ONE line with this name; its
+    # percent is computed from the two settings (compounded).
+    SBP_TOPUP_FEE_LABEL: str = "Комиссия за пополнение"
     # Bot / mini-app names used to build the invite deep link
     # (https://t.me/<bot>/<app>?startapp=<code>).
     TELEGRAM_BOT_USERNAME: str = "exprontopay_bot"

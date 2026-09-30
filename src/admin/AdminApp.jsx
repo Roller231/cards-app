@@ -906,8 +906,8 @@ const SETTING_GROUPS = [
   },
   {
     title: '📈 Курс и комиссии СБП',
-    desc: 'Формула курса: индекс Битбанкера × (1 + %ББ) × (1 + %наш) × (1 + %Clarus). Минимальная комиссия ББ — фолбэк на случай недоступности их API.',
-    keys: ['SBP_BITBANKER_FEE_PERCENT', 'SBP_OUR_FEE_PERCENT', 'SBP_CLARUS_FEE_PERCENT', 'SBP_BB_MIN_FEE_RUB', 'SBP_BITBANKER_FEE_LABEL', 'SBP_OUR_FEE_LABEL', 'SBP_CLARUS_FEE_LABEL'],
+    desc: 'Формула курса: индекс Битбанкера × (1 + %ББ) × (1 + %наш) × (1 + %Clarus). Пользователю показываются две строки: комиссия СБП (%ББ) и «Комиссия за пополнение» = (1 + %наш) × (1 + %Clarus) − 1. Минимальная комиссия ББ — фолбэк на случай недоступности их API.',
+    keys: ['SBP_BITBANKER_FEE_PERCENT', 'SBP_OUR_FEE_PERCENT', 'SBP_CLARUS_FEE_PERCENT', 'SBP_BB_MIN_FEE_RUB', 'SBP_BITBANKER_FEE_LABEL', 'SBP_TOPUP_FEE_LABEL'],
   },
   {
     title: '🏷 Витрина карт',

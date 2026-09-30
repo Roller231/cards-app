@@ -24,10 +24,15 @@ export function usePromoCards({ onlineAvailable = true, onlinePlusAvailable = tr
   // Live SBP exchange rate (RUB per 1 USD), computed by the backend
   // (Bitbanker index × fee multipliers). One fetch shared by all promo cards.
   const [sbpRate, setSbpRate] = useState(null)
+  const [topupFee, setTopupFee] = useState(null)  // combined fee inside the payment rate, %
   useEffect(() => {
     let cancelled = false
     api.sbp.rate()
-      .then((r) => { if (!cancelled && r && r.rate) setSbpRate(Number(r.base_rate ?? r.rate)) })
+      .then((r) => {
+        if (cancelled || !r || !r.rate) return
+        setSbpRate(Number(r.base_rate ?? r.rate))
+        if (typeof r.topup_fee_percent === 'number') setTopupFee(r.topup_fee_percent)
+      })
       .catch(() => {})
     return () => { cancelled = true }
   }, [])
@@ -42,7 +47,7 @@ export function usePromoCards({ onlineAvailable = true, onlinePlusAvailable = tr
       validity: commissions.online_validity_text || '1 год',
       operationFee: numOr(commissions.online_operation_fee, 0.4),
       priceRub: numOr(commissions.online_issue_price_rub, 999),
-      topup: numOr(commissions.online_topup, 3.8),
+      topup: topupFee ?? numOr(commissions.online_topup, 0),
       sbpRate,
     },
     {
@@ -55,7 +60,7 @@ export function usePromoCards({ onlineAvailable = true, onlinePlusAvailable = tr
       validity: commissions.online_plus_validity_text || '1 год',
       operationFee: numOr(commissions.online_plus_operation_fee, 0.4),
       priceRub: numOr(commissions.online_plus_issue_price_rub, 1999),
-      topup: numOr(commissions.online_plus_topup, 4),
+      topup: topupFee ?? numOr(commissions.online_plus_topup, 0),
       sbpRate,
     },
     {
@@ -68,7 +73,7 @@ export function usePromoCards({ onlineAvailable = true, onlinePlusAvailable = tr
       validity: commissions.univ_validity_text || '1 год',
       operationFee: numOr(commissions.univ_operation_fee, 0.4),
       priceRub: numOr(commissions.univ_issue_price_rub, 1999),
-      topup: numOr(commissions.univ_topup, 4),
+      topup: topupFee ?? numOr(commissions.univ_topup, 0),
       sbpRate,
     },
   ]
@@ -138,7 +143,7 @@ export default function PromoCard({ pc, expanded, onToggle, issueLimitReached = 
             </div>
             <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
               <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>{Number(pc.priceRub).toLocaleString('ru-RU')} ₽</div>
-              <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Плата за выпуск</div>
+              <div style={{ fontSize: 12, fontWeight: 400, color: '#6B7280', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Комиссия за выпуск</div>
             </div>
             <div style={{ backgroundColor: '#F3F5F8', borderRadius: 12, padding: '12px 16px' }}>
               <div style={{ fontSize: 16, fontWeight: 600, color: '#111827', fontFamily: font, marginBottom: 2 }}>{pc.operationFee} $</div>
