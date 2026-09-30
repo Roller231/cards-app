@@ -106,11 +106,12 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, initialMethod = 'sbp' }) {
   const hasAmount = amount > 0
   const amountText = amountInput || ''
   // Paying from the internal balance: USD amount + card-type markup, no SBP fee
-  const isUnivCard = String(card?.offer_id || '').includes('RT-8')
-  const balanceMarkup = Number(isUnivCard ? commissions?.online_plus_topup : commissions?.online_topup) || 0
+  // Paying from the internal balance: the same "Комиссия за пополнение" as in
+  // the SBP rate breakdown (the backend charges exactly this percent)
+  const balanceMarkup = Number(rateInfo?.topup_fee_percent) || 0
   const balanceCharge = hasAmount ? Math.ceil(amount * (1 + balanceMarkup / 100) * 100) / 100 : 0
   const balanceUsd = Number(user?.balance || 0)
-  const balanceEnough = hasAmount && balanceUsd >= balanceCharge
+  const balanceEnough = hasAmount && !!rateInfo && balanceUsd >= balanceCharge
   // payRub = ceil(amount × rate); payments below the threshold additionally
   // carry Bitbanker's fixed fee (210 ₽), payments above pay exactly the amount.
   const rate = rateInfo?.rate || null

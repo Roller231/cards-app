@@ -313,11 +313,10 @@ async def deposit_card(
         card = await card_service._resolve_card(db, current_user.id, card_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
-    markup_setting = (
-        settings.ONLINE_PLUS_TOPUP_MARKUP_PERCENT
-        if card.offer_id and _is_univ_ravana(card.offer_id)
-        else settings.ONLINE_TOPUP_MARKUP_PERCENT
-    )
+    # Same "Комиссия за пополнение" as in the SBP rate (our % + Clarus +
+    # Bitbanker conversion), taken from the internal balance on top of the amount.
+    from app.api.routers.sbp import topup_fee_percent
+    markup_setting = topup_fee_percent()
     amount = Decimal(str(body.amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     required = (amount + amount * Decimal(str(markup_setting)) / Decimal("100")).quantize(
         Decimal("0.01"), rounding=ROUND_HALF_UP
