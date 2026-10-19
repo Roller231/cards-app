@@ -364,7 +364,8 @@ CARD_NAME_BY_OFFER: Dict[str, str] = {
     "RAVANA:RT-prod:faa1988b-a467-4397-85c7-ab380fea7bb4": "Online",
     # Online+Pay on the NEW BIN (US identity, separate univ client, PRONTOPAY_UNIV parent)
     "RAVANA:RT-8-prod:afea2835-80a4-4b57-8f03-b9f323ce9c77": "Online+Pay",
-    # "Pay" (третий вид) — в разработке, оффер появится позже
+    # "Pay" — Rocketpay card (Apple Pay), see services/rocketpay_service.py
+    "ROCKETPAY:pay": "Pay",
 }
 
 # Legacy offers hidden from the app entirely (RT-2: issue transport was never
@@ -1013,6 +1014,19 @@ class CardService:
     # ------------------------------------------------------------------
 
     async def get_offers(self, user: Optional[User] = None) -> List[Dict[str, Any]]:
+        """O-Plata card types + the Rocketpay "Pay" card (when available to the user)."""
+        offers = await self._get_oplata_offers(user)
+        try:
+            from app.services import rocketpay_service as rp
+            async with AsyncSessionLocal() as db:
+                rp_offer = await rp.offer_for(db, user)
+            if rp_offer:
+                offers.append(rp_offer)
+        except Exception as exc:
+            logger.warning("Rocketpay offer unavailable: %s", exc)
+        return offers
+
+    async def _get_oplata_offers(self, user: Optional[User] = None) -> List[Dict[str, Any]]:
         """Return available virtual card types from O-Plata.
 
         When `user` is given, current_count reflects THAT user's issued cards
@@ -1852,11 +1866,15 @@ class CardService:
         sbp_invoice_id: Optional[int] = None,
         balance_charge_usd: Optional[Decimal] = None,
     ) -> Dict[str, Any]:
-        """Issue a virtual card via O-Plata for the given user.
+        """Issue a virtual card for the given user (O-Plata; Rocketpay "Pay"
+        cards are dispatched to rocketpay_service).
 
         balance_charge_usd: set when the caller already debited the user's
         internal balance for this issuance; it is tagged on the order so a
         failed issuance refunds it, and the referral reward is booked on it."""
+        from app.services import rocketpay_service as _rp
+        if _rp.is_rocketpay(offer_id):
+            return await _rp.issue_card(db, user, sbp_invoice_id=sbp_invoice_id, balance_charge_usd=balance_charge_usd)
         ravana_server_id, type_uuid = _parse_offer_id(offer_id)
         is_univ = _is_univ_ravana(ravana_server_id)
         client_id = _client_id_for_ravana(user, ravana_server_id)
@@ -2187,6 +2205,13 @@ class CardService:
         """
         from app.core.database import AsyncSessionLocal
         async with AsyncSessionLocal() as db:
+            _c = (await db.execute(select(Card).where(Card.id == local_card_id, Card.user_id == user_id))).scalar_one_or_none()
+        from app.services import rocketpay_service as _rp
+        if _c is not None and _rp.is_rocketpay(_c.offer_id):
+            # Rocketpay returns the remaining balance to our pool itself
+            await _rp.close_card(user_id, local_card_id)
+            return
+        async with AsyncSessionLocal() as db:
             user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
             card = (await db.execute(select(Card).where(Card.id == local_card_id, Card.user_id == user_id))).scalar_one_or_none()
             if not user or not card or not card.aifory_card_id or not card.offer_id:
@@ -2296,6 +2321,11 @@ class CardService:
         lock = self._get_sync_lock(user.id)
         async with lock:
             cards = await self._sync_cards_impl(db, user)
+            try:
+                from app.services import rocketpay_service as _rp
+                await _rp.sync_user_cards(db, user)
+            except Exception as exc:
+                logger.warning("Rocketpay sync failed for user_id=%s: %s", user.id, exc)
             # A fresh card may unlock a referral bonus (both sides need a card)
             try:
                 from app.services.wallet_service import check_referral_bonuses_for
@@ -2354,7 +2384,10 @@ class CardService:
             return list(result.scalars().all())
 
         existing_result = await db.execute(select(Card).where(Card.user_id == user.id))
-        existing_cards = list(existing_result.scalars().all())
+        # Rocketpay cards are not listed by O-Plata: keep them out of the
+        # O-Plata reconciliation (it deletes cards O-Plata doesn't return).
+        from app.services import rocketpay_service as _rp
+        existing_cards = [c for c in existing_result.scalars().all() if not _rp.is_rocketpay(c.offer_id)]
         synced_local_card_ids = set()
 
 
@@ -2523,6 +2556,10 @@ class CardService:
         if not _card_is_active(card.status):
             raise ValueError("Card is not active yet")
 
+        from app.services import rocketpay_service as _rp
+        if _rp.is_rocketpay(card.offer_id):
+            return await _rp.get_requisites(card)
+
         user_result = await db.execute(select(User).where(User.id == user_id))
         user = user_result.scalar_one_or_none()
         client_id = _client_id_for_ravana(user, card.offer_id) if user else f"user_{user_id}"
@@ -2565,6 +2602,16 @@ class CardService:
 
         user_result = await db.execute(select(User).where(User.id == user_id))
         user = user_result.scalar_one_or_none()
+
+        from app.services import rocketpay_service as _rp
+        if _rp.is_rocketpay(card.offer_id):
+            transactions = _expand_transaction_fees(await _rp.get_transactions(card, limit=limit))
+            try:
+                await self._notify_new_transactions(user, card, transactions)
+            except Exception as _n:
+                logger.debug("Transaction notification error: %s", _n)
+            return transactions
+
         client_id = _client_id_for_ravana(user, card.offer_id) if user else f"user_{user_id}"
 
         page_size = limit
@@ -2683,6 +2730,10 @@ class CardService:
         async def one(card: Card, user: User) -> None:
             async with sem:
                 try:
+                    from app.services import rocketpay_service as _rp
+                    if _rp.is_rocketpay(card.offer_id):
+                        await self._notify_new_transactions(user, card, await _rp.get_transactions(card, limit=10))
+                        return
                     client_id = _client_id_for_ravana(user, card.offer_id)
                     resp = await oplata_client.get_card_transaction_list(
                         client_id=client_id, card_id=card.aifory_card_id,
@@ -2709,7 +2760,8 @@ class CardService:
         skip_balance_check: bool = False,
         balance_charge_usd: Optional[Decimal] = None,
     ) -> Dict[str, Any]:
-        """Top up a specific card balance via O-Plata.
+        """Top up a specific card balance (O-Plata; Rocketpay cards are
+        dispatched to rocketpay_service).
 
         balance_charge_usd: already debited from the internal balance by the
         caller (tagged on the order for refund / referral bookkeeping)."""
@@ -2719,6 +2771,10 @@ class CardService:
             raise ValueError("Card has no external ID")
         if not card.offer_id:
             raise ValueError("Card has no ravanaServerId stored")
+
+        from app.services import rocketpay_service as _rp
+        if _rp.is_rocketpay(card.offer_id):
+            return await _rp.deposit_card(db, user, card, amount, balance_charge_usd=balance_charge_usd)
 
         base_amount = Decimal(str(amount))
         # Markup is per card type: univ providers (RT-8 / Online+Pay) carry a

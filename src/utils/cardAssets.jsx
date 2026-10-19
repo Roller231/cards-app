@@ -4,6 +4,7 @@
 
 export function cardBackgroundByOffer(offerId) {
   const rid = String(offerId || '')
+  if (rid.startsWith('ROCKETPAY')) return '/images/cards/Pay.png' // Pay (Rocketpay, Apple Pay)
   if (rid.includes('RT-8')) return '/images/cards/PremiumCard.png' // Online+Pay (Premium)
   if (rid.includes('RT-2')) return '/images/cards/PremiumCard.png' // legacy plus
   if (rid.includes('RAVANA:RT')) return '/images/cards/OnlineCard.png'

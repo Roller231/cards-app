@@ -42,7 +42,13 @@ SETTINGS_KEYS: Dict[str, Dict[str, Any]] = {
     "SBP_DISABLED_TEXT": {"desc": "Текст при отключённой оплате по СБП", "type": str},
     "CARD_ONLINE_ENABLED": {"desc": "Карта Online — доступна для выпуска", "type": bool},
     "CARD_ONLINE_PLUS_ENABLED": {"desc": "Карта Online+Pay — доступна для выпуска", "type": bool},
-    "CARD_PAY_ENABLED": {"desc": "Карта Pay (универсальная) — доступна для выпуска", "type": bool},
+    "CARD_PAY_ENABLED": {"desc": "Карта Pay (Rocketpay, Apple Pay) — доступна для выпуска всем", "type": bool},
+    "ROCKETPAY_TEST_USER_IDS": {"desc": "Rocketpay: Telegram ID тестеров, которым карта Pay видна даже выключенной (через запятую)", "type": str},
+    "ROCKETPAY_CARD_LIMIT_TYPE": {"desc": "Rocketpay: тип лимита карты при выпуске (daily/weekly/monthly/year/lifetime/transaction)", "type": str},
+    "ROCKETPAY_CARD_LIMIT_USD": {"desc": "Rocketpay: сумма лимита карты при выпуске ($)", "type": float},
+    "ROCKETPAY_MAX_CARDS_PER_USER": {"desc": "Rocketpay: максимум карт Pay на одного пользователя", "type": int},
+    "ROCKETPAY_CARD_DETAILS_PATH": {"desc": "Rocketpay: путь эндпоинта реквизитов карты ({card_id})", "type": str},
+    "ROCKETPAY_LOW_CAPACITY_ALERT": {"desc": "Rocketpay: алерт, когда свободных мест под карты меньше", "type": int},
     "CARD_ISSUANCE_PRICE_RUB": {"desc": "Цена выпуска карты Online (руб) — итоговая сумма к оплате через СБП", "type": float},
     "CARD_ISSUANCE_PRICE_PAY_RUB": {"desc": "Цена выпуска карты Online+Pay (руб) — итоговая сумма к оплате через СБП", "type": float},
     "CARD_ISSUANCE_PRICE_UNIV_RUB": {"desc": "Цена выпуска карты Pay (руб) — итоговая сумма к оплате через СБП", "type": float},
@@ -365,7 +371,13 @@ async def user_issue_offers(user_id: int, db: AsyncSession = Depends(get_db), _=
     if not user:
         raise HTTPException(404, "User not found")
     from app.services.card_service import card_service
+    from app.services import rocketpay_service as _rp
     offers = await card_service.get_offers(user)
+    # Admin can issue the Rocketpay "Pay" card to anyone (testing), even while it's off
+    if not any(o["id"] == _rp.RP_OFFER_ID for o in offers):
+        _rp_offer = await _rp.offer_for(db, user, force=True)
+        if _rp_offer:
+            offers.append(_rp_offer)
     return {
         "items": [
             {
@@ -1796,3 +1808,11 @@ async def test_service_request_notify(_=Depends(get_admin)):
         raise HTTPException(400, "Не указаны Telegram ID менеджеров")
     results = await send_to_managers("🔔 Тест: сюда будут приходить оплаченные заявки Alipay / WeChat Pay.")
     return {"results": results}
+
+
+# =====================  ROCKETPAY  =====================
+
+@router.get("/rocketpay/status", summary="Rocketpay connection, pool balance, client capacity")
+async def rocketpay_status(_=Depends(get_admin)):
+    from app.services import rocketpay_service
+    return await rocketpay_service.admin_status()

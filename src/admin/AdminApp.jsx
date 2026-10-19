@@ -244,6 +244,73 @@ function ServiceRequestsPage() {
   )
 }
 
+// ─────────── ROCKETPAY ───────────
+function RocketpayPage() {
+  const [st, setSt] = useState(null)
+  const [err, setErr] = useState('')
+  const [loading, setLoading] = useState(false)
+  const load = useCallback(async () => {
+    setLoading(true); setErr('')
+    try { setSt(await adminApi.rocketpay.status()) } catch (e) { setErr(e.message) }
+    finally { setLoading(false) }
+  }, [])
+  useEffect(() => { load() }, [load])
+  const box = { background: '#fff', borderRadius: 14, padding: 20, marginBottom: 16, boxShadow: '0 1px 3px rgba(0,0,0,.08)' }
+  const row = (k, v) => (
+    <div style={{ display: 'flex', gap: 12, fontSize: 14, padding: '6px 0', borderBottom: '1px solid #f3f4f6' }}>
+      <div style={{ width: 220, color: '#6b7280' }}>{k}</div><div style={{ fontWeight: 600, wordBreak: 'break-all' }}>{v}</div>
+    </div>
+  )
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+        <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>🍏 Rocketpay — карта Pay</h2>
+        <Btn small variant="ghost" onClick={load} disabled={loading}>{loading ? '…' : 'Обновить'}</Btn>
+      </div>
+      {err && <div style={{ ...box, color: '#b91c1c' }}>{err}</div>}
+      {st && (
+        <>
+          <div style={box}>
+            {row('API настроен', st.configured ? badge('да', '#22c55e') : badge('нет — задайте ROCKETPAY_API_URL / ROCKETPAY_API_KEY в .env.prod', '#ef4444'))}
+            {row('Окружение', st.environment || '—')}
+            {row('Пользователь API', st.api_user || '—')}
+            {row('Карта Pay для всех', st.enabled_for_all ? badge('включена', '#22c55e') : badge('выключена', '#9ca3af'))}
+            {row('Тестеры (Telegram ID)', (st.testers || []).join(', ') || '—')}
+            {st.error && row('Ошибка', <span style={{ color: '#b91c1c' }}>{st.error}</span>)}
+            {st.permissions && row('Права ключа', st.permissions.join(', '))}
+          </div>
+          {(st.accounts || []).map(a => (
+            <div key={a.id} style={box}>
+              <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Баланс компании · {a.program || a.id} ({a.currency}, {a.status})</div>
+              {a.pool && row('Доступно', `$${fmt(a.pool.available)}`)}
+              {a.pool && row('Всего / заблокировано', `$${fmt(a.pool.current)} / $${fmt(a.pool.blocked)}`)}
+              {a.pool && row('Пополнения в пути', `$${fmt(a.pool.pending_deposits)}`)}
+            </div>
+          ))}
+          {st.capacity && (
+            <div style={box}>
+              <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Места под карты (клиенты Rocketpay)</div>
+              {row('Свободно карт', st.capacity.cards_left)}
+              {row('Выпущено / на клиента', `${st.capacity.cards_held} / ${st.capacity.cards_per_client}`)}
+              {row('Клиентов / верифицировано', `${st.capacity.clients} / ${st.capacity.verified}`)}
+            </div>
+          )}
+          {(st.programs || []).length > 0 && (
+            <div style={box}>
+              <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Программа карт</div>
+              {st.programs.map(p => row(p.name || p.id, `${p.card_type}, ${p.currency}, BIN ${(p.bins || []).map(b => (typeof b === 'object' ? (b.bin || JSON.stringify(b)) : b)).join(', ')}`))}
+            </div>
+          )}
+          <div style={{ ...box, fontSize: 13, color: '#6b7280', lineHeight: 1.6 }}>
+            Тест: впишите свой Telegram ID в «Настройки» → «Rocketpay» → тестеры — карта Pay появится у вас в приложении (выпуск по СБП или с баланса).
+            Или выпустите карту любому пользователю из его карточки («Выпуск карты» → Pay). Включение для всех — тумблер «Карта Pay» в «Типах карт».
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 // ─────────── SIDEBAR ───────────
 const NAV = [
   { id: 'dashboard', icon: '📊', label: 'Дашборд' },
@@ -253,6 +320,7 @@ const NAV = [
   { id: 'analytics', icon: '📈', label: 'Аналитика' },
   { id: 'bot', icon: '🤖', label: 'Telegram Бот' },
   { id: 'china', icon: '🧧', label: 'Заявки Alipay/WeChat' },
+  { id: 'rocketpay', icon: '🍏', label: 'Rocketpay' },
   { id: 'promo', icon: '🎟️', label: 'Промокоды' },
   { id: 'faq', icon: '❓', label: 'FAQ' },
   { id: 'settings', icon: '⚙️', label: 'Настройки' },
@@ -898,6 +966,11 @@ const SETTING_GROUPS = [
     title: '💳 Типы карт',
     desc: 'Какие карты доступны пользователям для выпуска. Выключенная карта скрывается из приложения, оплата по ней блокируется.',
     keys: ['CARD_ONLINE_ENABLED', 'CARD_ONLINE_PLUS_ENABLED', 'CARD_PAY_ENABLED'],
+  },
+  {
+    title: '🍏 Rocketpay (карта Pay)',
+    desc: 'Второй провайдер карт. Адрес и ключ API задаются на сервере. Пока карта Pay выключена, её видят только тестеры. Статус подключения, баланс и места под карты — на дашборде Rocketpay ниже в меню.',
+    keys: ['ROCKETPAY_TEST_USER_IDS', 'ROCKETPAY_CARD_LIMIT_TYPE', 'ROCKETPAY_CARD_LIMIT_USD', 'ROCKETPAY_MAX_CARDS_PER_USER', 'ROCKETPAY_CARD_DETAILS_PATH', 'ROCKETPAY_LOW_CAPACITY_ALERT'],
   },
   {
     title: '₽ Цены выпуска',
@@ -2008,6 +2081,7 @@ export default function AdminApp() {
     case 'analytics': content = <AnalyticsPage />; break
     case 'bot': content = <BotPage />; break
     case 'china': content = <ServiceRequestsPage />; break
+    case 'rocketpay': content = <RocketpayPage />; break
     case 'promo': content = <PromoPage />; break
     case 'faq': content = <FAQPage />; break
     case 'settings': content = <SettingsPage />; break

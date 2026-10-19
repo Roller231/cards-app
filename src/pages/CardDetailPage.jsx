@@ -455,6 +455,23 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
         </Card>
       </Section>
 
+      {/* Rocketpay "Pay" card: how to add it to Apple Pay (manual entry) */}
+      {String(card?.offer_id || '').startsWith('ROCKETPAY') && isCardActive && (
+        <Section>
+          <Card padding="18px 20px">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+              <img src="/images/Apple.png" alt="" style={{ height: 22, width: 'auto' }} />
+              <div style={{ fontSize: 16, fontWeight: 700, color: '#111827', fontFamily: font }}>Добавить в Apple Pay</div>
+            </div>
+            <ol style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.6, color: '#374151', fontFamily: font }}>
+              <li>Нажмите на глаз на карте выше, чтобы открыть реквизиты.</li>
+              <li>Откройте приложение «Wallet» → «+» → «Дебетовая или кредитная карта» → «Ввести данные вручную».</li>
+              <li>Скопируйте и вставьте номер карты, срок действия и CVV.</li>
+            </ol>
+          </Card>
+        </Section>
+      )}
+
       {/* Top-up Button */}
       <Section>
         <Button

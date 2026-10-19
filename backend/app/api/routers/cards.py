@@ -75,10 +75,11 @@ async def issue_card(
     # Admin toggles: refuse issuing a disabled card type
     from app.services.card_service import CARD_NAME_BY_OFFER, _is_univ_email_ok, _is_univ_ravana
     _card_name = CARD_NAME_BY_OFFER.get(body.offer_id)
+    from app.services.rocketpay_service import available_for as _rp_available
     if (
         (_card_name == "Online" and not settings.CARD_ONLINE_ENABLED)
         or (_card_name == "Online+Pay" and not settings.CARD_ONLINE_PLUS_ENABLED)
-        or (_card_name == "Pay" and not settings.CARD_PAY_ENABLED)
+        or (_card_name == "Pay" and not _rp_available(current_user))
     ):
         raise HTTPException(status_code=400, detail="Выпуск этого типа карты временно недоступен. Попробуйте позже.")
     if _is_univ_ravana(body.offer_id.rsplit(":", 1)[0]) and not _is_univ_email_ok(current_user.email or ""):

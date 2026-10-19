@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     # Card type availability toggles (admin panel)
     CARD_ONLINE_ENABLED: bool = True
     CARD_ONLINE_PLUS_ENABLED: bool = True
-    CARD_PAY_ENABLED: bool = True
+    CARD_PAY_ENABLED: bool = False  # "Pay" = Rocketpay (Apple Pay) card
 
     # "Pay" (universal) cards live on a separate O-Plata provider and are issued
     # under a SEPARATE per-user client (tg_univ_*) with US identity data,
@@ -78,6 +78,22 @@ class Settings(BaseSettings):
     #   internal balance keep working.
     # How often the background watcher checks cards for new transactions (sec)
     TX_WATCH_INTERVAL_SEC: int = 300
+
+    # Rocketpay (second card provider, "Pay" / Apple Pay card). URL and key
+    # come from the server env only (never shown in the admin panel):
+    #   ROCKETPAY_API_URL=https://<address>/api/v1   ROCKETPAY_API_KEY=rpk_…
+    ROCKETPAY_API_URL: str = ""
+    ROCKETPAY_API_KEY: str = ""
+    # Telegram ids that see the Pay card while CARD_PAY_ENABLED is off (testing)
+    ROCKETPAY_TEST_USER_IDS: str = ""
+    # Every card must be issued with a limit; type: daily|weekly|monthly|year|lifetime|transaction
+    ROCKETPAY_CARD_LIMIT_TYPE: str = "monthly"
+    ROCKETPAY_CARD_LIMIT_USD: float = 10000.0
+    ROCKETPAY_MAX_CARDS_PER_USER: int = 3
+    # Card number / CVV endpoint — not in the published reference yet
+    ROCKETPAY_CARD_DETAILS_PATH: str = "/cards/{card_id}/details"
+    # Alert admins when fewer free card places remain at Rocketpay
+    ROCKETPAY_LOW_CAPACITY_ALERT: int = 10
     MAINTENANCE_MODE: bool = False
     MAINTENANCE_TEXT: str = "Ведутся технические работы. Приложение временно недоступно — скоро всё заработает. Приносим извинения за неудобства."
     SBP_DISABLED: bool = False

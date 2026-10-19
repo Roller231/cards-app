@@ -80,6 +80,9 @@ const adminApi = {
     remove: (id) => req('DELETE', `/admin/faq/${id}`),
     seedDefault: () => req('POST', '/admin/faq/seed-default'),
   },
+  rocketpay: {
+    status: () => req('GET', '/admin/rocketpay/status'),
+  },
   settings: {
     list: () => req('GET', '/admin/settings'),
     update: (items) => req('PUT', '/admin/settings', { settings: items }),
