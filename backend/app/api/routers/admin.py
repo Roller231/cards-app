@@ -42,7 +42,7 @@ SETTINGS_KEYS: Dict[str, Dict[str, Any]] = {
     "SBP_DISABLED_TEXT": {"desc": "Текст при отключённой оплате по СБП", "type": str},
     "CARD_ONLINE_ENABLED": {"desc": "Карта Online — доступна для выпуска", "type": bool},
     "CARD_ONLINE_PLUS_ENABLED": {"desc": "Карта Online+Pay — доступна для выпуска", "type": bool},
-    "CARD_PAY_ENABLED": {"desc": "Карта Pay (Rocketpay, Apple Pay) — доступна для выпуска всем", "type": bool},
+    "CARD_PAY_ENABLED": {"desc": "Карта Pay (Rocketpay, только Apple Pay / Google Pay) — доступна для выпуска всем", "type": bool},
     "ROCKETPAY_TEST_USER_IDS": {"desc": "Rocketpay: Telegram ID тестеров, которым карта Pay видна даже выключенной (через запятую)", "type": str},
     "ROCKETPAY_CARD_LIMIT_TYPE": {"desc": "Rocketpay: тип лимита карты при выпуске (daily/weekly/monthly/year/lifetime/transaction)", "type": str},
     "ROCKETPAY_CARD_LIMIT_USD": {"desc": "Rocketpay: сумма лимита карты при выпуске ($)", "type": float},

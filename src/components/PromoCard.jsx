@@ -66,9 +66,9 @@ export function usePromoCards({ onlineAvailable = true, onlinePlusAvailable = tr
     {
       key: 'pay', available: payAvailable, payIcons: true,
       title: pick(promo.pay, 'title', 'Pay'),
-      desc: pick(promo.pay, 'desc', 'Универсальная карта для международных оплат и подписок'),
+      desc: pick(promo.pay, 'desc', 'Для оплаты смартфоном через Apple Pay и Google Pay'),
       badge: pick(promo.pay, 'badge', 'Бесплатное обслуживание'),
-      pays: pick(promo.pay, 'pays', 'Booking, Airbnb, Zoom, Google One, Spotify, YouTube, покупки в магазинах и пр.'),
+      pays: pick(promo.pay, 'pays', 'Магазины, кафе, такси и транспорт — везде, где принимают Apple Pay и Google Pay. Не подходит для оплаты на сайтах.'),
       bin: pick(promo.pay, 'bin', 'США'),
       validity: commissions.univ_validity_text || '1 год',
       operationFee: numOr(commissions.univ_operation_fee, 0.4),

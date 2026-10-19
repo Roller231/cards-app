@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     # Card type availability toggles (admin panel)
     CARD_ONLINE_ENABLED: bool = True
     CARD_ONLINE_PLUS_ENABLED: bool = True
-    CARD_PAY_ENABLED: bool = False  # "Pay" = Rocketpay (Apple Pay) card
+    CARD_PAY_ENABLED: bool = False  # "Pay" = Rocketpay card, Apple Pay / Google Pay only
 
     # "Pay" (universal) cards live on a separate O-Plata provider and are issued
     # under a SEPARATE per-user client (tg_univ_*) with US identity data,

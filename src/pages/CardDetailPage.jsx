@@ -455,18 +455,29 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
         </Card>
       </Section>
 
-      {/* Rocketpay "Pay" card: how to add it to Apple Pay (manual entry) */}
+      {/* Rocketpay "Pay" card: works only through Apple Pay / Google Pay — how to add it */}
       {String(card?.offer_id || '').startsWith('ROCKETPAY') && isCardActive && (
         <Section>
           <Card padding="18px 20px">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-              <img src="/images/Apple.png" alt="" style={{ height: 22, width: 'auto' }} />
-              <div style={{ fontSize: 16, fontWeight: 700, color: '#111827', fontFamily: font }}>Добавить в Apple Pay</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <img src="/images/Apple.png" alt="Apple Pay" style={{ height: 22, width: 'auto' }} />
+              <img src="/images/GooglePay.png" alt="Google Pay" style={{ height: 22, width: 'auto' }} />
+              <div style={{ fontSize: 16, fontWeight: 700, color: '#111827', fontFamily: font, marginLeft: 4 }}>Добавьте карту в телефон</div>
             </div>
-            <ol style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.6, color: '#374151', fontFamily: font }}>
-              <li>Нажмите на глаз на карте выше, чтобы открыть реквизиты.</li>
-              <li>Откройте приложение «Wallet» → «+» → «Дебетовая или кредитная карта» → «Ввести данные вручную».</li>
-              <li>Скопируйте и вставьте номер карты, срок действия и CVV.</li>
+            <div style={{ fontSize: 12, color: '#6B7280', fontFamily: font, marginBottom: 10, lineHeight: 1.45 }}>
+              Карта работает только через Apple Pay и Google Pay — для оплаты на сайтах она не подходит.
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#111827', fontFamily: font }}>iPhone — Apple Pay</div>
+            <ol style={{ margin: '4px 0 10px', paddingLeft: 18, fontSize: 13, lineHeight: 1.6, color: '#374151', fontFamily: font }}>
+              <li>Откройте реквизиты карты выше (значок глаза).</li>
+              <li>«Wallet» → «+» → «Дебетовая или кредитная карта» → «Ввести данные вручную».</li>
+              <li>Вставьте номер карты, срок действия и CVV.</li>
+            </ol>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#111827', fontFamily: font }}>Android — Google Pay</div>
+            <ol style={{ margin: '4px 0 0', paddingLeft: 18, fontSize: 13, lineHeight: 1.6, color: '#374151', fontFamily: font }}>
+              <li>Откройте реквизиты карты выше (значок глаза).</li>
+              <li>«Google Кошелёк» → «Добавить в Кошелёк» → «Платёжная карта» → «Ввести данные вручную».</li>
+              <li>Вставьте номер карты, срок действия и CVV.</li>
             </ol>
           </Card>
         </Section>
