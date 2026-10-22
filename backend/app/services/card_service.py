@@ -368,6 +368,9 @@ CARD_NAME_BY_OFFER: Dict[str, str] = {
     "ROCKETPAY:pay": "Pay",
 }
 
+# O-Plata card types seen but not in CARD_NAME_BY_OFFER (alert once per process)
+_UNKNOWN_OFFERS_SEEN: set = set()
+
 # Legacy offers hidden from the app entirely (RT-2: issue transport was never
 # enabled for our product; replaced by the RT-8 BIN)
 EXCLUDED_OFFER_IDS = {
@@ -1092,8 +1095,24 @@ class CardService:
                 if offer_id in EXCLUDED_OFFER_IDS:
                     continue
 
-                # 1) Authoritative mapping by offer_id (prod card types).
-                # 2) Fallback heuristic by description text for anything unlisted.
+                # Only card types we explicitly support are offered. O-Plata adds
+                # new products on its side (e.g. RT-11 VISA, Oct 2026) — showing
+                # them automatically let users pick and pay for a card we never
+                # integrated or priced. Unknown ones are hidden; admins get one
+                # alert per new type.
+                if offer_id not in CARD_NAME_BY_OFFER:
+                    if offer_id not in _UNKNOWN_OFFERS_SEEN:
+                        _UNKNOWN_OFFERS_SEEN.add(offer_id)
+                        logger.warning("Hiding unknown O-Plata card type %s (%s)", offer_id, payment_system)
+                        try:
+                            from app.services.recovery_service import _alert
+                            asyncio.create_task(_alert(
+                                f"ℹ️ У O-Plata появился новый тип карты {offer_id} ({payment_system}). "
+                                f"В приложении он скрыт, пока его не добавят в код."
+                            ))
+                        except Exception:
+                            pass
+                    continue
                 if offer_id in CARD_NAME_BY_OFFER:
                     name = CARD_NAME_BY_OFFER[offer_id]
                 else:
