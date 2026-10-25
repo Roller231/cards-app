@@ -174,8 +174,9 @@ async def _balance_issue_quote(db: AsyncSession, offer_id: str, user: Optional[U
     from app.services.wallet_service import apply_discount_rub, invitee_discount_percent
     discount = await invitee_discount_percent(db, user) if user is not None else 0.0
     price_rub = apply_discount_rub(await _issue_price_rub(db, offer_id), discount)
+    from app.services.rocketpay_service import is_rocketpay
     try:
-        rate = Decimal(str(await get_app_rate()))
+        rate = Decimal(str(await get_app_rate(provider="rocketpay" if is_rocketpay(offer_id) else "oplata")))
     except RateUnavailable as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     price_usd = (Decimal(str(price_rub)) / rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -320,7 +321,8 @@ async def deposit_card(
     # Same "Комиссия за пополнение" as in the SBP rate (our % + Clarus +
     # Bitbanker conversion), taken from the internal balance on top of the amount.
     from app.api.routers.sbp import topup_fee_percent
-    markup_setting = topup_fee_percent()
+    from app.services.rocketpay_service import is_rocketpay
+    markup_setting = topup_fee_percent("rocketpay" if is_rocketpay(card.offer_id) else "oplata")
     amount = Decimal(str(body.amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     required = (amount + amount * Decimal(str(markup_setting)) / Decimal("100")).quantize(
         Decimal("0.01"), rounding=ROUND_HALF_UP

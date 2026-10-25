@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     SBP_CLARUS_FEE_PERCENT: float = 2.8
     # Bitbanker RUB->USDT conversion fee (we pay it), part of the app rate
     SBP_BB_CONVERSION_FEE_PERCENT: float = 0.1
+    # Rocketpay ("Pay" cards) top up our pool with USDT directly at this price
+    # — it replaces Clarus in the rate for those cards.
+    ROCKETPAY_POOL_FEE_PERCENT: float = 2.55
     # Fixed Bitbanker commission passed on to the user for small top-ups
     SBP_SMALL_PAYMENT_FEE_RUB: float = 210.0
 

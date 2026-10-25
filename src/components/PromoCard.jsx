@@ -25,6 +25,7 @@ export function usePromoCards({ onlineAvailable = true, onlinePlusAvailable = tr
   // (Bitbanker index × fee multipliers). One fetch shared by all promo cards.
   const [sbpRate, setSbpRate] = useState(null)
   const [topupFee, setTopupFee] = useState(null)  // combined fee inside the payment rate, %
+  const [topupFeePay, setTopupFeePay] = useState(null)  // same for Rocketpay "Pay" cards
   useEffect(() => {
     let cancelled = false
     api.sbp.rate()
@@ -32,6 +33,8 @@ export function usePromoCards({ onlineAvailable = true, onlinePlusAvailable = tr
         if (cancelled || !r || !r.rate) return
         setSbpRate(Number(r.base_rate ?? r.rate))
         if (typeof r.topup_fee_percent === 'number') setTopupFee(r.topup_fee_percent)
+        const rp = r.providers && r.providers.rocketpay
+        if (rp && typeof rp.topup_fee_percent === 'number') setTopupFeePay(rp.topup_fee_percent)
       })
       .catch(() => {})
     return () => { cancelled = true }
@@ -73,7 +76,7 @@ export function usePromoCards({ onlineAvailable = true, onlinePlusAvailable = tr
       validity: commissions.univ_validity_text || '1 год',
       operationFee: numOr(commissions.univ_operation_fee, 0.4),
       priceRub: numOr(commissions.univ_issue_price_rub, 1999),
-      topup: topupFee ?? numOr(commissions.univ_topup, 0),
+      topup: topupFeePay ?? numOr(commissions.univ_topup, 0),
       sbpRate,
     },
   ]

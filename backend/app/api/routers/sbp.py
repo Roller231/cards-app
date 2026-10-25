@@ -177,20 +177,43 @@ async def get_public_rate():
     return data
 
 
-def topup_fee_percent() -> float:
-    """Our fee and Clarus compounded into one percent (the rate multiplies
-    them), shown to users as a single "Комиссия за пополнение"."""
-    combined = (
-        (1 + settings.SBP_OUR_FEE_PERCENT / 100)
-        * (1 + settings.SBP_CLARUS_FEE_PERCENT / 100)
-        * (1 + settings.SBP_BB_CONVERSION_FEE_PERCENT / 100)
-        - 1
-    )
-    return round(combined * 100, 2)
+def topup_fee_percent(provider: str = "oplata") -> float:
+    """Combined "Комиссия за пополнение" for the provider's route."""
+    from app.services.rate_service import topup_fee_percent as _tfp
+    return _tfp(provider)
+
+
+async def card_provider(db: AsyncSession, user: User, card_id: Optional[str]) -> Optional[str]:
+    """'oplata' | 'rocketpay' for the user's card (by external or local id),
+    None when the card isn't the user's."""
+    from app.models.card import Card
+    if not card_id:
+        return None
+    cond = Card.aifory_card_id == card_id if not str(card_id).isdigit() else Card.id == int(card_id)
+    card = (await db.execute(select(Card).where(cond, Card.user_id == user.id))).scalar_one_or_none()
+    if not card:
+        return None
+    from app.services.rocketpay_service import is_rocketpay
+    return "rocketpay" if is_rocketpay(card.offer_id) else "oplata"
+
+
+async def expected_rub_for_usd(usd: float, provider: str = "oplata") -> float:
+    """What the app shows for `usd` dollars: ceil(usd x rate) plus the fixed
+    payment-system fee below the threshold."""
+    from app.services.rate_service import apply_multipliers, get_bb_index
+    rate = apply_multipliers(await get_bb_index(), provider)
+    base = math.ceil(float(usd) * rate)
+    fee = float(settings.SBP_SMALL_PAYMENT_FEE_RUB) if base < float(settings.SBP_SMALL_PAYMENT_THRESHOLD_RUB) else 0.0
+    return base + fee
+
+
+# The rate the client saw can be a few minutes old; the Bitbanker index moves
+# a little in that time. Anything cheaper than this is refused.
+_TOPUP_AMOUNT_TOLERANCE = 0.015
 
 
 @router.get("/rate", summary="App exchange rate: BB index × bitbFee × myFee × clarusFee")
-async def get_sbp_rate(db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)):
+async def get_sbp_rate(provider: str = "oplata", db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)):
     """Rate formula (always applies): [Bitbanker index] × three admin-configured
     multipliers. Also returns the fixed fee applied to payments below threshold."""
     from app.services.rate_service import RateUnavailable, apply_multipliers, get_bb_index
@@ -198,7 +221,8 @@ async def get_sbp_rate(db: AsyncSession = Depends(get_db), _: User = Depends(get
         index = await get_bb_index()
     except RateUnavailable as exc:
         raise HTTPException(status_code=502, detail=str(exc))
-    rate = apply_multipliers(index)
+    provider = provider if provider in ("oplata", "rocketpay") else "oplata"
+    rate = apply_multipliers(index)  # O-Plata route: used for the daily snapshot / change badge
     bb_fee, bb_fee_min = await _get_bb_fee_params()
 
     # Day-over-day change: lazily snapshot the first rate seen each MSK day,
@@ -224,20 +248,26 @@ async def get_sbp_rate(db: AsyncSession = Depends(get_db), _: User = Depends(get
     except Exception as exc:
         logger.warning("[SBP] rate snapshot failed: %s", str(exc)[:200])
 
+    provider_rate = apply_multipliers(index, provider)
     return {
         "index": round(index, 4),
         # Exchange rate without any fees -- what the app shows as "the rate".
         "base_rate": round(index, 2),
-        "rate": round(rate, 4),
+        "provider": provider,
+        "rate": round(provider_rate, 4),
+        "providers": {
+            p: {"rate": round(apply_multipliers(index, p), 4), "topup_fee_percent": topup_fee_percent(p)}
+            for p in ("oplata", "rocketpay")
+        },
         "prev_rate": prev_rate,
         "change_pct": change_pct,
         # How the exchange rate becomes the payment rate (shown before paying)
         "fees": [
             {"label": settings.SBP_BITBANKER_FEE_LABEL, "percent": settings.SBP_BITBANKER_FEE_PERCENT},
-            {"label": settings.SBP_TOPUP_FEE_LABEL, "percent": topup_fee_percent()},
+            {"label": settings.SBP_TOPUP_FEE_LABEL, "percent": topup_fee_percent(provider)},
         ],
         # Same combined percent for the "Комиссия за пополнение" card tiles
-        "topup_fee_percent": topup_fee_percent(),
+        "topup_fee_percent": topup_fee_percent(provider),
         "small_payment_fee_rub": settings.SBP_SMALL_PAYMENT_FEE_RUB,
         "small_payment_threshold_rub": settings.SBP_SMALL_PAYMENT_THRESHOLD_RUB,
         "min_transfer_rub": _min_transfer_rub(bb_fee, bb_fee_min),
@@ -447,6 +477,27 @@ async def create_invoice(
             raise HTTPException(status_code=400, detail="Сумма не совпадает с заявкой. Обновите страницу.")
     if body.purpose == "balance_deposit" and not (body.amount_usd_requested and float(body.amount_usd_requested) > 0):
         raise HTTPException(status_code=400, detail="amount_usd_requested is required for balance_deposit")
+
+    # Card top-ups and balance deposits: the dollars to credit come from the
+    # app, so the RUB amount must cover them at the rate of that card's route.
+    if body.purpose in ("balance_topup", "balance_deposit"):
+        usd = float(body.amount_usd_requested or 0)
+        if usd <= 0:
+            raise HTTPException(status_code=400, detail="Укажите сумму пополнения")
+        if body.purpose == "balance_topup":
+            _prov = await card_provider(db, current_user, body.card_id)
+            if not _prov:
+                raise HTTPException(status_code=404, detail="Карта не найдена")
+        else:
+            _prov = "oplata"
+        try:
+            _expected = await expected_rub_for_usd(usd, _prov)
+        except Exception:
+            raise HTTPException(status_code=502, detail="Курс временно недоступен. Попробуйте позже.")
+        if promo_amount_before < _expected * (1 - _TOPUP_AMOUNT_TOLERANCE):
+            logger.warning("[SBP] %s amount %s RUB below expected %s for $%s (user_id=%s, %s)",
+                           body.purpose, promo_amount_before, _expected, usd, current_user.id, _prov)
+            raise HTTPException(status_code=400, detail="Курс изменился. Обновите страницу и попробуйте ещё раз.")
 
     # The card issue price comes from the admin settings, never from the app:
     # the amount before promo must cover the (invitee-discounted) price.

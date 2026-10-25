@@ -23,13 +23,36 @@ class RateUnavailable(Exception):
     pass
 
 
-def apply_multipliers(index: float) -> float:
+PROVIDERS = ("oplata", "rocketpay")
+
+
+def provider_fee_percent(provider: str = "oplata") -> float:
+    """The partner leg of the route: Clarus for O-Plata cards, Rocketpay's
+    USDT pool top-up price for Rocketpay ("Pay") cards."""
+    if provider == "rocketpay":
+        return float(settings.ROCKETPAY_POOL_FEE_PERCENT or 0)
+    return float(settings.SBP_CLARUS_FEE_PERCENT or 0)
+
+
+def topup_fee_percent(provider: str = "oplata") -> float:
+    """Everything after the SBP fee, compounded, shown as one
+    "Комиссия за пополнение": our % x Bitbanker conversion x partner leg."""
+    combined = (
+        (1 + settings.SBP_OUR_FEE_PERCENT / 100)
+        * (1 + settings.SBP_BB_CONVERSION_FEE_PERCENT / 100)
+        * (1 + provider_fee_percent(provider) / 100)
+        - 1
+    )
+    return round(combined * 100, 2)
+
+
+def apply_multipliers(index: float, provider: str = "oplata") -> float:
     return (
         index
         * (1 + settings.SBP_BITBANKER_FEE_PERCENT / 100)
         * (1 + settings.SBP_OUR_FEE_PERCENT / 100)
-        * (1 + settings.SBP_CLARUS_FEE_PERCENT / 100)
         * (1 + settings.SBP_BB_CONVERSION_FEE_PERCENT / 100)
+        * (1 + provider_fee_percent(provider) / 100)
     )
 
 
@@ -52,6 +75,6 @@ async def get_bb_index(force: bool = False) -> float:
     return index
 
 
-async def get_app_rate(force: bool = False) -> float:
+async def get_app_rate(force: bool = False, provider: str = "oplata") -> float:
     """RUB per 1 USD as charged in the app (4-decimal precision)."""
-    return round(apply_multipliers(await get_bb_index(force)), 4)
+    return round(apply_multipliers(await get_bb_index(force), provider), 4)

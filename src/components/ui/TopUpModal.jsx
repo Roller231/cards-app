@@ -35,7 +35,8 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, initialMethod = 'sbp' }) {
   useEffect(() => {
     if (!isOpen || rateInfo !== null) return
     setRateError(false)
-    api.sbp.rate()
+    // Rocketpay ("Pay") cards have their own route and rate
+    api.sbp.rate(String(card?.offer_id || '').startsWith('ROCKETPAY') ? 'rocketpay' : undefined)
       .then(setRateInfo)
       .catch(() => setRateError(true))
   }, [isOpen])
