@@ -90,8 +90,8 @@ class Settings(BaseSettings):
     ROCKETPAY_CARD_LIMIT_TYPE: str = "monthly"
     ROCKETPAY_CARD_LIMIT_USD: float = 10000.0
     ROCKETPAY_MAX_CARDS_PER_USER: int = 3
-    # Card number / CVV endpoint — not in the published reference yet
-    ROCKETPAY_CARD_DETAILS_PATH: str = "/cards/{card_id}/details"
+    # Card number / CVV endpoint (POST, live spec at <API>/openapi.json)
+    ROCKETPAY_CARD_DETAILS_PATH: str = "/cards/{card_id}/pan-reveal"
     # Alert admins when fewer free card places remain at Rocketpay
     ROCKETPAY_LOW_CAPACITY_ALERT: int = 10
     MAINTENANCE_MODE: bool = False

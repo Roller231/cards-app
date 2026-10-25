@@ -458,7 +458,7 @@ async def get_requisites(card: Card) -> Dict[str, Any]:
         "card_number": data.get("pan") or data.get("number") or data.get("card_number"),
         "expiry": expiry,
         "cvv": data.get("cvv") or data.get("cvc") or data.get("cvv2") or data.get("security_code"),
-        "holder_name": data.get("holder_name") or data.get("cardholder_name") or data.get("name") or card.holder_name,
+        "holder_name": data.get("holder") or data.get("holder_name") or data.get("cardholder_name") or card.holder_name,
     }
 
 

@@ -183,11 +183,11 @@ class RocketpayClient:
         return await self._request("GET", f"/card-closures/{closure_id}")
 
     async def card_details(self, card_id: str) -> Dict[str, Any]:
-        """Full card number / expiry / CVV. Not in the published reference yet
-        (Rocketpay: "available through the API"); the path is configurable
-        until they document it: ROCKETPAY_CARD_DETAILS_PATH."""
-        path = (settings.ROCKETPAY_CARD_DETAILS_PATH or "/cards/{card_id}/details").format(card_id=card_id)
-        return await self._request("GET", path)
+        """Full card number / CVV / expiry / holder: POST /cards/{id}/pan-reveal
+        -> {card_id, pan, cvv, expiry: {month, year}, holder}. PCI: fetched on
+        every call, never stored or logged (the response body isn't logged)."""
+        path = (settings.ROCKETPAY_CARD_DETAILS_PATH or "/cards/{card_id}/pan-reveal").format(card_id=card_id)
+        return await self._request("POST", path)
 
 
 rocketpay_client = RocketpayClient()
