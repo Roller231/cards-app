@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routers import auth, admin, cards, faq, orders, balance, sbp, kyc, profile, services
+from app.api.routers import auth, admin, cards, faq, orders, balance, sbp, kyc, profile, services, rocketpay_webhook
 from app.core.config import settings
 from app.core.database import engine
 from app.models import Base
@@ -25,7 +25,7 @@ app = FastAPI(
 # Maintenance mode: close the user API (the admin panel, the payment webhook
 # and public read-only endpoints keep working so in-flight payments settle).
 _MAINTENANCE_OPEN_PREFIXES = (
-    "/admin", "/sbp/webhook", "/auth/config", "/sbp/public-rate",
+    "/admin", "/sbp/webhook", "/webhooks", "/auth/config", "/sbp/public-rate",
     "/docs", "/redoc", "/openapi.json", "/uploads",
 )
 
@@ -62,6 +62,7 @@ app.include_router(sbp.router)
 app.include_router(kyc.router)
 app.include_router(profile.router)
 app.include_router(services.router)
+app.include_router(rocketpay_webhook.router)
 
 
 # Static uploads (bot welcome image, broadcast images)

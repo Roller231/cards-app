@@ -87,6 +87,9 @@ class Settings(BaseSettings):
     #   ROCKETPAY_API_URL=https://<address>/api/v1   ROCKETPAY_API_KEY=rpk_…
     ROCKETPAY_API_URL: str = ""
     ROCKETPAY_API_KEY: str = ""
+    # Signing secret of the webhook endpoint (whsec_…, from the Tenor Cards
+    # dashboard > Webhooks). Env only. Without it every webhook is rejected.
+    ROCKETPAY_WEBHOOK_SECRET: str = ""
     # Telegram ids that see the Pay card while CARD_PAY_ENABLED is off (testing)
     ROCKETPAY_TEST_USER_IDS: str = ""
     # Every card must be issued with a limit; type: daily|weekly|monthly|year|lifetime|transaction
