@@ -1,7 +1,13 @@
 """App exchange rate (RUB per USD) shared by the SBP router and the
 balance-payment paths.
 
-rate = [Bitbanker index] x (1 + %BB) x (1 + %ours) x (1 + %Clarus)
+rate = [Bitbanker index] x (1 + SBP %) x (1 + top-up fee of the card type)
+
+The top-up fee per card type is set directly in the admin panel ("Витрина
+карт"): ONLINE_TOPUP_MARKUP_PERCENT for O-Plata cards, UNIV_TOPUP_MARKUP_PERCENT
+for Rocketpay "Pay" cards. The cost settings (our %, Bitbanker conversion,
+Clarus, Rocketpay pool) don't change the price any more — they only describe
+what a top-up costs us.
 
 The same number the user sees in the app: SBP payments and internal-balance
 prices (card issuance = RUB price / rate) must agree, so both use this helper.
@@ -35,24 +41,18 @@ def provider_fee_percent(provider: str = "oplata") -> float:
 
 
 def topup_fee_percent(provider: str = "oplata") -> float:
-    """Everything after the SBP fee, compounded, shown as one
-    "Комиссия за пополнение": our % x Bitbanker conversion x partner leg."""
-    combined = (
-        (1 + settings.SBP_OUR_FEE_PERCENT / 100)
-        * (1 + settings.SBP_BB_CONVERSION_FEE_PERCENT / 100)
-        * (1 + provider_fee_percent(provider) / 100)
-        - 1
-    )
-    return round(combined * 100, 2)
+    """"Комиссия за пополнение" (everything after the SBP fee) of a card type,
+    straight from the admin panel."""
+    if provider == "rocketpay":
+        return round(float(settings.UNIV_TOPUP_MARKUP_PERCENT or 0), 2)
+    return round(float(settings.ONLINE_TOPUP_MARKUP_PERCENT or 0), 2)
 
 
 def apply_multipliers(index: float, provider: str = "oplata") -> float:
     return (
         index
         * (1 + settings.SBP_BITBANKER_FEE_PERCENT / 100)
-        * (1 + settings.SBP_OUR_FEE_PERCENT / 100)
-        * (1 + settings.SBP_BB_CONVERSION_FEE_PERCENT / 100)
-        * (1 + provider_fee_percent(provider) / 100)
+        * (1 + topup_fee_percent(provider) / 100)
     )
 
 
