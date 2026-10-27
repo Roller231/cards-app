@@ -90,7 +90,7 @@ class Settings(BaseSettings):
     # Telegram ids that see the Pay card while CARD_PAY_ENABLED is off (testing)
     ROCKETPAY_TEST_USER_IDS: str = ""
     # Every card must be issued with a limit; type: daily|weekly|monthly|year|lifetime|transaction
-    ROCKETPAY_CARD_LIMIT_TYPE: str = "monthly"
+    ROCKETPAY_CARD_LIMIT_TYPE: str = ""
     ROCKETPAY_CARD_LIMIT_USD: float = 10000.0
     ROCKETPAY_MAX_CARDS_PER_USER: int = 3
     # Card number / CVV endpoint (POST, live spec at <API>/openapi.json)

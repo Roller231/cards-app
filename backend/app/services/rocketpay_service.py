@@ -208,11 +208,13 @@ async def issue_card(
     await db.flush()
 
     external_id = f"pp-u{user.id}-o{order.id}"
-    limit_type = (settings.ROCKETPAY_CARD_LIMIT_TYPE or "monthly").strip()
+    # empty limit type = issue without limits (the live "Virtual USD" program
+    # rejects any limits)
+    limit_type = (settings.ROCKETPAY_CARD_LIMIT_TYPE or "").strip()
     try:
         rp = await rocketpay_client.issue_card(
             external_id=external_id,
-            limits={limit_type: settings.ROCKETPAY_CARD_LIMIT_USD},
+            limits={limit_type: settings.ROCKETPAY_CARD_LIMIT_USD} if limit_type else None,
             metadata={"user_id": str(user.id), "tg_id": str(user.telegram_user_id or ""), "order_id": str(order.id)},
             idempotency_key=f"issue-{external_id}",
         )

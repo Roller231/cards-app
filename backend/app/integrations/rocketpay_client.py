@@ -133,13 +133,15 @@ class RocketpayClient:
         return await self._request("GET", f"/issuer/accounts/{account_id}/deposit-address")
 
     # ---------------------------------------------------------------- cards
-    async def issue_card(self, *, external_id: str, limits: Dict[str, Any], metadata: Dict[str, str],
+    async def issue_card(self, *, external_id: str, limits: Optional[Dict[str, Any]], metadata: Dict[str, str],
                          idempotency_key: str) -> Dict[str, Any]:
-        body = {
+        body: Dict[str, Any] = {
             "external_id": external_id,
-            "limits": {k: money(v) for k, v in limits.items()},
             "metadata": {k: str(v)[:500] for k, v in metadata.items()},
         }
+        # some card programs reject limits altogether ("leave limits out")
+        if limits:
+            body["limits"] = {k: money(v) for k, v in limits.items()}
         return await self._request("POST", "/cards", body=body, idempotency_key=idempotency_key)
 
     async def get_card(self, card_id: str) -> Dict[str, Any]:
