@@ -19,6 +19,7 @@ class CardResponse(BaseModel):
     billing_name: Optional[str] = None
     billing_address: Optional[str] = None
     billing_postal: Optional[str] = None
+    billing_country: Optional[str] = None
 
     class Config:
         from_attributes = True

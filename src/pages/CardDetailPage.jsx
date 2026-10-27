@@ -25,9 +25,10 @@ function cardDataRows(card) {
   return [
     { label: 'Имя владельца', value: card.billing_name },
     { label: 'Адрес', value: card.billing_address },
-    { label: 'Страна', value: 'Singapore' },
-    { label: 'Почтовый адрес', value: card.billing_postal },
-  ]
+    { label: 'Страна', value: card.billing_country || 'Singapore' },
+    // Hong Kong has no postal codes
+    card.billing_postal && { label: 'Почтовый адрес', value: card.billing_postal },
+  ].filter(Boolean)
 }
 
 function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateToHistory, getCommissionForCardType, topUpPreset = null, onTopUpPresetUsed }) {

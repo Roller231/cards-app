@@ -257,6 +257,7 @@ async def get_cards(
             billing_name=c.billing_name,
             billing_address=c.billing_address,
             billing_postal=c.billing_postal,
+            billing_country=c.billing_country,
         )
         for c in cards
     ]

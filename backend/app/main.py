@@ -272,6 +272,7 @@ def check_and_update_schema(conn):
             ("billing_name", "VARCHAR(100) NULL"),
             ("billing_address", "VARCHAR(255) NULL"),
             ("billing_postal", "VARCHAR(10) NULL"),
+            ("billing_country", "VARCHAR(50) NULL"),
         ):
             if col not in column_names:
                 logger.info("Adding missing '%s' column to 'cards' table", col)
