@@ -16,6 +16,9 @@ class CardResponse(BaseModel):
     status: Optional[str] = None
     balance: float = 0.0
     offer_id: Optional[str] = None
+    billing_name: Optional[str] = None
+    billing_address: Optional[str] = None
+    billing_postal: Optional[str] = None
 
     class Config:
         from_attributes = True

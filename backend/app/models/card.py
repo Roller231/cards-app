@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Column, ForeignKey, Integer, Numeric, String
+from sqlalchemy import BigInteger, Column, ForeignKey, Integer, Numeric, String, event
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -22,6 +22,19 @@ class Card(Base):
     balance = Column(Numeric(18, 2), default=0, nullable=False)
     offer_id = Column(String(255), nullable=True)
     last_notified_transaction_id = Column(String(255), nullable=True)
+    # "Данные карты" sheet: random name + Singapore address, set once on insert
+    # (app.services.billing_identity); NULL on cards created before that.
+    billing_name = Column(String(100), nullable=True)
+    billing_address = Column(String(255), nullable=True)
+    billing_postal = Column(String(10), nullable=True)
 
     user = relationship("User", back_populates="cards")
     orders = relationship("Order", back_populates="card", lazy="select")
+
+
+@event.listens_for(Card, "before_insert")
+def _set_billing_identity(mapper, connection, target):
+    if not target.billing_address:
+        from app.services import billing_identity
+        for key, value in billing_identity.generate().items():
+            setattr(target, key, value)

@@ -11,13 +11,24 @@ import { cardBackgroundByOffer, McChip } from '../utils/cardAssets'
 import { TxIcon } from './HistoryPage'
 import { latestOperations } from '../utils/txList'
 
-// Template billing identity shown in the "Данные карты" modal — same for all cards
+// Billing identity shown in the "Данные карты" modal. New cards carry their
+// own (generated on the backend); older cards keep this shared template.
 const CARD_DATA_TEMPLATE = [
   { label: 'Имя владельца', value: 'Howard Willis' },
   { label: 'Адрес', value: 'Singapore 160 Lor 1 Toa Payoh #01-1564' },
   { label: 'Страна', value: 'Singapore' },
   { label: 'Почтовый адрес', value: '310160' },
 ]
+
+function cardDataRows(card) {
+  if (!card?.billing_address) return CARD_DATA_TEMPLATE
+  return [
+    { label: 'Имя владельца', value: card.billing_name },
+    { label: 'Адрес', value: card.billing_address },
+    { label: 'Страна', value: 'Singapore' },
+    { label: 'Почтовый адрес', value: card.billing_postal },
+  ]
+}
 
 function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateToHistory, getCommissionForCardType, topUpPreset = null, onTopUpPresetUsed }) {
   const [showCardNumber, setShowCardNumber] = useState(false)
@@ -693,7 +704,7 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
 
               {/* Rows */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 18, marginBottom: 24 }}>
-                {CARD_DATA_TEMPLATE.map((row) => (
+                {cardDataRows(card).map((row) => (
                   <div key={row.label} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
                     <div style={{ fontSize: 14, color: '#6B7280', flexShrink: 0, paddingTop: 2 }}>
                       {row.label}

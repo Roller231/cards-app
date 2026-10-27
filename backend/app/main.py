@@ -267,6 +267,15 @@ def check_and_update_schema(conn):
             conn.execute(text("ALTER TABLE cards ADD COLUMN last_notified_transaction_id VARCHAR(255) NULL;"))
             logger.info("Column 'last_notified_transaction_id' added to 'cards' table")
 
+        for col, ddl in (
+            ("billing_name", "VARCHAR(100) NULL"),
+            ("billing_address", "VARCHAR(255) NULL"),
+            ("billing_postal", "VARCHAR(10) NULL"),
+        ):
+            if col not in column_names:
+                logger.info("Adding missing '%s' column to 'cards' table", col)
+                conn.execute(text(f"ALTER TABLE cards ADD COLUMN {col} {ddl};"))
+
     # Check if 'faqs' table exists, create if not
     if 'faqs' not in inspector.get_table_names():
         logger.info("Creating 'faqs' table")

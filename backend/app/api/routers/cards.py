@@ -254,6 +254,9 @@ async def get_cards(
             status=c.status,
             balance=float(c.balance),
             offer_id=c.offer_id,
+            billing_name=c.billing_name,
+            billing_address=c.billing_address,
+            billing_postal=c.billing_postal,
         )
         for c in cards
     ]
