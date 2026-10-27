@@ -371,6 +371,38 @@ CARD_NAME_BY_OFFER: Dict[str, str] = {
 # O-Plata card types seen but not in CARD_NAME_BY_OFFER (alert once per process)
 _UNKNOWN_OFFERS_SEEN: set = set()
 
+
+async def _alert_unknown_offer(offer_id: str, payment_system: str) -> None:
+    """Alert admins about a new O-Plata card type once ever, not once per
+    process: the in-memory set above is reset by every restart/deploy, so the
+    already-alerted ids are kept in admin_settings."""
+    from sqlalchemy import text as sql_text
+    from app.core.database import AsyncSessionLocal
+    from app.services.recovery_service import _alert
+    key = "OPLATA_UNKNOWN_OFFERS_ALERTED"
+    try:
+        async with AsyncSessionLocal() as db:
+            row = (await db.execute(
+                sql_text("SELECT value FROM admin_settings WHERE `key` = :k"), {"k": key}
+            )).first()
+            seen = set(filter(None, (row[0] if row else "").split(",")))
+            if offer_id in seen:
+                return
+            seen.add(offer_id)
+            value = ",".join(sorted(seen))
+            if row:
+                await db.execute(sql_text("UPDATE admin_settings SET value = :v WHERE `key` = :k"), {"k": key, "v": value})
+            else:
+                await db.execute(sql_text("INSERT INTO admin_settings (`key`, value, description) VALUES (:k, :v, :d)"),
+                                 {"k": key, "v": value, "d": "O-Plata card types admins were already alerted about"})
+            await db.commit()
+        await _alert(
+            f"ℹ️ У O-Plata появился новый тип карты {offer_id} ({payment_system}). "
+            f"В приложении он скрыт, пока его не добавят в код."
+        )
+    except Exception as exc:
+        logger.warning("unknown offer alert failed: %s", exc)
+
 # Legacy offers hidden from the app entirely (RT-2: issue transport was never
 # enabled for our product; replaced by the RT-8 BIN)
 EXCLUDED_OFFER_IDS = {
@@ -1104,14 +1136,7 @@ class CardService:
                     if offer_id not in _UNKNOWN_OFFERS_SEEN:
                         _UNKNOWN_OFFERS_SEEN.add(offer_id)
                         logger.warning("Hiding unknown O-Plata card type %s (%s)", offer_id, payment_system)
-                        try:
-                            from app.services.recovery_service import _alert
-                            asyncio.create_task(_alert(
-                                f"ℹ️ У O-Plata появился новый тип карты {offer_id} ({payment_system}). "
-                                f"В приложении он скрыт, пока его не добавят в код."
-                            ))
-                        except Exception:
-                            pass
+                        asyncio.create_task(_alert_unknown_offer(offer_id, payment_system))
                     continue
                 if offer_id in CARD_NAME_BY_OFFER:
                     name = CARD_NAME_BY_OFFER[offer_id]
