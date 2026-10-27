@@ -22,12 +22,12 @@ _LAST_NAMES = [
     "Tan", "Lim", "Lee", "Ng", "Wong", "Chua", "Goh", "Teo",
 ]
 
-# Real HDB blocks: (block, street, postal code). HDB postal code = 2-digit
-# sector + block number padded to 4 digits.
+# Real HDB blocks: (block, street, postal code), every entry checked against
+# OneMap (Singapore Land Authority address search) on 2026-10-27.
 _ADDRESSES = [
     ("160", "Lorong 1 Toa Payoh", "310160"),
     ("190", "Lorong 6 Toa Payoh", "310190"),
-    ("251", "Kim Keat Avenue", "310251"),
+    ("251", "Kim Keat Link", "310251"),
     ("335", "Ang Mo Kio Avenue 1", "560335"),
     ("409", "Ang Mo Kio Avenue 10", "560409"),
     ("201", "Tampines Street 21", "520201"),
@@ -35,8 +35,8 @@ _ADDRESSES = [
     ("455", "Jurong West Street 42", "640455"),
     ("845", "Yishun Street 81", "760845"),
     ("330", "Clementi Avenue 2", "120330"),
-    ("150", "Mei Ling Street", "140150"),
-    ("54", "Commonwealth Drive", "140054"),
+    ("150", "Mei Ling Street", "141150"),
+    ("54", "Commonwealth Drive", "142054"),
     ("85", "Redhill Lane", "150085"),
     ("101", "Aljunied Crescent", "380101"),
     ("17", "Upper Boon Keng Road", "380017"),
