@@ -221,6 +221,46 @@ function AppInner() {
     return () => { canceled = true }
   }, [user, refreshCards, refreshOffers, refreshTransactions, currentPage])
 
+  // Same as the pull-to-refresh on the home screen: cards (with provider
+  // sync), offers, transactions and the internal balance.
+  const refreshAll = useCallback(async () => {
+    fetchMe?.()
+    const cards = await refreshCards({ silent: true })
+    refreshOffers()
+    setSelectedCard((prev) => {
+      if (!prev) return prev
+      const updated = cards.find((c) => c.id === prev.id)
+      return updated ? { ...updated, title: 'Виртуальная карта' } : prev
+    })
+    if (cards.length > 0) await refreshTransactions(cards)
+  }, [refreshCards, refreshOffers, refreshTransactions, fetchMe])
+
+  // Issuing / funding at the provider finishes a bit later than our request,
+  // so a single reload right after a purchase often still shows the old
+  // balance — re-check a few times in the background.
+  const followUpTimersRef = useRef([])
+  const scheduleFollowUpRefresh = useCallback(() => {
+    followUpTimersRef.current.forEach(clearTimeout)
+    followUpTimersRef.current = [5000, 15000, 40000].map((ms) =>
+      setTimeout(() => { refreshAll().catch(() => {}) }, ms),
+    )
+  }, [refreshAll])
+  useEffect(() => () => followUpTimersRef.current.forEach(clearTimeout), [])
+
+  // Coming back to the mini app (it stays alive in the background)
+  useEffect(() => {
+    if (!user) return
+    let last = Date.now()
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      if (Date.now() - last < 10000) return
+      last = Date.now()
+      refreshAll().catch(() => {})
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [user, refreshAll])
+
   // After card issued: reload cards list and offer limits
   const handleCardIssued = useCallback(async () => {
     setCardTypeToIssue(null)
@@ -229,7 +269,8 @@ function AppInner() {
     const cards = await refreshCards()
     refreshOffers()
     if (cards.length > 0) refreshTransactions(cards)
-  }, [refreshCards, refreshOffers, refreshTransactions, fetchMe])
+    scheduleFollowUpRefresh()
+  }, [refreshCards, refreshOffers, refreshTransactions, fetchMe, scheduleFollowUpRefresh])
 
   // After deposit: reload cards to update balance
   const handleDeposited = useCallback(async () => {
@@ -239,7 +280,8 @@ function AppInner() {
       const updated = cards.find((c) => c.id === selectedCard.id)
       if (updated) setSelectedCard({ ...updated, title: 'Виртуальная карта' })
     }
-  }, [refreshCards, selectedCard, fetchMe])
+    scheduleFollowUpRefresh()
+  }, [refreshCards, selectedCard, fetchMe, scheduleFollowUpRefresh])
 
   // Telegram WebApp init
   useEffect(() => {
@@ -407,11 +449,7 @@ function AppInner() {
           onlineAvailable={onlineAvailable}
           onlinePlusAvailable={onlinePlusAvailable}
           payAvailable={payAvailable}
-          onRefresh={async () => {
-            const cards = await refreshCards()
-            refreshOffers()
-            if (cards.length > 0) await refreshTransactions(cards)
-          }}
+          onRefresh={refreshAll}
           onNavigateToFAQ={() => setCurrentPage('faq')}
           onNavigateToChina={() => setCurrentPage('china')}
           onNavigateToIssueCard={(cardType = null) => {
@@ -421,6 +459,7 @@ function AppInner() {
           onCardClick={(card) => {
             setSelectedCard(card)
             setCurrentPage('card-detail')
+            refreshAll().catch(() => {})  // fresh balance on the card screen
           }}
           onNavigateToHistory={() => {
             setHistoryFixedCardLast4(null)

@@ -92,6 +92,23 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
     }
   }, [pull, refreshing, onRefresh])
 
+  // Entering the home screen (back from a card, a purchase, another tab)
+  // refreshes exactly like a pull-down, spinner included. The very first app
+  // load is skipped: App is already loading the cards then.
+  useEffect(() => {
+    if (cardsLoading || userCards.length === 0 || typeof onRefresh !== 'function') return
+    let alive = true
+    setRefreshing(true)
+    setPull(PULL_THRESHOLD)
+    Promise.resolve(onRefresh()).catch(() => {}).finally(() => {
+      if (!alive) return
+      setRefreshing(false)
+      setPull(0)
+    })
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const indicatorOffset = refreshing ? PULL_THRESHOLD : pull
   const indicatorOpacity = Math.min(1, pull / PULL_THRESHOLD)
   const indicatorRotation = Math.min(360, (pull / PULL_THRESHOLD) * 360)
@@ -255,12 +272,14 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
                 marginLeft: -24,
                 marginRight: -24,
                 paddingLeft: 24,
-                paddingRight: 120,
                 scrollbarWidth: 'none',
                 msOverflowStyle: 'none',
               }}
             >
-              <div style={{ display: 'flex', gap: 12 }}>
+              {/* padding on the max-content row (not on the scroller): a
+                  scroller's own right padding isn't scrollable in WebKit, which
+                  cut the last card's right edge */}
+              <div style={{ display: 'flex', gap: 12, width: 'max-content', paddingRight: 40 }}>
                 {cardsLoading
                   ? [1, 2].map((i) => (
                       <div
