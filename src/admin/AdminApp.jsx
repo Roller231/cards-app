@@ -956,67 +956,123 @@ function AnalyticsPage() {
 
 // ─────────── SETTINGS ───────────
 
+// Settings page: grouped by what they change, with plain labels. Anything not
+// listed here (and the technical keys) lands in the collapsed developer block.
 const SETTING_GROUPS = [
   {
-    title: '🛠 Технические работы',
-    desc: 'Тех. работы закрывают всё приложение (админка и приём платежей продолжают работать), бот на любое сообщение отвечает текстом. Отключение СБП останавливает создание новых счетов — выпуск и пополнение с внутреннего баланса и сами карты работают. Изменения действуют сразу.',
+    title: '🛠 Технические работы и оплата',
+    desc: 'Тех. работы закрывают приложение, бот на любое сообщение отвечает текстом. Отключение СБП останавливает новые счета, а карты и внутренний баланс продолжают работать. Действует сразу после сохранения.',
     keys: ['MAINTENANCE_MODE', 'MAINTENANCE_TEXT', 'SBP_DISABLED', 'SBP_DISABLED_TEXT'],
   },
   {
-    title: '💳 Типы карт',
-    desc: 'Какие карты доступны пользователям для выпуска. Выключенная карта скрывается из приложения, оплата по ней блокируется.',
-    keys: ['CARD_ONLINE_ENABLED', 'CARD_ONLINE_PLUS_ENABLED', 'CARD_PAY_ENABLED'],
-  },
-  {
-    title: '🍏 Rocketpay (карта Pay)',
-    desc: 'Второй провайдер карт. Адрес и ключ API задаются на сервере. Пока карта Pay выключена, её видят только тестеры. Статус подключения, баланс и места под карты — на дашборде Rocketpay ниже в меню.',
-    keys: ['ROCKETPAY_TEST_USER_IDS', 'ROCKETPAY_CARD_LIMIT_TYPE', 'ROCKETPAY_CARD_LIMIT_USD', 'ROCKETPAY_MAX_CARDS_PER_USER', 'ROCKETPAY_CARD_DETAILS_PATH', 'ROCKETPAY_LOW_CAPACITY_ALERT'],
-  },
-  {
-    title: '₽ Цены выпуска',
-    desc: 'Итоговая сумма к оплате через СБП. Должна быть не ниже минимума перевода (~1 210 ₽).',
-    keys: ['CARD_ISSUANCE_PRICE_RUB', 'CARD_ISSUANCE_PRICE_PAY_RUB', 'CARD_ISSUANCE_PRICE_UNIV_RUB'],
-  },
-  {
-    title: '📈 Курс и комиссии СБП',
-    desc: 'Формула курса: индекс Битбанкера × (1 + %ББ) × (1 + %наш) × (1 + %Clarus) × (1 + %конвертация ББ). Пользователю показываются две строки: комиссия СБП (%ББ) и «Комиссия за пополнение» = (1 + %наш) × (1 + %конвертация) × (1 + %Clarus) − 1. Для карт Pay (Rocketpay) вместо Clarus — % Rocketpay. Минимальная комиссия ББ — фолбэк на случай недоступности их API.',
-    keys: ['SBP_BITBANKER_FEE_PERCENT', 'SBP_OUR_FEE_PERCENT', 'SBP_CLARUS_FEE_PERCENT', 'SBP_BB_CONVERSION_FEE_PERCENT', 'ROCKETPAY_POOL_FEE_PERCENT', 'SBP_BB_MIN_FEE_RUB', 'SBP_BITBANKER_FEE_LABEL', 'SBP_TOPUP_FEE_LABEL'],
-  },
-  {
-    title: '🏷 Витрина карт',
-    desc: 'Значения, отображаемые в описаниях карт на главной странице приложения.',
+    title: '💳 Карта Online',
+    desc: 'Карта для оплаты на сайтах (O-Plata).',
     keys: [
-      'ONLINE_TOPUP_MARKUP_PERCENT', 'ONLINE_PLUS_TOPUP_MARKUP_PERCENT', 'UNIV_TOPUP_MARKUP_PERCENT',
-      'ONLINE_OPERATION_FEE_USD', 'ONLINE_PLUS_OPERATION_FEE_USD', 'UNIV_OPERATION_FEE_USD',
-      'ONLINE_CARD_VALIDITY_TEXT', 'ONLINE_PLUS_CARD_VALIDITY_TEXT', 'UNIV_CARD_VALIDITY_TEXT',
+      'CARD_ONLINE_ENABLED', 'CARD_ISSUANCE_PRICE_RUB', 'ONLINE_TOPUP_MARKUP_PERCENT', 'ONLINE_OPERATION_FEE_USD',
+      'ONLINE_CARD_VALIDITY_TEXT', 'CARD_ONLINE_PROMO_TITLE', 'CARD_ONLINE_PROMO_DESC', 'CARD_ONLINE_PROMO_BADGE',
+      'CARD_ONLINE_PROMO_PAYS', 'CARD_ONLINE_PROMO_BIN',
     ],
   },
   {
-    title: '🖼 Промо-плашка Online',
-    desc: 'Тексты информационной плашки Online на главной.',
-    keys: ['CARD_ONLINE_PROMO_TITLE', 'CARD_ONLINE_PROMO_DESC', 'CARD_ONLINE_PROMO_BADGE', 'CARD_ONLINE_PROMO_PAYS', 'CARD_ONLINE_PROMO_BIN'],
+    title: '🍏 Карта Pay',
+    desc: 'Карта для Apple Pay / Google Pay (Rocketpay). Баланс пула и места под карты — на странице Rocketpay в меню.',
+    keys: [
+      'CARD_PAY_ENABLED', 'CARD_ISSUANCE_PRICE_UNIV_RUB', 'UNIV_TOPUP_MARKUP_PERCENT', 'UNIV_OPERATION_FEE_USD',
+      'UNIV_CARD_VALIDITY_TEXT', 'ROCKETPAY_MAX_CARDS_PER_USER', 'ROCKETPAY_TEST_USER_IDS',
+      'CARD_PAY_PROMO_TITLE', 'CARD_PAY_PROMO_DESC', 'CARD_PAY_PROMO_BADGE', 'CARD_PAY_PROMO_PAYS', 'CARD_PAY_PROMO_BIN',
+    ],
   },
   {
-    title: '🖼 Промо-плашка Online+Pay',
-    desc: 'Тексты информационной плашки Online+Pay на главной.',
-    keys: ['CARD_ONLINE_PLUS_PROMO_TITLE', 'CARD_ONLINE_PLUS_PROMO_DESC', 'CARD_ONLINE_PLUS_PROMO_BADGE', 'CARD_ONLINE_PLUS_PROMO_PAYS', 'CARD_ONLINE_PLUS_PROMO_BIN'],
+    title: '📈 Курс',
+    desc: 'Курс для клиента = курс Битбанкера × (1 + комиссия СБП) × (1 + комиссия за пополнение карты). Комиссия за пополнение задаётся в блоках карт выше.',
+    keys: ['SBP_BITBANKER_FEE_PERCENT', 'SBP_BITBANKER_FEE_LABEL', 'SBP_TOPUP_FEE_LABEL'],
   },
   {
-    title: '🖼 Промо-плашка Pay',
-    desc: 'Тексты информационной плашки Pay (универсальная карта) на главной.',
-    keys: ['CARD_PAY_PROMO_TITLE', 'CARD_PAY_PROMO_DESC', 'CARD_PAY_PROMO_BADGE', 'CARD_PAY_PROMO_PAYS', 'CARD_PAY_PROMO_BIN'],
-  },
-  {
-    title: '🎁 Рефералка и внутренний баланс',
-    desc: 'Приглашённому — скидка на выпуск первой карты. Пригласившему — фиксированный бонус на внутренний баланс, когда карты выпущены у обоих. Реферал привязывается только к новым пользователям и один раз.',
+    title: '🎁 Рефералка',
+    desc: 'Приглашённому — скидка на первую карту. Пригласившему — бонус на внутренний баланс, когда карты выпущены у обоих.',
     keys: ['REFERRAL_INVITEE_DISCOUNT_PERCENT', 'REFERRAL_INVITER_BONUS_USD'],
   },
   {
-    title: '⚙️ Прочее',
+    title: '🇨🇳 Alipay / WeChat',
     desc: '',
-    keys: ['CARD_BILLING_ADDRESS', 'TX_WATCH_INTERVAL_SEC'],
+    keys: ['CHINA_CNY_DIVISOR', 'CHINA_MIN_CNY_ALIPAY', 'CHINA_MIN_CNY_WECHAT', 'SERVICE_REQUEST_MANAGER_IDS', 'CHINA_BOT_TOKEN'],
+  },
+  {
+    title: '🔔 Уведомления и поддержка',
+    desc: '',
+    keys: ['SUPPORT_CONTACT', 'ADMIN_ALERT_CHAT_ID', 'TX_WATCH_INTERVAL_SEC'],
+  },
+  {
+    title: '🔧 Для разработчика',
+    desc: 'Технические настройки и справочные значения. Обычно менять не нужно.',
+    collapsed: true,
+    rest: true,
+    keys: [
+      'SBP_OUR_FEE_PERCENT', 'SBP_CLARUS_FEE_PERCENT', 'SBP_BB_CONVERSION_FEE_PERCENT', 'ROCKETPAY_POOL_FEE_PERCENT',
+      'SBP_BB_MIN_FEE_RUB', 'AUTO_RECOVER_ENABLED', 'CARD_BILLING_ADDRESS',
+      'ROCKETPAY_LOW_CAPACITY_ALERT', 'ROCKETPAY_CARD_LIMIT_TYPE', 'ROCKETPAY_CARD_LIMIT_USD', 'ROCKETPAY_CARD_DETAILS_PATH',
+      'CARD_ONLINE_PLUS_ENABLED', 'CARD_ISSUANCE_PRICE_PAY_RUB', 'ONLINE_PLUS_TOPUP_MARKUP_PERCENT',
+      'ONLINE_PLUS_OPERATION_FEE_USD', 'ONLINE_PLUS_CARD_VALIDITY_TEXT',
+      'CARD_ONLINE_PLUS_PROMO_TITLE', 'CARD_ONLINE_PLUS_PROMO_DESC', 'CARD_ONLINE_PLUS_PROMO_BADGE',
+      'CARD_ONLINE_PLUS_PROMO_PAYS', 'CARD_ONLINE_PLUS_PROMO_BIN',
+    ],
   },
 ]
+
+// Plain-language [label, hint, unit] per key (falls back to the backend description)
+const SETTING_LABELS = {
+  MAINTENANCE_MODE: ['Технические работы', 'Приложение закрыто для всех'],
+  MAINTENANCE_TEXT: ['Текст о технических работах'],
+  SBP_DISABLED: ['Отключить оплату по СБП', 'Новые счета не создаются'],
+  SBP_DISABLED_TEXT: ['Текст при отключённой оплате'],
+
+  CARD_ONLINE_ENABLED: ['Выпуск открыт'],
+  CARD_ISSUANCE_PRICE_RUB: ['Цена выпуска', 'Итоговая сумма к оплате', '₽'],
+  ONLINE_TOPUP_MARKUP_PERCENT: ['Комиссия за пополнение', 'Сверх комиссии СБП. Ниже 8.3% пополнения Online в убыток (O-Plata берёт 5%)', '%'],
+  ONLINE_OPERATION_FEE_USD: ['Комиссия за операцию', 'Только для показа на плитке', '$'],
+  ONLINE_CARD_VALIDITY_TEXT: ['Срок действия', 'Текст на плитке'],
+  CARD_ONLINE_PROMO_TITLE: ['Плитка: заголовок'],
+  CARD_ONLINE_PROMO_DESC: ['Плитка: описание'],
+  CARD_ONLINE_PROMO_BADGE: ['Плитка: зелёный бейдж'],
+  CARD_ONLINE_PROMO_PAYS: ['Плитка: «Оплачивайте»'],
+  CARD_ONLINE_PROMO_BIN: ['Плитка: страна BIN'],
+
+  CARD_PAY_ENABLED: ['Выпуск открыт'],
+  CARD_ISSUANCE_PRICE_UNIV_RUB: ['Цена выпуска', 'Итоговая сумма к оплате', '₽'],
+  UNIV_TOPUP_MARKUP_PERCENT: ['Комиссия за пополнение', 'Сверх комиссии СБП. Себестоимость ≈ 2.7%', '%'],
+  UNIV_OPERATION_FEE_USD: ['Комиссия за операцию', 'Только для показа на плитке', '$'],
+  UNIV_CARD_VALIDITY_TEXT: ['Срок действия', 'Текст на плитке'],
+  ROCKETPAY_MAX_CARDS_PER_USER: ['Максимум карт Pay у одного клиента', '', 'шт'],
+  ROCKETPAY_TEST_USER_IDS: ['Тестеры', 'Telegram ID через запятую — видят карту Pay, даже когда выпуск закрыт'],
+  CARD_PAY_PROMO_TITLE: ['Плитка: заголовок'],
+  CARD_PAY_PROMO_DESC: ['Плитка: описание'],
+  CARD_PAY_PROMO_BADGE: ['Плитка: зелёный бейдж'],
+  CARD_PAY_PROMO_PAYS: ['Плитка: «Оплачивайте»'],
+  CARD_PAY_PROMO_BIN: ['Плитка: страна BIN'],
+
+  SBP_BITBANKER_FEE_PERCENT: ['Комиссия СБП', 'Комиссия Битбанкера, показывается клиенту отдельной строкой', '%'],
+  SBP_BITBANKER_FEE_LABEL: ['Название комиссии СБП', 'Как строка называется в расшифровке курса'],
+  SBP_TOPUP_FEE_LABEL: ['Название комиссии за пополнение', 'В расшифровке курса и на плитках карт'],
+
+  REFERRAL_INVITEE_DISCOUNT_PERCENT: ['Скидка приглашённому на первую карту', '', '%'],
+  REFERRAL_INVITER_BONUS_USD: ['Бонус пригласившему', 'На внутренний баланс', '$'],
+
+  CHINA_CNY_DIVISOR: ['Делитель курса юаня', 'Курс юаня = курс Битбанкера / это число'],
+  CHINA_MIN_CNY_ALIPAY: ['Минимальный перевод Alipay', '', '¥'],
+  CHINA_MIN_CNY_WECHAT: ['Минимальный перевод WeChat', '', '¥'],
+  SERVICE_REQUEST_MANAGER_IDS: ['Менеджеры заявок', 'Telegram ID через запятую'],
+  CHINA_BOT_TOKEN: ['Токен бота для заявок', 'Пусто — заявки приходят в основной бот'],
+
+  SUPPORT_CONTACT: ['Контакт поддержки', 'Показывается клиентам, например @exprontopay1'],
+  ADMIN_ALERT_CHAT_ID: ['Чаты для алертов админам', 'Telegram chat_id через запятую'],
+  TX_WATCH_INTERVAL_SEC: ['Проверка новых операций по картам', 'Как часто слать уведомления об операциях', 'сек'],
+
+  SBP_OUR_FEE_PERCENT: ['Справочно: наш процент', 'На цену не влияет', '%'],
+  SBP_CLARUS_FEE_PERCENT: ['Справочно: Clarus', 'На цену не влияет', '%'],
+  SBP_BB_CONVERSION_FEE_PERCENT: ['Справочно: конвертация Битбанкера', 'На цену не влияет', '%'],
+  ROCKETPAY_POOL_FEE_PERCENT: ['Справочно: пополнение пула Rocketpay', 'На цену не влияет', '%'],
+  SBP_BB_MIN_FEE_RUB: ['Мин. комиссия Битбанкера', 'Запасное значение, если их API недоступен', '₽'],
+}
 
 function Toggle({ checked, onChange }) {
   return (
@@ -1037,40 +1093,36 @@ function Toggle({ checked, onChange }) {
   )
 }
 
-function SettingRow({ s, update, last }) {
+function SettingRow({ s, update, last, showKey = false }) {
   const isBool = s.type === 'bool'
+  const [label, hint, unit] = SETTING_LABELS[s.key] || []
   return (
     <div style={{
       display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 20,
       padding: '14px 0', borderBottom: last ? 'none' : '1px solid #f3f4f6',
     }}>
       <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', lineHeight: 1.4 }}>{s.description}</div>
-        <div style={{ fontSize: 11, color: '#9ca3af', fontFamily: 'monospace', marginTop: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
-          {s.key}
-          <span style={{
-            fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 6,
-            background: s.source === 'db' ? '#ecfdf5' : '#f3f4f6',
-            color: s.source === 'db' ? '#059669' : '#9ca3af',
-          }}>
-            {s.source === 'db' ? 'сохранено' : 'из env'}
-          </span>
-        </div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', lineHeight: 1.4 }}>{label || s.description}</div>
+        {hint && <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2, lineHeight: 1.4 }}>{hint}</div>}
+        {showKey && <div style={{ fontSize: 10.5, color: '#9ca3af', fontFamily: 'monospace', marginTop: 3 }}>{s.key}</div>}
       </div>
       {isBool ? (
         <Toggle checked={!!s.value} onChange={v => update(s.key, v)} />
       ) : (
-        <input
-          value={s.value}
-          onChange={e => update(s.key, e.target.value)}
-          style={{
-            width: 180, padding: '8px 12px', borderRadius: 8, flexShrink: 0,
-            border: '1px solid #d1d5db', fontSize: 14, outline: 'none', textAlign: 'right',
-            transition: 'border-color .15s',
-          }}
-          onFocus={e => (e.target.style.borderColor = '#6366f1')}
-          onBlur={e => (e.target.style.borderColor = '#d1d5db')}
-        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          <input
+            value={s.value}
+            onChange={e => update(s.key, e.target.value)}
+            style={{
+              width: s.type === 'str' ? 240 : 110, padding: '8px 12px', borderRadius: 8,
+              border: '1px solid #d1d5db', fontSize: 14, outline: 'none',
+              textAlign: s.type === 'str' ? 'left' : 'right', transition: 'border-color .15s',
+            }}
+            onFocus={e => (e.target.style.borderColor = '#6366f1')}
+            onBlur={e => (e.target.style.borderColor = '#d1d5db')}
+          />
+          <span style={{ width: 28, fontSize: 13, color: '#6b7280' }}>{unit || ''}</span>
+        </div>
       )}
     </div>
   )
@@ -1080,6 +1132,7 @@ function SettingsPage() {
   const [items, setItems] = useState([])
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState(null)
+  const [openGroups, setOpenGroups] = useState({})
 
   useEffect(() => { adminApi.settings.list().then(setItems).catch(() => {}) }, [])
 
@@ -1114,18 +1167,27 @@ function SettingsPage() {
 
       {SETTING_GROUPS.map(group => {
         const rows = group.keys.map(k => byKey[k]).filter(Boolean)
-        const extra = group.title.startsWith('⚙️') ? leftovers : []
+        const extra = group.rest ? leftovers : []
         const all = [...rows, ...extra.filter(s => !rows.some(r => r.key === s.key))]
         if (all.length === 0) return null
+        const open = !group.collapsed || openGroups[group.title]
         return (
           <div key={group.title} style={{ background: '#fff', borderRadius: 14, padding: '20px 24px', boxShadow: '0 1px 3px rgba(0,0,0,.08)', marginBottom: 16 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#111827' }}>{group.title}</div>
-            {group.desc && <div style={{ fontSize: 12.5, color: '#6b7280', marginTop: 4, marginBottom: 6, lineHeight: 1.5 }}>{group.desc}</div>}
-            <div>
-              {all.map((s, i) => (
-                <SettingRow key={s.key} s={s} update={update} last={i === all.length - 1} />
-              ))}
+            <div
+              onClick={group.collapsed ? () => setOpenGroups(o => ({ ...o, [group.title]: !o[group.title] })) : undefined}
+              style={{ fontSize: 16, fontWeight: 700, color: '#111827', cursor: group.collapsed ? 'pointer' : 'default', display: 'flex', justifyContent: 'space-between' }}
+            >
+              <span>{group.title}</span>
+              {group.collapsed && <span style={{ color: '#9ca3af', fontSize: 13, fontWeight: 600 }}>{open ? 'Скрыть' : 'Показать'}</span>}
             </div>
+            {group.desc && <div style={{ fontSize: 12.5, color: '#6b7280', marginTop: 4, marginBottom: 6, lineHeight: 1.5 }}>{group.desc}</div>}
+            {open && (
+              <div>
+                {all.map((s, i) => (
+                  <SettingRow key={s.key} s={s} update={update} last={i === all.length - 1} showKey={!!group.collapsed} />
+                ))}
+              </div>
+            )}
           </div>
         )
       })}
