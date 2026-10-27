@@ -8,7 +8,7 @@ import InfoCard from '../components/ui/InfoCard'
 import { H2, H3, H4, Description } from '../components/ui/Typography'
 import { useDragScroll } from '../hooks/useDragScroll'
 import { useAuth } from '../context/AuthContext'
-import { cardBackgroundByOffer, McChip } from '../utils/cardAssets'
+import { cardBackgroundByOffer, McChip, isVisaOffer } from '../utils/cardAssets'
 import PromoCard, { usePromoCards } from '../components/PromoCard'
 import { TxIcon } from './HistoryPage'
 import { latestOperations } from '../utils/txList'
@@ -358,7 +358,7 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
 
                           </div>
                         </div>
-                        <McChip />
+                        <McChip visa={isVisaOffer(card.offer_id)} />
                       </div>
                     ))}
                   </div>

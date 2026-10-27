@@ -7,7 +7,7 @@ import PageHeader from '../components/ui/PageHeader'
 import { useToast } from '../components/ui/ToastProvider'
 import TopUpModal from '../components/ui/TopUpModal'
 import Portal from '../components/ui/Portal'
-import { cardBackgroundByOffer, McChip } from '../utils/cardAssets'
+import { cardBackgroundByOffer, McChip, isVisaOffer } from '../utils/cardAssets'
 import { TxIcon } from './HistoryPage'
 import { latestOperations } from '../utils/txList'
 
@@ -266,7 +266,7 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
 
               </div>
             </div>
-            <McChip />
+            <McChip visa={isVisaOffer(card?.offer_id)} />
           </div>
         </div>
       </Section>
@@ -480,16 +480,22 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
             </div>
             <div style={{ fontSize: 13, fontWeight: 600, color: '#111827', fontFamily: font }}>iPhone — Apple Pay</div>
             <ol style={{ margin: '4px 0 10px', paddingLeft: 18, fontSize: 13, lineHeight: 1.6, color: '#374151', fontFamily: font }}>
-              <li>Откройте реквизиты карты выше (значок глаза).</li>
-              <li>«Wallet» → «+» → «Дебетовая или кредитная карта» → «Ввести данные вручную».</li>
-              <li>Вставьте номер карты, срок действия и CVV.</li>
+              <li>Нажмите «Показать» в блоке карты выше — появятся номер, срок действия и CVV.</li>
+              <li>Откройте «Wallet» → «+» → «Дебетовая или кредитная карта» → «Продолжить» → «Ввести данные вручную».</li>
+              <li>Введите номер карты. Имя владельца возьмите в «Показать данные» ниже.</li>
+              <li>Введите срок действия и CVV, примите условия банка.</li>
+              <li>Когда Wallet попросит подтвердить карту, выберите код по SMS.</li>
             </ol>
             <div style={{ fontSize: 13, fontWeight: 600, color: '#111827', fontFamily: font }}>Android — Google Pay</div>
-            <ol style={{ margin: '4px 0 0', paddingLeft: 18, fontSize: 13, lineHeight: 1.6, color: '#374151', fontFamily: font }}>
-              <li>Откройте реквизиты карты выше (значок глаза).</li>
-              <li>«Google Кошелёк» → «Добавить в Кошелёк» → «Платёжная карта» → «Ввести данные вручную».</li>
-              <li>Вставьте номер карты, срок действия и CVV.</li>
+            <ol style={{ margin: '4px 0 10px', paddingLeft: 18, fontSize: 13, lineHeight: 1.6, color: '#374151', fontFamily: font }}>
+              <li>Нажмите «Показать» в блоке карты выше — появятся номер, срок действия и CVV.</li>
+              <li>Откройте «Google Кошелёк» → «Добавить в Кошелёк» → «Платёжная карта» → «Ввести данные вручную».</li>
+              <li>Введите номер, срок действия и CVV. Имя и адрес возьмите в «Показать данные» ниже.</li>
+              <li>Примите условия банка и выберите подтверждение кодом по SMS.</li>
             </ol>
+            <div style={{ fontSize: 12, color: '#374151', fontFamily: font, lineHeight: 1.5, background: '#F3F4F6', borderRadius: 10, padding: '10px 12px' }}>
+              <b>Код подтверждения придёт не по SMS, а сообщением от нашего бота в Telegram</b> — «Код подтверждения для карты •••• {card?.last4 || 'XXXX'}». Введите его в течение нескольких минут. Если код не пришёл за 2 минуты, запросите новый в Wallet.
+            </div>
           </Card>
         </Section>
       )}

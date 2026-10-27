@@ -19,8 +19,28 @@ export function cardBackgroundByTypeName(name) {
   return '/images/cards/OnlineCard.png'
 }
 
-// White rounded Mastercard chip shown in the bottom-right corner of every card
-export function McChip({ size = 16, right = 12, bottom = 12 }) {
+// Card network of a card: Rocketpay "Pay" cards are VISA, O-Plata ones Mastercard
+export function isVisaOffer(offerId) {
+  return String(offerId || '').startsWith('ROCKETPAY')
+}
+
+// VISA wordmark (no image asset in the project; drawn as text in Visa blue)
+export function VisaMark({ height = 16, color = '#1A1F71' }) {
+  return (
+    <svg height={height} viewBox="0 0 58 19" style={{ display: 'block' }} aria-label="VISA">
+      <text
+        x="29" y="16" textAnchor="middle"
+        fontFamily="Arial Black, Arial, Helvetica, sans-serif"
+        fontSize="20" fontWeight="900" fontStyle="italic" letterSpacing="-0.5"
+        fill={color}
+      >VISA</text>
+    </svg>
+  )
+}
+
+// White rounded network chip (Mastercard, or VISA with visa) shown in the
+// bottom-right corner of every card
+export function McChip({ size = 16, right = 12, bottom = 12, visa = false }) {
   return (
     <div
       style={{
@@ -35,7 +55,9 @@ export function McChip({ size = 16, right = 12, bottom = 12 }) {
         boxShadow: '0 1px 4px rgba(0,0,0,0.15)',
       }}
     >
-      <img src="/images/Mastercard.png" alt="" style={{ height: size, width: 'auto', display: 'block' }} />
+      {visa
+        ? <VisaMark height={size} />
+        : <img src="/images/Mastercard.png" alt="" style={{ height: size, width: 'auto', display: 'block' }} />}
     </div>
   )
 }

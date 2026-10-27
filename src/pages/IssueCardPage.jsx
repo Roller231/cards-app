@@ -498,7 +498,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
                     alt="Card"
                     style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                   />
-                  <McChip size={16} right={10} bottom={10} />
+                  <McChip size={16} right={10} bottom={10} visa={selectedCard?.name === 'Pay'} />
                 </div>
               </div>
 

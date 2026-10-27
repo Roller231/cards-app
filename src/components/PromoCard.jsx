@@ -3,6 +3,7 @@ import Card from './ui/Card'
 import Button from './ui/Button'
 import api from '../api/client'
 import { useAuth } from '../context/AuthContext'
+import { VisaMark } from '../utils/cardAssets'
 
 const font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif'
 
@@ -93,7 +94,9 @@ export default function PromoCard({ pc, expanded, onToggle, issueLimitReached = 
             onClick={onToggle}
             style={{ height: 24, backgroundColor: '#1A1F36', borderRadius: 8, paddingLeft: 8, paddingRight: pc.payIcons ? 5 : 8, width: 'fit-content', cursor: 'pointer' }}
           >
-            <img src="/images/Mastercard.png" alt="Mastercard" style={{ height: 14, width: 'auto' }} />
+            {pc.key === 'pay'
+              ? <VisaMark height={13} color="#FFFFFF" />
+              : <img src="/images/Mastercard.png" alt="Mastercard" style={{ height: 14, width: 'auto' }} />}
             {pc.payIcons ? (
               <>
                 <img src="/images/GooglePay.png" alt="Google Pay" style={{ height: 16, width: 'auto', paddingLeft: 4 }} />
