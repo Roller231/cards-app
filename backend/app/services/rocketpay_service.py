@@ -116,6 +116,33 @@ def _apply_card(local: Card, rp: Dict[str, Any]) -> None:
         local.balance = bal
 
 
+def _stale_available(card: Dict[str, Any]) -> bool:
+    """Rocketpay moves `balance` at once when a card is funded, but `available`
+    only after its next sync with the bank (Oct 2026: a funded card showed
+    balance 100 / available 0 until POST /sync). Healthy: available equals
+    balance minus reserved."""
+    b = card.get("balances") or {}
+    try:
+        balance = Decimal(str(b["balance"]))
+        available = Decimal(str(b["available"]))
+        reserved = Decimal(str(b.get("reserved") or 0))
+    except Exception:
+        return False
+    return abs(balance - reserved - available) >= Decimal("0.01")
+
+
+async def _fresh_card(rp_card_id: str, force_sync: bool = False) -> Dict[str, Any]:
+    """The card from Rocketpay with an up-to-date `available` balance: asks
+    Rocketpay to re-sync it with the bank when needed (or forced after funding)."""
+    rp = None if force_sync else await rocketpay_client.get_card(rp_card_id)
+    if rp is None or _stale_available(rp):
+        synced = await rocketpay_client.sync_card(rp_card_id)
+        if synced.get("balances"):
+            return synced
+        rp = await rocketpay_client.get_card(rp_card_id)
+    return rp
+
+
 async def _alert_admins(text: str) -> None:
     try:
         from app.services.recovery_service import _alert
@@ -372,6 +399,10 @@ async def deposit_card(
     if status == "completed":
         order.status = "completed"
         order.notified = True  # success is announced by the transaction watcher
+        try:
+            _apply_card(card, await _fresh_card(card.aifory_card_id, force_sync=True))
+        except Exception as exc:
+            logger.info("[RP] post-funding sync %s failed: %s", card.aifory_card_id, exc)
     await db.commit()
     logger.info("[RP] funding %s for card %s: $%s status=%s", mv.get("id"), card.aifory_card_id, base_amount, status)
     if status != "completed":
@@ -406,7 +437,7 @@ async def _follow_movement(user_id: int, order_id: int, local_card_id: int, move
                     order.notified = True
                     if card:
                         try:
-                            _apply_card(card, await rocketpay_client.get_card(card.aifory_card_id))
+                            _apply_card(card, await _fresh_card(card.aifory_card_id, force_sync=True))
                         except Exception:
                             pass
                 elif status in ("failed", "cancelled"):
@@ -438,7 +469,7 @@ async def sync_user_cards(db: AsyncSession, user: User) -> None:
         if card.status in ("closed",):
             continue
         try:
-            _apply_card(card, await rocketpay_client.get_card(card.aifory_card_id))
+            _apply_card(card, await _fresh_card(card.aifory_card_id))
         except RocketpayError as exc:
             if exc.code == "not_found":
                 card.status = "closed"
