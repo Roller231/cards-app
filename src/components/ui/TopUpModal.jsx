@@ -106,13 +106,19 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, initialMethod = 'sbp' }) {
 
   const hasAmount = amount > 0
   const amountText = amountInput || ''
-  // Paying from the internal balance: USD amount + card-type markup, no SBP fee
   // Paying from the internal balance: the same "Комиссия за пополнение" as in
-  // the SBP rate breakdown (the backend charges exactly this percent)
-  const balanceMarkup = Number(rateInfo?.topup_fee_percent) || 0
-  const balanceCharge = hasAmount ? Math.ceil(amount * (1 + balanceMarkup / 100) * 100) / 100 : 0
+  // the SBP rate breakdown (the backend charges exactly this percent). It
+  // doesn't depend on the SBP rate, so the app config supplies it while the
+  // rate is still loading or failed — the balance check used to wait for the
+  // rate and showed "not enough funds" meanwhile.
+  const isRocketpayCard = String(card?.offer_id || '').startsWith('ROCKETPAY')
+  const configFee = Number(isRocketpayCard ? appConfig?.univ_topup_markup_percent : appConfig?.online_topup_markup_percent)
+  const rateFee = Number(rateInfo?.topup_fee_percent)
+  const balanceMarkup = Number.isFinite(rateFee) ? rateFee : (Number.isFinite(configFee) ? configFee : null)
+  const feeKnown = balanceMarkup !== null
+  const balanceCharge = hasAmount ? Math.ceil(amount * (1 + (balanceMarkup || 0) / 100) * 100) / 100 : 0
   const balanceUsd = Number(user?.balance || 0)
-  const balanceEnough = hasAmount && !!rateInfo && balanceUsd >= balanceCharge
+  const balanceEnough = hasAmount && feeKnown && balanceUsd >= balanceCharge
   // payRub = ceil(amount × rate); payments below the threshold additionally
   // carry Bitbanker's fixed fee (210 ₽), payments above pay exactly the amount.
   const rate = rateInfo?.rate || null
@@ -300,7 +306,7 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, initialMethod = 'sbp' }) {
                       Включая комиссию за пополнение {balanceMarkup}%.
                     </div>
                   )}
-                  {hasAmount && !balanceEnough && (
+                  {hasAmount && feeKnown && !balanceEnough && (
                     <div style={{ fontSize: 12, color: '#DC2626', fontFamily: font, marginTop: 8, lineHeight: 1.5 }}>
                       Недостаточно средств на балансе. Пополните баланс в профиле или выберите оплату по СБП.
                     </div>
