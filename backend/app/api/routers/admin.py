@@ -55,7 +55,7 @@ SETTINGS_KEYS: Dict[str, Dict[str, Any]] = {
     "ONLINE_TOPUP_MARKUP_PERCENT": {"desc": "Комиссия за пополнение карт Online (%) — сверх СБП 2.1%; входит в курс и в пополнение с баланса", "type": float},
     "ONLINE_PLUS_TOPUP_MARKUP_PERCENT": {"desc": "Online+Pay card top-up markup (%) — карта не выпускается", "type": float},
     "UNIV_TOPUP_MARKUP_PERCENT": {"desc": "Комиссия за пополнение карт Pay (%) — сверх СБП 2.1%; входит в курс и в пополнение с баланса", "type": float},
-    "UNIV_OPERATION_FEE_USD": {"desc": "Pay card operation fee (USD) — витрина", "type": float},
+    "UNIV_OPERATION_FEE_USD": {"desc": "Pay card operation fee (USD) — витрина", "type": str},
     "UNIV_CARD_VALIDITY_TEXT": {"desc": "Pay card validity text", "type": str},
     # Промо-плашки на главной (все поля редактируемые)
     "CARD_ONLINE_PROMO_TITLE": {"desc": "Online: заголовок плашки", "type": str},
@@ -94,7 +94,7 @@ SETTINGS_KEYS: Dict[str, Dict[str, Any]] = {
     "SBP_TOPUP_FEE_LABEL": {"desc": "Название комиссии за пополнение в расшифровке курса и на плашках карт", "type": str},
     "ONLINE_CARD_VALIDITY_TEXT": {"desc": "Online card validity text", "type": str},
     "ONLINE_PLUS_CARD_VALIDITY_TEXT": {"desc": "Online+ card validity text", "type": str},
-    "ONLINE_OPERATION_FEE_USD": {"desc": "Online card operation fee (USD)", "type": float},
+    "ONLINE_OPERATION_FEE_USD": {"desc": "Online card operation fee (USD)", "type": str},
     "ONLINE_PLUS_OPERATION_FEE_USD": {"desc": "Online+ card operation fee (USD)", "type": float},
 }
 

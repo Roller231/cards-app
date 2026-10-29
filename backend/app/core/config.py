@@ -127,10 +127,10 @@ class Settings(BaseSettings):
     ISSUE_APPLY_TOPUP_MARKUP: bool = False
     ONLINE_CARD_VALIDITY_TEXT: str = "1 год"
     ONLINE_PLUS_CARD_VALIDITY_TEXT: str = "1 год"
-    ONLINE_OPERATION_FEE_USD: float = 0.4
+    ONLINE_OPERATION_FEE_USD: str = "0.55"
     ONLINE_PLUS_OPERATION_FEE_USD: float = 0.4
     UNIV_CARD_VALIDITY_TEXT: str = "1 год"
-    UNIV_OPERATION_FEE_USD: float = 0.4
+    UNIV_OPERATION_FEE_USD: str = "0.2–0.5"
     UNIV_TOPUP_MARKUP_PERCENT: float = 4.0
 
     # Promo cards on the home screen — every visible field is admin-editable

@@ -18,6 +18,8 @@ export const PROMO_KEY_BY_TYPE = {
 // Respect explicitly-set values: 0 for numbers and '' for texts are valid.
 const pick = (cfg, key, fallback) => (cfg && cfg[key] !== undefined && cfg[key] !== null ? cfg[key] : fallback)
 const numOr = (v, d) => (v === null || v === undefined || v === '' ? d : Number(v))
+// Free text from the admin panel, e.g. a range "0.2–0.5"
+const textOr = (v, d) => (v === null || v === undefined || String(v).trim() === '' ? d : String(v).trim())
 
 export function usePromoCards({ onlineAvailable = true, onlinePlusAvailable = true, payAvailable = true } = {}) {
   const { appConfig, commissions } = useAuth()
@@ -49,7 +51,7 @@ export function usePromoCards({ onlineAvailable = true, onlinePlusAvailable = tr
       pays: pick(promo.online, 'pays', 'Booking, Airbnb, Zoom, Google One, Spotify, YouTube, покупки в магазинах и пр.'),
       bin: pick(promo.online, 'bin', 'Гонконг'),
       validity: commissions.online_validity_text || '1 год',
-      operationFee: numOr(commissions.online_operation_fee, 0.4),
+      operationFee: textOr(commissions.online_operation_fee, '0.55'),
       priceRub: numOr(commissions.online_issue_price_rub, 999),
       topup: topupFee ?? numOr(commissions.online_topup, 0),
       sbpRate,
@@ -75,7 +77,7 @@ export function usePromoCards({ onlineAvailable = true, onlinePlusAvailable = tr
       pays: pick(promo.pay, 'pays', 'Магазины, кафе, такси и транспорт — везде, где принимают Apple Pay и Google Pay. Не подходит для оплаты на сайтах.'),
       bin: pick(promo.pay, 'bin', 'США'),
       validity: commissions.univ_validity_text || '1 год',
-      operationFee: numOr(commissions.univ_operation_fee, 0.4),
+      operationFee: textOr(commissions.univ_operation_fee, '0.2–0.5'),
       priceRub: numOr(commissions.univ_issue_price_rub, 1999),
       topup: topupFeePay ?? numOr(commissions.univ_topup, 0),
       sbpRate,
