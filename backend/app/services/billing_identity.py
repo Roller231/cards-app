@@ -1,10 +1,12 @@
 """Billing identity shown in the card's "Данные карты" sheet: a random name
 plus a real address in the card's issuing country.
 
-- O-Plata cards (Singapore): English name + Singapore HDB block with its
-  postal code.
-- Rocketpay "Pay" cards (BIN 49387519, Hong Kong): HK-style name (English
-  given name + Cantonese surname) + a residential block in a Hong Kong estate.
+- Every card issued now is on a Hong Kong BIN: Rocketpay "Pay" (49387519)
+  and, since 2026-10-29, O-Plata Online (539502, the SG BIN was restricted
+  by Mastercard). They get an HK-style name (English given name + Cantonese
+  surname) + a residential block in a Hong Kong estate.
+- The Singapore identity (English name + HDB block with postal code) stays
+  for reference; set ISSUING_COUNTRY back to "SG" if an SG BIN returns.
 
 Generated once when a card row is created and stored on the card, so it never
 changes for that card. Cards created before this existed keep the old shared
@@ -72,8 +74,12 @@ _HK_ADDRESSES = [
 ]
 
 
+# Issuing country of new O-Plata cards (Rocketpay cards are always HK)
+ISSUING_COUNTRY = "HK"
+
+
 def _is_hong_kong(offer_id: Optional[str]) -> bool:
-    return str(offer_id or "").startswith("ROCKETPAY")
+    return str(offer_id or "").startswith("ROCKETPAY") or ISSUING_COUNTRY == "HK"
 
 
 def generate(offer_id: Optional[str] = None) -> Dict[str, Optional[str]]:

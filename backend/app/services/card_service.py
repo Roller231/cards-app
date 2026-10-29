@@ -362,10 +362,19 @@ def _card_is_active(state: Any) -> bool:
 # only for offers not listed here.
 CARD_NAME_BY_OFFER: Dict[str, str] = {
     "RAVANA:RT-prod:faa1988b-a467-4397-85c7-ab380fea7bb4": "Online",
+    # Online on BIN 539502 (Hong Kong): O-Plata switched 2026-10-29 after
+    # Mastercard restricted the SG BIN; the old type above became readOnly
+    "RAVANA:RT-prod:747f2774-646e-4901-a8ce-c79a185fab74": "Online",
     # Online+Pay on the NEW BIN (US identity, separate univ client, PRONTOPAY_UNIV parent)
     "RAVANA:RT-8-prod:afea2835-80a4-4b57-8f03-b9f323ce9c77": "Online+Pay",
     # "Pay" — Rocketpay card (Apple Pay), see services/rocketpay_service.py
     "ROCKETPAY:pay": "Pay",
+}
+
+# Retired O-Plata card types -> their replacement. A paid order (SBP invoice,
+# auto-recovery) for the old type is issued on the new one instead of failing.
+OFFER_REPLACEMENTS: Dict[str, str] = {
+    "RAVANA:RT-prod:faa1988b-a467-4397-85c7-ab380fea7bb4": "RAVANA:RT-prod:747f2774-646e-4901-a8ce-c79a185fab74",
 }
 
 # O-Plata card types seen but not in CARD_NAME_BY_OFFER (alert once per process)
@@ -1919,6 +1928,9 @@ class CardService:
         from app.services import rocketpay_service as _rp
         if _rp.is_rocketpay(offer_id):
             return await _rp.issue_card(db, user, sbp_invoice_id=sbp_invoice_id, balance_charge_usd=balance_charge_usd)
+        if offer_id in OFFER_REPLACEMENTS:
+            logger.info("[ISSUE] offer %s retired, issuing on %s", offer_id, OFFER_REPLACEMENTS[offer_id])
+            offer_id = OFFER_REPLACEMENTS[offer_id]
         ravana_server_id, type_uuid = _parse_offer_id(offer_id)
         is_univ = _is_univ_ravana(ravana_server_id)
         client_id = _client_id_for_ravana(user, ravana_server_id)
