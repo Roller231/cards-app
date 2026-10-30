@@ -271,6 +271,16 @@ def _normalize_card_transaction(tx: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _notify_amount(tx: Dict[str, Any]) -> float:
+    """Amount in the card currency for a Telegram notification."""
+    try:
+        if tx.get("tx_type") == "declined":
+            return abs(float(tx.get("settlementAmount") or 0))
+        return float(tx.get("display_amount") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _expand_transaction_fees(transactions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Emit the provider's per-transaction fee as its own history row.
 
@@ -2749,9 +2759,15 @@ class CardService:
                       await notify_card_transaction(
                           db=nsess, user=user,
                           card_last4=card.last4 or "",
-                          # Card-currency settlement amount, not the merchant-currency one
-                          amount=float(tx.get("display_amount") or tx.get("amount") or 0),
+                          # Card-currency settlement amount, not the merchant-currency
+                          # one. A declined tx has display_amount 0 (nothing moved), so
+                          # it must not fall back to the raw merchant amount: 52502 THB
+                          # was shown as "$52502 USD".
+                          amount=_notify_amount(tx),
                           currency=str(tx.get("display_currency") or tx.get("currency") or "USD"),
+                          original_amount=tx.get("amount"),
+                          original_currency=tx.get("currency"),
+                          decline_reason=tx.get("declineReason"),
                           merchant=str(tx.get("merchantName") or tx.get("description") or ""),
                           date=str(tx.get("transactionAt") or tx.get("createdAt") or ""),
                           status=str(tx.get("status") or ""),
