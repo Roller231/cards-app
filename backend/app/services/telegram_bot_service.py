@@ -420,6 +420,15 @@ async def notify_topup_result(
     await send_notification(user.telegram_user_id, text)
 
 
+def _decline_reason_text(reason: str) -> str:
+    low = str(reason or "").lower()
+    if "maximum single transaction" in low:
+        return "сумма превышает лимит на одну операцию"
+    if "insufficient" in low:
+        return "недостаточно средств на карте"
+    return str(reason)
+
+
 async def notify_card_transaction(
     db: AsyncSession,
     user: User,
@@ -428,9 +437,13 @@ async def notify_card_transaction(
     currency: str,
     merchant: str,
     date: str,
-    status: str
+    status: str,
+    original_amount=None,
+    original_currency: str = None,
+    decline_reason: str = None,
 ) -> None:
-    """Notify user via Telegram about a new card transaction."""
+    """Notify user via Telegram about a new card transaction. amount/currency
+    are in the card currency; original_* is what the merchant asked for."""
     if not user.telegram_user_id:
         return
     from datetime import datetime, timezone
@@ -440,12 +453,21 @@ async def notify_card_transaction(
     merchant_str = f"\n🏬 Продавец: <b>{_html.escape(merchant)}</b>" if merchant else ""
     status_str = f"\n📊 Статус: <b>{_html.escape(status)}</b>" if status else ""
     date_str = f"\n📅 Дата: <b>{_html.escape(date)}</b>" if date else ""
+    amount_str = f"${amount:.2f} USD" if currency == "USD" else f"{amount:.2f} {_html.escape(currency)}"
+    amount_line = f"💵 Сумма: <b>{amount_str}</b>"
+    try:
+        if original_currency and original_currency != currency and float(original_amount or 0) > 0:
+            amount_line += f"\n🧾 В валюте магазина: <b>{float(original_amount):.2f} {_html.escape(original_currency)}</b>"
+    except (TypeError, ValueError):
+        pass
+    reason_str = f"\n❗ Причина: <b>{_html.escape(_decline_reason_text(decline_reason))}</b>" if decline_reason else ""
     text = (
         f"<b>{header}</b>\n"
         f"{last4_str}\n"
-        f"💵 Сумма: <b>${amount:.2f} {currency}</b>"
+        f"{amount_line}"
         f"{merchant_str}"
         f"{status_str}"
+        f"{reason_str}"
         f"{date_str}"
         f"\n🕐 {now}"
     )
