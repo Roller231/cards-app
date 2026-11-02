@@ -135,6 +135,7 @@
     .product .btn { margin-top: 16px; width: 100%; }
     .paymarks { display: flex; gap: 8px; margin-top: 16px; align-items: center; }
     .paymarks img { height: 22px; width: auto; }
+    .paymarks .visa-mark { color: #1A1F71; font: italic 900 24px Arial, sans-serif; letter-spacing: -1px; line-height: 1; }
 
     /* China */
     .china-card {
@@ -305,7 +306,7 @@
     <div class="wrap">
       <div class="sec-head">
         <h2>Линейка карт</h2>
-        <p>Все карты — виртуальные Mastercard, регион эмиссии — Сингапур, валюта — доллар США. Выпускаются и управляются в мини-приложении прямо в Telegram.</p>
+        <p>Online — виртуальная Mastercard из Сингапура для подписок и онлайн-сервисов. Pay — Visa из Гонконга для оплаты телефоном через Apple Pay и Google Pay. Валюта карт — доллар США. Выпускаются и управляются в мини-приложении прямо в Telegram.</p>
       </div>
       <div class="products">
         <div class="product live">
@@ -323,20 +324,21 @@
           </div>
           <a class="btn" href="https://t.me/exprontopay_bot/exprontopay" onclick="try{ym(111788180,'reachGoal','landing_bot_click',{place:'product_online'})}catch(e){}">Оформить карту</a>
         </div>
-        <div class="product">
+        <div class="product live">
           <img class="art" src="/assets/Pay.png" alt="Карта ProntoPay Pay" loading="lazy" />
-          <h3>Pay <span class="soon">Скоро</span></h3>
+          <h3>Pay <span class="price">2 999 ₽</span></h3>
           <p>Удобная альтернатива физической карте в поездках.</p>
           <ul>
             <li>Платите смартфоном везде, где есть Apple Pay и Google Pay</li>
-            <li class="minus">Не подходит для оплаты на сайтах и в сервисах — для этого нужна Online или Premium</li>
-            <li>Анонс — в нашем <a class="link" href="https://t.me/exprontopay">Telegram</a></li>
+            <li class="minus">Не подходит для оплаты на сайтах и в сервисах — для этого нужна Online</li>
+            <li>Комиссии банка — <a class="link" href="#pay-fees" onclick="document.getElementById('pay-fees').open = true">подробно в FAQ</a></li>
           </ul>
           <div class="paymarks">
-            <img src="/assets/Mastercard.png" alt="Mastercard">
+            <span class="visa-mark" aria-label="Visa">VISA</span>
             <img src="/assets/Apple.png" alt="Apple Pay">
             <img src="/assets/GooglePay.png" alt="Google Pay">
           </div>
+          <a class="btn" href="https://t.me/exprontopay_bot/exprontopay" onclick="try{ym(111788180,'reachGoal','landing_bot_click',{place:'product_pay'})}catch(e){}">Оформить карту</a>
         </div>
         <div class="product">
           <img class="art" src="/assets/PremiumCard.png" alt="Карта ProntoPay Premium" loading="lazy" />
@@ -474,7 +476,30 @@
           <summary>Что такое виртуальная карта и какую выбрать?<span class="pl">+</span></summary>
           <div class="a">
             <p>Виртуальная карта — полноценная банковская карта без пластика: номер, срок действия и CVC существуют в цифровом виде, ей платят в интернете так же, как обычной.</p>
-            <p>Сейчас доступна карта Online — для оплаты на сайтах и в сервисах. Pay (Apple Pay / Google Pay для офлайн-покупок) и Premium (сайты + Apple Pay / Google Pay) готовятся к запуску.</p>
+            <p>Сейчас доступны Online — для подписок и оплаты онлайн-сервисов, и Pay — для физической оплаты телефоном через Apple Pay и Google Pay. Premium (сайты + Apple Pay / Google Pay) готовится к запуску.</p>
+          </div>
+        </details>
+        <details id="pay-fees">
+          <summary>Какие комиссии есть по карте Pay?<span class="pl">+</span></summary>
+          <div class="a">
+            <p>Комиссия за успешную покупку – $0,5 при сумме до $30 и $0,2 при сумме от $30. Комиссии за операции устанавливает банк-эмитент.</p>
+            <p>Дополнительно к фиксированной комиссии:<br>
+              – покупка не в долларах США – 1,4% от суммы,<br>
+              – оплата через Apple Pay – 0,2% от суммы.</p>
+            <p>Отклонённая транзакция – $0,5.</p>
+            <p>Например, оплата $20 в долларах через Apple Pay обойдётся в $0,5 + 0,2% ($0,04) = $0,54 комиссии.</p>
+          </div>
+        </details>
+        <details>
+          <summary>Какой картой оплачивать подписки на ChatGPT, Claude и другие сервисы?<span class="pl">+</span></summary>
+          <div class="a">
+            <p>Картой Online. Она подходит для подписок и оплаты онлайн-сервисов. Карта Pay нужна для Apple Pay и Google Pay, то есть для физической оплаты с помощью телефона.</p>
+          </div>
+        </details>
+        <details>
+          <summary>Какую карту можно привязать к Apple Pay и Google Pay?<span class="pl">+</span></summary>
+          <div class="a">
+            <p>Карту Pay. Карта Online для Apple Pay и Google Pay не подходит: она предназначена для подписок и оплаты онлайн-сервисов.</p>
           </div>
         </details>
         <details>
