@@ -125,9 +125,9 @@ class Settings(BaseSettings):
     # set the issuer's address here via admin panel once known)
     CARD_BILLING_ADDRESS: str = ""
     ISSUE_APPLY_TOPUP_MARKUP: bool = False
-    ONLINE_CARD_VALIDITY_TEXT: str = "1 год"
+    ONLINE_CARD_VALIDITY_TEXT: str = "2 года"
     ONLINE_PLUS_CARD_VALIDITY_TEXT: str = "1 год"
-    ONLINE_OPERATION_FEE_USD: str = "0.55"
+    ONLINE_OPERATION_FEE_USD: str = "0.8"
     ONLINE_PLUS_OPERATION_FEE_USD: float = 0.4
     UNIV_CARD_VALIDITY_TEXT: str = "1 год"
     UNIV_OPERATION_FEE_USD: str = "0.2–0.5"
@@ -138,7 +138,7 @@ class Settings(BaseSettings):
     CARD_ONLINE_PROMO_DESC: str = "Для оплаты покупок и сервисов в интернете"
     CARD_ONLINE_PROMO_BADGE: str = "Бесплатное обслуживание"
     CARD_ONLINE_PROMO_PAYS: str = "Booking, Airbnb, Zoom, Google One, Spotify, YouTube, покупки в магазинах и пр."
-    CARD_ONLINE_PROMO_BIN: str = "Гонконг"
+    CARD_ONLINE_PROMO_BIN: str = "Сингапур"
     CARD_ONLINE_PLUS_PROMO_TITLE: str = "Online + Pay"
     CARD_ONLINE_PLUS_PROMO_DESC: str = "Оплата в магазинах через Apple Pay, Google Pay и онлайн-сервисов на сайтах"
     CARD_ONLINE_PLUS_PROMO_BADGE: str = "Бесплатное обслуживание"

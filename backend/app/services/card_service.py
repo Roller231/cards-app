@@ -370,11 +370,17 @@ def _card_is_active(state: Any) -> bool:
 # mentions "Apple Pay и Google Pay" in its "not supported" list and got
 # misclassified as Online+Pay. Keep this authoritative; fall back to heuristics
 # only for offers not listed here.
+ONLINE_OFFER_ID = "RAVANA:RT-prod:f5d8ea65-6c55-43e6-b7a1-19e103be42ce"
+
 CARD_NAME_BY_OFFER: Dict[str, str] = {
+    # Current Online type, confirmed issuable via O-Plata on 2026-11-02.
+    # Singapore per the provider's final clarification; earlier 6704... retired.
+    ONLINE_OFFER_ID: "Online",
     "RAVANA:RT-prod:faa1988b-a467-4397-85c7-ab380fea7bb4": "Online",
     # Online on BIN 539502 (Hong Kong): O-Plata switched 2026-10-29 after
     # Mastercard restricted the SG BIN; the old type above became readOnly
     "RAVANA:RT-prod:747f2774-646e-4901-a8ce-c79a185fab74": "Online",
+    "RAVANA:RT-prod:6704da1b-7850-46ad-837a-c06336ccbfa5": "Online",
     # Online+Pay on the NEW BIN (US identity, separate univ client, PRONTOPAY_UNIV parent)
     "RAVANA:RT-8-prod:afea2835-80a4-4b57-8f03-b9f323ce9c77": "Online+Pay",
     # "Pay" — Rocketpay card (Apple Pay), see services/rocketpay_service.py
@@ -384,7 +390,9 @@ CARD_NAME_BY_OFFER: Dict[str, str] = {
 # Retired O-Plata card types -> their replacement. A paid order (SBP invoice,
 # auto-recovery) for the old type is issued on the new one instead of failing.
 OFFER_REPLACEMENTS: Dict[str, str] = {
-    "RAVANA:RT-prod:faa1988b-a467-4397-85c7-ab380fea7bb4": "RAVANA:RT-prod:747f2774-646e-4901-a8ce-c79a185fab74",
+    "RAVANA:RT-prod:faa1988b-a467-4397-85c7-ab380fea7bb4": ONLINE_OFFER_ID,
+    "RAVANA:RT-prod:747f2774-646e-4901-a8ce-c79a185fab74": ONLINE_OFFER_ID,
+    "RAVANA:RT-prod:6704da1b-7850-46ad-837a-c06336ccbfa5": ONLINE_OFFER_ID,
 }
 
 # O-Plata card types seen but not in CARD_NAME_BY_OFFER (alert once per process)
@@ -1143,7 +1151,10 @@ class CardService:
                 raw_name = ct.get("localizedName") or f"{payment_system} Virtual Card"
                 offer_id = f"{ravana_server_id}:{type_uuid}"
 
-                if offer_id in EXCLUDED_OFFER_IDS:
+                # Retired types still resolve for already-paid invoices, but
+                # never appear as a second Online offer, even if the provider
+                # temporarily reports them as writable again.
+                if offer_id in EXCLUDED_OFFER_IDS or offer_id in OFFER_REPLACEMENTS:
                     continue
 
                 # Only card types we explicitly support are offered. O-Plata adds
