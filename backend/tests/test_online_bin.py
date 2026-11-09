@@ -87,7 +87,7 @@ class BillingIdentityTests(unittest.TestCase):
         for offer in ("ROCKETPAY", "ROCKETPAY:pay", RETIRED[1]):
             identity = billing_identity.generate(offer)
             self.assertEqual(identity["billing_country"], "Hong Kong")
-            self.assertEqual(identity["billing_postal"], "000000")
+            self.assertIsNone(identity["billing_postal"])
 
     def test_card_insert_hook_generates_sg_for_new_online(self):
         card = Card(user_id=123, offer_id="RAVANA:RT-prod", balance=Decimal("0"))

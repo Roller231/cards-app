@@ -707,11 +707,6 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
                         onClick={() => handleCopy(row.label, row.value)}
                       >
                         {row.value}
-                        {row.hint && (
-                          <div style={{ marginTop: 6, fontSize: 12, fontWeight: 400, color: '#6B7280', cursor: 'default' }}>
-                            {row.hint}
-                          </div>
-                        )}
                       </div>
                       <img
                         src="/images/Copy.png"
