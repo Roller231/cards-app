@@ -10,26 +10,7 @@ import Portal from '../components/ui/Portal'
 import { cardBackgroundByOffer, McChip, isVisaOffer } from '../utils/cardAssets'
 import { TxIcon } from './HistoryPage'
 import { latestOperations } from '../utils/txList'
-
-// Billing identity shown in the "Данные карты" modal. New cards carry their
-// own (generated on the backend); older cards keep this shared template.
-const CARD_DATA_TEMPLATE = [
-  { label: 'Имя владельца', value: 'Howard Willis' },
-  { label: 'Адрес', value: 'Singapore 160 Lor 1 Toa Payoh #01-1564' },
-  { label: 'Страна', value: 'Singapore' },
-  { label: 'Почтовый адрес', value: '310160' },
-]
-
-function cardDataRows(card) {
-  if (!card?.billing_address) return CARD_DATA_TEMPLATE
-  return [
-    { label: 'Имя владельца', value: card.billing_name },
-    { label: 'Адрес', value: card.billing_address },
-    { label: 'Страна', value: card.billing_country || 'Singapore' },
-    // Hong Kong has no postal codes
-    card.billing_postal && { label: 'Почтовый адрес', value: card.billing_postal },
-  ].filter(Boolean)
-}
+import { cardDataRows } from '../utils/cardBilling'
 
 function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateToHistory, getCommissionForCardType, topUpPreset = null, onTopUpPresetUsed }) {
   const [showCardNumber, setShowCardNumber] = useState(false)
@@ -726,6 +707,11 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
                         onClick={() => handleCopy(row.label, row.value)}
                       >
                         {row.value}
+                        {row.hint && (
+                          <div style={{ marginTop: 6, fontSize: 12, fontWeight: 400, color: '#6B7280', cursor: 'default' }}>
+                            {row.hint}
+                          </div>
+                        )}
                       </div>
                       <img
                         src="/images/Copy.png"

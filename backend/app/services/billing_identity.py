@@ -5,7 +5,8 @@ plus a real address in the card's issuing country.
   block with a matching six-digit postal code), following the 2026-11-02
   replacement type f5d8ea65-6c55-43e6-b7a1-19e103be42ce.
 - Rocketpay "Pay" remains Hong Kong: English given name + Cantonese surname,
-  residential block, no postal code. The retired HK Online type is also
+  residential block, postcode placeholder 000000 for mandatory web forms.
+  Hong Kong does not have official postcodes. The retired HK Online type is also
   recognized when a full offer id is supplied.
 
 Generated once when a card row is created and stored on the card, so it never
@@ -77,6 +78,10 @@ _HK_ADDRESSES = [
 # Issuing country of new O-Plata cards (Rocketpay cards are always HK)
 ISSUING_COUNTRY = "SG"
 
+# Hongkong Post lists this as a commonly used placeholder for mandatory
+# website fields. It is not an official postcode or a bank-issued value.
+HK_POSTAL_PLACEHOLDER = "000000"
+
 
 def _is_hong_kong(offer_id: Optional[str]) -> bool:
     offer = str(offer_id or "")
@@ -95,7 +100,7 @@ def generate(offer_id: Optional[str] = None) -> Dict[str, Optional[str]]:
         return {
             "billing_name": f"{rnd.choice(_FIRST_NAMES)} {rnd.choice(_HK_SURNAMES)}",
             "billing_address": f"{flat}, {building}, {street}, {area}",
-            "billing_postal": None,
+            "billing_postal": HK_POSTAL_PLACEHOLDER,
             "billing_country": "Hong Kong",
         }
     block, street, postal = rnd.choice(_ADDRESSES)
