@@ -538,7 +538,7 @@ async def notify_balance_deposit(user: User, amount_usd: float, amount_rub: floa
 
 
 async def notify_referral_reward(referrer: User, referred: User, bonus_usd: float, balance: float) -> None:
-    """The inviter earned the fixed bonus: both of them now have cards."""
+    """The inviter earned the fixed bonus after the invited user's card issuance."""
     if not referrer.telegram_user_id:
         return
     from datetime import datetime, timezone

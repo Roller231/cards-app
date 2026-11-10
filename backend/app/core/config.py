@@ -59,7 +59,7 @@ class Settings(BaseSettings):
 
     # Referral program: the invited user gets a discount on their FIRST card
     # issuance; the inviter gets a fixed bonus on the internal balance once
-    # BOTH of them have issued a card.
+    # the invited user has issued a card. The inviter needs no card or KYC.
     REFERRAL_INVITEE_DISCOUNT_PERCENT: float = 10.0
     REFERRAL_INVITER_BONUS_USD: float = 3.0
 

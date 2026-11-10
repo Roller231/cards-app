@@ -2403,7 +2403,7 @@ class CardService:
                 await _rp.sync_user_cards(db, user)
             except Exception as exc:
                 logger.warning("Rocketpay sync failed for user_id=%s: %s", user.id, exc)
-            # A fresh card may unlock a referral bonus (both sides need a card)
+            # An invited user's issued card unlocks their inviter's bonus.
             try:
                 from app.services.wallet_service import check_referral_bonuses_for
                 await check_referral_bonuses_for(db, user)

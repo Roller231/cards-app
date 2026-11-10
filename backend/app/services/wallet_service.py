@@ -244,8 +244,8 @@ async def _bonus_awarded(db: AsyncSession, referred_id: int) -> bool:
 
 
 async def try_award_referral_bonus(db: AsyncSession, referred: User) -> Optional[BalanceTransaction]:
-    """Fixed bonus for the inviter once BOTH the inviter and the invited user
-    have a card. One bonus per invited user (idempotent)."""
+    """Fixed bonus once the invited user has a card. The inviter needs no
+    card or KYC. One bonus per invited user (idempotent)."""
     if not referred.referrer_id:
         return None
     bonus = q2(settings.REFERRAL_INVITER_BONUS_USD or 0)
@@ -256,7 +256,7 @@ async def try_award_referral_bonus(db: AsyncSession, referred: User) -> Optional
     referrer = (await db.execute(select(User).where(User.id == referred.referrer_id))).scalar_one_or_none()
     if not referrer or not referrer.is_active:
         return None
-    if not await has_issued_card(db, referred.id) or not await has_issued_card(db, referrer.id):
+    if not await has_issued_card(db, referred.id):
         return None
     row = await credit(
         db, referrer, bonus, "referral",
@@ -273,9 +273,8 @@ async def try_award_referral_bonus(db: AsyncSession, referred: User) -> Optional
 
 
 async def check_referral_bonuses_for(db: AsyncSession, user: User) -> None:
-    """Called after the user's cards are synced: the user may have just got a
-    card, which can unlock a bonus either as the invited one or as the inviter
-    of people who already have cards."""
+    """Check the user's own first-card reward and eligible invited users.
+    The inviter may have no cards; only each invited buyer needs one."""
     if user.referrer_id:
         await try_award_referral_bonus(db, user)
     awarded_ids = select(BalanceTransaction.ref_user_id).where(
@@ -284,9 +283,8 @@ async def check_referral_bonuses_for(db: AsyncSession, user: User) -> None:
     waiting = (await db.execute(
         select(User).where(User.referrer_id == user.id, User.id.not_in(awarded_ids))
     )).scalars().all()
-    if waiting and await has_issued_card(db, user.id):
-        for referred in waiting:
-            await try_award_referral_bonus(db, referred)
+    for referred in waiting:
+        await try_award_referral_bonus(db, referred)
 
 
 async def referral_stats(db: AsyncSession, user_id: int) -> dict:

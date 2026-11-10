@@ -83,7 +83,7 @@ SETTINGS_KEYS: Dict[str, Dict[str, Any]] = {
     "AUTO_RECOVER_ENABLED": {"desc": "Авто-дожим оплаченных инвойсов (повтор выпуска/пополнения при сбоях)", "type": bool},
     "ADMIN_ALERT_CHAT_ID": {"desc": "Telegram chat_id для алертов (несколько — через запятую: 123,456)", "type": str},
     "REFERRAL_INVITEE_DISCOUNT_PERCENT": {"desc": "Скидка приглашённому на выпуск первой карты (%)", "type": float},
-    "REFERRAL_INVITER_BONUS_USD": {"desc": "Бонус пригласившему на внутренний баланс ($), когда карты выпущены у обоих", "type": float},
+    "REFERRAL_INVITER_BONUS_USD": {"desc": "Бонус пригласившему на внутренний баланс ($) после выпуска карты приглашённым. Своя карта не нужна", "type": float},
     "SERVICE_REQUEST_MANAGER_IDS": {"desc": "Telegram ID менеджеров для заявок Alipay / WeChat Pay (через запятую)", "type": str},
     "CHINA_CNY_DIVISOR": {"desc": "Курс юаня = курс Битбанкера / это число (например 6.6)", "type": float},
     "CHINA_MIN_CNY_ALIPAY": {"desc": "Минимальная сумма перевода в Alipay (¥)", "type": float},
