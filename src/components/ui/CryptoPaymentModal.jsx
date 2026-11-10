@@ -119,7 +119,7 @@ export default function CryptoPaymentModal({ isOpen, onClose, purpose, offerId =
             <div style={{ fontSize: 25, fontWeight: 700, marginTop: 4 }}>{display(payment.total_usdt)} USDT</div>
             {purpose === 'card_topup'
               ? <p style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5, margin: '8px 0 0' }}>На карту поступит ${display(payment.amount_usd)}. Комиссия за пополнение {Number(payment.fee_percent)}% включена в сумму. Комиссии СБП нет.</p>
-              : <p style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5, margin: '8px 0 0' }}>{Number(payment.price_rub).toLocaleString('ru-RU')} ₽ ÷ {Number(payment.base_rate).toFixed(4)} ₽/USDT. Курс Bitbanker зафиксирован для этого счёта, без комиссии СБП.{Number(payment.discount_percent) > 0 ? ` Скидка ${Number(payment.discount_percent)}% учтена.` : ''}</p>}
+              : <p style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5, margin: '8px 0 0' }}>{Number(payment.price_rub).toLocaleString('ru-RU')} ₽ ÷ {Number(payment.base_rate).toFixed(4)} ₽/USDT. Курс зафиксирован для этого счёта, без комиссии СБП.{Number(payment.discount_percent) > 0 ? ` Скидка ${Number(payment.discount_percent)}% учтена.` : ''}</p>}
           </div>}
           {error && <div role="alert" style={{ ...panel, background: '#FEF2F2', color: '#B91C1C', fontSize: 13, lineHeight: 1.5 }}>{error}</div>}
           {!payment && (loading ? <p>Подготавливаем оплату…</p> : <Button onClick={() => load()}>Повторить</Button>)}

@@ -11,7 +11,7 @@ import PromoCard, { usePromoCards, PROMO_KEY_BY_TYPE } from '../components/Promo
 
 const PAYMENT_METHODS = [
   { id: 'sbp', label: 'СБП', description: 'Моментальный перевод через Систему Быстрых Платежей', iconSrc: '/images/sbp.png' },
-  { id: 'crypto', label: 'USDT', description: 'Оплата криптовалютой — по курсу Bitbanker, без комиссии СБП', icon: '₮' },
+  { id: 'crypto', label: 'USDT', description: 'Оплата криптовалютой — без комиссии СБП', icon: '₮' },
   { id: 'balance', label: 'Внутренний баланс', description: 'Оплата с баланса ProntoPay — без комиссии СБП', icon: '💼' },
 ]
 
