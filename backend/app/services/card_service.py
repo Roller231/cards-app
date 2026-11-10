@@ -1965,6 +1965,9 @@ class CardService:
         from app.services import rocketpay_service as _rp
         if _rp.is_rocketpay(offer_id):
             return await _rp.issue_card(db, user, sbp_invoice_id=sbp_invoice_id, balance_charge_usd=balance_charge_usd, crypto_payment_id=crypto_payment_id)
+        from app.services.card_kyc import kyc_ready
+        if not kyc_ready(user):
+            raise ValueError("Для выпуска карты Online требуется верификация личности (KYC).")
         if offer_id in OFFER_REPLACEMENTS:
             logger.info("[ISSUE] offer %s retired, issuing on %s", offer_id, OFFER_REPLACEMENTS[offer_id])
             offer_id = OFFER_REPLACEMENTS[offer_id]
@@ -2882,6 +2885,9 @@ class CardService:
         from app.services import rocketpay_service as _rp
         if _rp.is_rocketpay(card.offer_id):
             return await _rp.deposit_card(db, user, card, amount, balance_charge_usd=balance_charge_usd, crypto_payment_id=crypto_payment_id)
+        from app.services.card_kyc import kyc_ready
+        if not kyc_ready(user):
+            raise ValueError("Для пополнения карты Online требуется верификация личности (KYC).")
 
         base_amount = Decimal(str(amount))
         # Markup is per card type: univ providers (RT-8 / Online+Pay) carry a

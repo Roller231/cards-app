@@ -73,7 +73,7 @@ class Settings(BaseSettings):
     CRYPTOWAY_INVOICE_MINUTES: int = 30
     # Online keeps its current identity requirements until O-Plata supplies
     # an officially supported document-free issuance flow.
-    CRYPTOWAY_PAY_WITHOUT_KYC: bool = False
+    CRYPTOWAY_PAY_WITHOUT_KYC: bool = True
 
     # Telegram chat ids of managers who receive Alipay / WeChat Pay requests
     # (comma-separated). Editable in the admin panel.

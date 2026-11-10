@@ -60,7 +60,9 @@ class OnlineOffersTests(unittest.IsolatedAsyncioTestCase):
             pass
 
         service = module.CardService()
-        user = SimpleNamespace(id=123, telegram_user_id="123", client_seq=0, username="test")
+        user = SimpleNamespace(id=123, telegram_user_id="123", client_seq=0, username="test",
+                               kyc_status="success", kyc_first_name="Example", kyc_last_name="User",
+                               kyc_birth_date="01.01.1990", kyc_passport="unit-test-only")
         for offer in (*RETIRED, CURRENT):
             with self.subTest(offer=offer), \
                  patch.object(service, "_ensure_client", AsyncMock(side_effect=StopBeforeKyc)), \

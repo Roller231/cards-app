@@ -123,6 +123,7 @@ export default function CryptoPaymentModal({ isOpen, onClose, purpose, offerId =
           </div>}
           {error && <div role="alert" style={{ ...panel, background: '#FEF2F2', color: '#B91C1C', fontSize: 13, lineHeight: 1.5 }}>{error}</div>}
           {!payment && (loading ? <p>Подготавливаем оплату…</p> : <Button onClick={() => load()}>Повторить</Button>)}
+          {payment && !payment.kyc_required && <div style={{ ...panel, fontSize: 13, lineHeight: 1.5 }}>Карта Pay: выпуск и пополнение за USDT доступны без верификации личности (KYC).</div>}
           {payment?.status === 'quoted' && <>
             <div style={panel}>
               <label htmlFor="crypto-network" style={{ display: 'block', fontWeight: 600, marginBottom: 10 }}>Сеть перевода</label>
@@ -131,7 +132,7 @@ export default function CryptoPaymentModal({ isOpen, onClose, purpose, offerId =
               </select>
               <p style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.5, marginBottom: 0 }}>Комиссия Cryptoway уже учтена — дополнительных сборов с нашей стороны нет. Комиссия вашего кошелька за отправку оплачивается отдельно.</p>
             </div>
-            {needsKyc && <div style={{ ...panel, fontSize: 13, lineHeight: 1.5 }}>Для выпуска и пополнения этой карты пока требуется верификация личности. Оплата криптовалютой сама по себе это требование не отменяет.</div>}
+            {needsKyc && <div style={{ ...panel, fontSize: 13, lineHeight: 1.5 }}>Для выпуска и пополнения этой карты требуется верификация личности (KYC), в том числе при оплате USDT.</div>}
             {needsKyc
               ? <Button onClick={() => setShowKyc(true)}>Пройти верификацию</Button>
               : <Button disabled={loading || !network || seconds <= 0} onClick={create}>{loading ? 'Создаём счёт…' : 'Получить адрес для оплаты'}</Button>}

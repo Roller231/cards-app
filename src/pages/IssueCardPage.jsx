@@ -380,7 +380,9 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
               ? (quote
                   ? `Доступно ${balanceUsd.toFixed(2)} $ · списание ≈ ${Number(quote.price_usd).toFixed(2)} $`
                   : `Доступно ${balanceUsd.toFixed(2)} $ · без комиссии СБП`)
-              : (method.id === 'sbp' && sbpOff ? 'Временно недоступно — технические работы' : method.description)
+              : (method.id === 'sbp' && sbpOff ? 'Временно недоступно — технические работы'
+                : method.id === 'crypto' && String(selectedCardType).startsWith('ROCKETPAY') && appConfig?.crypto_pay_without_kyc
+                  ? 'Выпуск Pay за USDT — без KYC и комиссии СБП' : method.description)
             return (
               <div
                 key={method.id}

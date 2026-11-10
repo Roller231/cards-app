@@ -21,6 +21,7 @@ from app.models.crypto_payment import CryptoPayment
 from app.models.card import Card
 from app.models.order import Order
 from app.models.user import User
+from app.services.card_kyc import kyc_ready
 
 logger = logging.getLogger(__name__)
 CENT = Decimal("0.01")
@@ -50,10 +51,6 @@ def require_enabled():
 def requires_kyc(offer_id):
     from app.services.rocketpay_service import is_rocketpay
     return not (is_rocketpay(offer_id) and settings.CRYPTOWAY_PAY_WITHOUT_KYC)
-
-
-def kyc_ready(user):
-    return bool(user.kyc_status == "success" and user.kyc_first_name and user.kyc_last_name and user.kyc_birth_date and user.kyc_passport)
 
 
 async def networks():

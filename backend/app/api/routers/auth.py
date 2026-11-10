@@ -153,6 +153,7 @@ async def get_config(db: AsyncSession = Depends(get_db)):
         "referral_discount_percent": settings.REFERRAL_INVITEE_DISCOUNT_PERCENT,
         "cryptoway_enabled": bool(settings.CRYPTOWAY_ENABLED and settings.CRYPTOWAY_PROJECT_ID and settings.CRYPTOWAY_SECRET_KEY and settings.CRYPTOWAY_CALLBACK_KEY),
         "crypto_topup_fee_percent": settings.CRYPTOWAY_TOPUP_MARKUP_PERCENT,
+        "crypto_pay_without_kyc": settings.CRYPTOWAY_PAY_WITHOUT_KYC,
         # Промо-плашки на главной — все поля из админки
         "cards_promo": {
             "online": {

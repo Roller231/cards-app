@@ -23,7 +23,7 @@ CRYPTOWAY_CALLBACK_KEY=
 CRYPTOWAY_ENABLED=true
 CRYPTOWAY_TOPUP_MARKUP_PERCENT=3.6
 CRYPTOWAY_INVOICE_MINUTES=30
-CRYPTOWAY_PAY_WITHOUT_KYC=false
+CRYPTOWAY_PAY_WITHOUT_KYC=true
 PUBLIC_BASE_URL=https://prontopay.pro
 ```
 
@@ -68,7 +68,17 @@ Webhook доступен во время техработ.
 
 ## KYC
 
-Обязательное KYC текущих сценариев сохранено. Контрольный клиент
+Pay (Rocketpay): выпуск и пополнение через Cryptoway доступны без KYC
+пользователя при `CRYPTOWAY_PAY_WITHOUT_KYC=true`. Rocketpay использует
+пул собственных проверенных держателей; паспорт пользователя не передаётся.
+Расчёт и счёт возвращают `kyc_required=false`, интерфейс явно сообщает об этом.
+Исключение относится к криптооплате Pay.
+
+Online: выпуск и пополнение требуют успешного KYC с данными паспорта при
+любом способе оплаты — USDT, СБП и внутренний баланс. Проверки выполняются
+до списания/создания счёта, а также в сервисе выполнения операции.
+
+Контрольный клиент
 `pp_crypto_probe_20261110` создан без паспорта: регистрация успешна, но
 проверка выпуска Online вернула `IDENTIFICATION_DOCUMENT_ABSENT`.
 Этот результат не подтверждает поддерживаемый выпуск без паспортных данных.

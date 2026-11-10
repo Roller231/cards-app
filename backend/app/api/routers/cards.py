@@ -18,6 +18,7 @@ from app.schemas.card import (
     IssueCardResponse,
 )
 from app.services.card_service import card_service
+from app.services.card_kyc import kyc_ready
 from app.services.telegram_bot_service import notify_card_issued, notify_topup_result
 
 log = logging.getLogger(__name__)
@@ -92,7 +93,7 @@ async def issue_card(
         )
 
     # Require KYC verification before card issuance
-    if current_user.kyc_status != "success" or not current_user.kyc_first_name or not current_user.kyc_last_name:
+    if not kyc_ready(current_user):
         raise HTTPException(
             status_code=403,
             detail="KYC verification required. Please complete identity verification before issuing a card."
@@ -326,6 +327,8 @@ async def deposit_card(
     # Bitbanker conversion), taken from the internal balance on top of the amount.
     from app.api.routers.sbp import topup_fee_percent
     from app.services.rocketpay_service import is_rocketpay
+    if not is_rocketpay(card.offer_id) and not kyc_ready(current_user):
+        raise HTTPException(status_code=403, detail="Для пополнения карты Online требуется верификация личности (KYC).")
     markup_setting = topup_fee_percent("rocketpay" if is_rocketpay(card.offer_id) else "oplata")
     amount = Decimal(str(body.amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     required = (amount + amount * Decimal(str(markup_setting)) / Decimal("100")).quantize(
