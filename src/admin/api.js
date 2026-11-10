@@ -33,6 +33,7 @@ async function req(method, path, body) {
 }
 
 const adminApi = {
+  cryptoPayments: () => req('GET', '/admin/cryptoway/payments'),
   login: (email, password) => req('POST', '/admin/auth/login', { email, password }),
   dashboard: () => req('GET', '/admin/dashboard'),
   users: {

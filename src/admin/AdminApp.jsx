@@ -311,8 +311,41 @@ function RocketpayPage() {
   )
 }
 
+function CryptoPaymentsPage({ onUserClick }) {
+  const [items, setItems] = useState([])
+  const [error, setError] = useState('')
+  const load = useCallback(async () => {
+    try { const data = await adminApi.cryptoPayments(); setItems(data.items || []); setError('') }
+    catch (e) { setError(e.message) }
+  }, [])
+  useEffect(() => { load(); const timer = setInterval(load, 30000); return () => clearInterval(timer) }, [load])
+  const statuses = { quoted: 'Расчёт', creating: 'Создание счёта', active: 'Ждёт оплаты', paid: 'Оплачен', expired: 'Истёк', cancelled: 'Отменён', error: 'Ошибка', review: 'Нужна проверка' }
+  const fulfillment = { not_started: 'Не начато', processing: 'Обработка', completed: 'Выполнено', failed: 'Не выполнено', review: 'Нужна проверка' }
+  return <div>
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center', marginBottom: 20 }}>
+      <div><h2 style={{ margin: 0 }}>Криптооплаты</h2><p style={{ color: '#6b7280', fontSize: 13 }}>Последние 100 счетов Cryptoway · USDT</p></div>
+      <Btn onClick={load}>Обновить</Btn>
+    </div>
+    {error && <p style={{ color: '#dc2626' }}>{error}</p>}
+    <Table rows={items} columns={[
+      { label: 'Счёт', render: r => `#${r.id}` },
+      { label: 'Пользователь', render: r => <button onClick={() => onUserClick(r.user_id)} style={{ border: 0, background: 'none', color: '#6366f1', cursor: 'pointer' }}>#{r.user_id}</button> },
+      { label: 'Услуга', render: r => r.purpose === 'card_issue' ? 'Выпуск' : 'Пополнение' },
+      { label: 'На карту / выпуск', render: r => `$${Number(r.amount_usd).toFixed(2)}` },
+      { label: 'К оплате USDT', key: 'total_usdt' },
+      { label: 'Получено USDT', key: 'received_usdt' },
+      { label: 'Сеть', render: r => r.symbol_id || '—' },
+      { label: 'Оплата', render: r => statuses[r.status] || r.status },
+      { label: 'Операция', render: r => fulfillment[r.fulfillment_status] || r.fulfillment_status },
+      { label: 'Заказ', render: r => r.order_id ? `#${r.order_id}` : '—' },
+      { label: 'Подробности', render: r => <span title={r.provider_invoice_id || ''} style={{ color: r.last_error ? '#dc2626' : '#6b7280', whiteSpace: 'normal', display: 'block', minWidth: 200 }}>{r.refund_credited ? 'Возврат на внутренний баланс. ' : ''}{r.last_error || '—'}</span> },
+    ]} />
+  </div>
+}
+
 // ─────────── SIDEBAR ───────────
 const NAV = [
+  { id: 'crypto', icon: '₮', label: 'Криптооплаты' },
   { id: 'dashboard', icon: '📊', label: 'Дашборд' },
   { id: 'users', icon: '👥', label: 'Пользователи' },
   { id: 'cards', icon: '💳', label: 'Карты' },
@@ -993,6 +1026,11 @@ const SETTING_GROUPS = [
     keys: ['REFERRAL_INVITEE_DISCOUNT_PERCENT', 'REFERRAL_INVITER_BONUS_USD'],
   },
   {
+    title: '₮ Оплата USDT',
+    desc: 'Выпуск — цена в рублях / исходный курс Bitbanker. Комиссию Cryptoway оплачиваем мы. Секретные ключи хранятся на сервере.',
+    keys: ['CRYPTOWAY_ENABLED', 'CRYPTOWAY_TOPUP_MARKUP_PERCENT'],
+  },
+  {
     title: '🇨🇳 Alipay / WeChat',
     desc: '',
     keys: ['CHINA_CNY_DIVISOR', 'CHINA_MIN_CNY_ALIPAY', 'CHINA_MIN_CNY_WECHAT', 'SERVICE_REQUEST_MANAGER_IDS', 'CHINA_BOT_TOKEN'],
@@ -1024,6 +1062,8 @@ const SETTING_LABELS = {
   MAINTENANCE_MODE: ['Технические работы', 'Приложение закрыто для всех'],
   MAINTENANCE_TEXT: ['Текст о технических работах'],
   SBP_DISABLED: ['Отключить оплату по СБП', 'Новые счета не создаются'],
+  CRYPTOWAY_ENABLED: ['Оплата USDT включена'],
+  CRYPTOWAY_TOPUP_MARKUP_PERCENT: ['Комиссия за пополнение', 'Комиссия Cryptoway покрывается из этой наценки', '%'],
   SBP_DISABLED_TEXT: ['Текст при отключённой оплате'],
 
   CARD_ONLINE_ENABLED: ['Выпуск открыт'],
@@ -2144,6 +2184,7 @@ export default function AdminApp() {
     case 'bot': content = <BotPage />; break
     case 'china': content = <ServiceRequestsPage />; break
     case 'rocketpay': content = <RocketpayPage />; break
+    case 'crypto': content = <CryptoPaymentsPage onUserClick={goToUser} />; break
     case 'promo': content = <PromoPage />; break
     case 'faq': content = <FAQPage />; break
     case 'settings': content = <SettingsPage />; break

@@ -203,6 +203,7 @@ async def issue_card(
     *,
     sbp_invoice_id: Optional[int] = None,
     balance_charge_usd: Optional[Decimal] = None,
+    crypto_payment_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Issue a Rocketpay card for `user`. Creates the order and a local card
     row right away (status processing), then follows the card to `active`
@@ -233,6 +234,10 @@ async def issue_card(
     )
     db.add(order)
     await db.flush()
+
+    await card_service._link_crypto_order(db, order, crypto_payment_id)
+    if crypto_payment_id is not None:
+        await db.commit()
 
     external_id = f"pp-u{user.id}-o{order.id}"
     # empty limit type = issue without limits (the live "Virtual USD" program
@@ -279,7 +284,8 @@ async def issue_card(
     order.partner_order_id = rp.get("id")
     fee_mv = rp.get("fee_movement") or {}
     try:
-        order.fee = Decimal(str(fee_mv.get("fee") or (fee_mv.get("amount") or {}).get("amount") or 0))
+        if crypto_payment_id is None:
+            order.fee = Decimal(str(fee_mv.get("fee") or (fee_mv.get("amount") or {}).get("amount") or 0))
     except Exception:
         pass
     if card.status == "active":
@@ -349,6 +355,7 @@ async def deposit_card(
     amount: float,
     *,
     balance_charge_usd: Optional[Decimal] = None,
+    crypto_payment_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Move `amount` USD from the company pool to the card."""
     from app.services.card_service import card_service
@@ -367,6 +374,10 @@ async def deposit_card(
     )
     db.add(order)
     await db.flush()
+
+    await card_service._link_crypto_order(db, order, crypto_payment_id)
+    if crypto_payment_id is not None:
+        await db.commit()
     external_id = f"pp-topup-o{order.id}"
     try:
         mv = await rocketpay_client.fund_card(
@@ -392,7 +403,8 @@ async def deposit_card(
 
     order.partner_order_id = mv.get("id")
     try:
-        order.fee = Decimal(str(mv.get("fee") or 0))
+        if crypto_payment_id is None:
+            order.fee = Decimal(str(mv.get("fee") or 0))
     except Exception:
         pass
     status = str(mv.get("status") or "").lower()

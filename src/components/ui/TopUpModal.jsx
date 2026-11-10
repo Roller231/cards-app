@@ -5,9 +5,11 @@ import Portal from './Portal'
 import SbpPaymentModal from './SbpPaymentModal'
 import { useAuth } from '../../context/AuthContext'
 import RateBreakdown from './RateBreakdown'
+import CryptoPaymentModal from './CryptoPaymentModal'
 
 const TOPUP_PAYMENT_METHODS = [
   { id: 'sbp', label: 'СБП', description: 'Мгновенное пополнение через Систему Быстрых Платежей', iconSrc: '/images/sbp.png' },
+  { id: 'crypto', label: 'USDT', description: 'Оплата криптовалютой — без комиссии СБП', icon: '₮' },
   { id: 'balance', label: 'Внутренний баланс', description: 'Списание с баланса ProntoPay — без комиссии СБП', icon: '💼' },
 ]
 
@@ -20,6 +22,7 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, initialMethod = 'sbp' }) {
   const [amountInput, setAmountInput] = useState('')
   const [screen, setScreen] = useState('form') // 'form' | 'confirmation' | 'loading' | 'success' | 'failure'
   const [showSbpModal, setShowSbpModal] = useState(false)
+  const [showCryptoModal, setShowCryptoModal] = useState(false)
   // App rate = [BB index] × bitbFee × myFee × clarusFee (computed on backend,
   // multipliers configured in the admin panel). Plus a fixed fee for small payments.
   const [rateInfo, setRateInfo] = useState(null)  // { index, rate, small_payment_fee_rub, small_payment_threshold_rub }
@@ -33,13 +36,13 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, initialMethod = 'sbp' }) {
 
   // Load the app exchange rate once on open
   useEffect(() => {
-    if (!isOpen || rateInfo !== null) return
+    if (!isOpen || method !== 'sbp' || rateInfo !== null) return
     setRateError(false)
     // Rocketpay ("Pay") cards have their own route and rate
     api.sbp.rate(String(card?.offer_id || '').startsWith('ROCKETPAY') ? 'rocketpay' : undefined)
       .then(setRateInfo)
       .catch(() => setRateError(true))
-  }, [isOpen])
+  }, [isOpen, method])
 
   // Auto-focus amount input when modal opens
   useEffect(() => {
@@ -319,7 +322,7 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, initialMethod = 'sbp' }) {
                 <label style={{ fontSize: 17, fontWeight: 700, color: '#111827', fontFamily: font, display: 'block', marginBottom: 12 }}>
                   Способ оплаты
                 </label>
-                {TOPUP_PAYMENT_METHODS.map((m) => {
+                {TOPUP_PAYMENT_METHODS.filter(m => m.id !== 'crypto' || appConfig?.cryptoway_enabled).map((m) => {
                   const selected = method === m.id
                   return (
                     <div
@@ -349,7 +352,7 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, initialMethod = 'sbp' }) {
                         <div style={{ fontSize: 13, color: '#6B7280', marginTop: 4, fontFamily: font }}>
                           {m.id === 'balance'
                             ? `Доступно ${balanceUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $ · без комиссии СБП`
-                            : (sbpOff ? 'Временно недоступно — технические работы' : m.description)}
+                            : (m.id === 'sbp' && sbpOff ? 'Временно недоступно — технические работы' : m.description)}
                         </div>
                       </div>
                       <div style={{
@@ -524,10 +527,10 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, initialMethod = 'sbp' }) {
           <div style={{ padding: '12px 16px 24px 16px' }}>
             {screen === 'form' && (
               <Button
-                disabled={method === 'balance'
+                disabled={method === 'crypto' ? (!hasAmount || amount < 1 || amount > 10000) : method === 'balance'
                   ? (!hasAmount || !balanceEnough)
                   : (!hasAmount || !payRub || rubTooSmall || rubTooBig)}
-                onClick={() => (method === 'balance' ? setScreen('confirmation') : setShowSbpModal(true))}
+                onClick={() => (method === 'crypto' ? setShowCryptoModal(true) : method === 'balance' ? setScreen('confirmation') : setShowSbpModal(true))}
                 fullWidth
               >
                 Продолжить
@@ -570,6 +573,14 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, initialMethod = 'sbp' }) {
           setScreen('success')
           if (typeof onTopUp === 'function') onTopUp()
         }}
+      />
+      <CryptoPaymentModal
+        isOpen={showCryptoModal}
+        onClose={() => setShowCryptoModal(false)}
+        purpose="card_topup"
+        cardId={Number(card?.id)}
+        amountUsd={amount}
+        onPaid={() => { setShowCryptoModal(false); setScreen('success'); fetchMe(); onTopUp?.() }}
       />
     </Portal>
   )

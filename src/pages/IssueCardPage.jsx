@@ -5,11 +5,13 @@ import Button from '../components/ui/Button'
 import PageHeader from '../components/ui/PageHeader'
 import SbpPaymentModal from '../components/ui/SbpPaymentModal'
 import KycModal from '../components/ui/KycModal'
+import CryptoPaymentModal from '../components/ui/CryptoPaymentModal'
 import { cardBackgroundByTypeName, McChip } from '../utils/cardAssets'
 import PromoCard, { usePromoCards, PROMO_KEY_BY_TYPE } from '../components/PromoCard'
 
 const PAYMENT_METHODS = [
   { id: 'sbp', label: 'СБП', description: 'Моментальный перевод через Систему Быстрых Платежей', iconSrc: '/images/sbp.png' },
+  { id: 'crypto', label: 'USDT', description: 'Оплата криптовалютой — по курсу Bitbanker, без комиссии СБП', icon: '₮' },
   { id: 'balance', label: 'Внутренний баланс', description: 'Оплата с баланса ProntoPay — без комиссии СБП', icon: '💼' },
 ]
 
@@ -26,6 +28,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
   const [errorMsg, setErrorMsg] = useState('')
   const [issuancePrice, setIssuancePrice] = useState(null)
   const [showSbpModal, setShowSbpModal] = useState(false)
+  const [showCryptoModal, setShowCryptoModal] = useState(false)
   const [showKycModal, setShowKycModal] = useState(false)
   const [kycStatus, setKycStatus] = useState(null)
   const [paymentMethod, setPaymentMethod] = useState(() => (appConfig?.sbp_disabled ? 'balance' : 'sbp')) // 'sbp' | 'balance'
@@ -368,7 +371,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
           >
             Способ оплаты
           </label>
-          {PAYMENT_METHODS.map((method) => {
+          {PAYMENT_METHODS.filter(method => method.id !== 'crypto' || appConfig?.cryptoway_enabled).map((method) => {
             const selected = paymentMethod === method.id
             const isBalance = method.id === 'balance'
             const balanceUsd = Number(quote?.balance_usd ?? user?.balance ?? 0)
@@ -377,7 +380,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
               ? (quote
                   ? `Доступно ${balanceUsd.toFixed(2)} $ · списание ≈ ${Number(quote.price_usd).toFixed(2)} $`
                   : `Доступно ${balanceUsd.toFixed(2)} $ · без комиссии СБП`)
-              : (sbpOff ? 'Временно недоступно — технические работы' : method.description)
+              : (method.id === 'sbp' && sbpOff ? 'Временно недоступно — технические работы' : method.description)
             return (
               <div
                 key={method.id}
@@ -600,7 +603,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
                       fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
                     }}
                   >
-                    {paymentMethod === 'balance' ? 'Внутренний баланс' : 'СБП'}
+                    {paymentMethod === 'balance' ? 'Внутренний баланс' : paymentMethod === 'crypto' ? 'USDT' : 'СБП'}
                   </div>
                 </div>
               </div>
@@ -610,6 +613,10 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
               <Button
                 onClick={async () => {
                   setShowConfirmation(false)
+                  if (paymentMethod === 'crypto') {
+                    setShowCryptoModal(true)
+                    return
+                  }
                   // KYC is required for both payment methods (the provider
                   // needs a verified identity to issue the card)
                   try {
@@ -861,6 +868,13 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
           setPaymentMethod('sbp')
           setResultScreen('success')
         }}
+      />
+      <CryptoPaymentModal
+        isOpen={showCryptoModal}
+        onClose={() => setShowCryptoModal(false)}
+        purpose="card_issue"
+        offerId={String(selectedCardType)}
+        onPaid={() => { setShowCryptoModal(false); setResultScreen('success') }}
       />
     </div>
   )

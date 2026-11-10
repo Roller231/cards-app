@@ -63,6 +63,18 @@ class Settings(BaseSettings):
     REFERRAL_INVITEE_DISCOUNT_PERCENT: float = 10.0
     REFERRAL_INVITER_BONUS_USD: float = 3.0
 
+    # Cryptoway credentials are read only from the server environment.
+    CRYPTOWAY_API_URL: str = "https://api.cryptoway.com"
+    CRYPTOWAY_PROJECT_ID: str = ""
+    CRYPTOWAY_SECRET_KEY: str = ""
+    CRYPTOWAY_CALLBACK_KEY: str = ""
+    CRYPTOWAY_ENABLED: bool = False
+    CRYPTOWAY_TOPUP_MARKUP_PERCENT: float = 3.6
+    CRYPTOWAY_INVOICE_MINUTES: int = 30
+    # Online keeps its current identity requirements until O-Plata supplies
+    # an officially supported document-free issuance flow.
+    CRYPTOWAY_PAY_WITHOUT_KYC: bool = False
+
     # Telegram chat ids of managers who receive Alipay / WeChat Pay requests
     # (comma-separated). Editable in the admin panel.
     SERVICE_REQUEST_MANAGER_IDS: str = ""

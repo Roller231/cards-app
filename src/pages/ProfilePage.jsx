@@ -37,6 +37,7 @@ const LEDGER_META = {
   card_issue: { label: 'Выпуск карты', icon: '/images/HistoryIcons/shop.png' },
   card_topup: { label: 'Пополнение карты', icon: '/images/HistoryIcons/arrow-circle-up.png' },
   refund: { label: 'Возврат', icon: '/images/HistoryIcons/arrow-down.png' },
+  crypto_refund: { label: 'Возврат криптооплаты', icon: '/images/HistoryIcons/arrow-down.png' },
   referral: { label: 'Реферальное начисление', icon: '/images/HistoryIcons/arrow-down.png' },
   admin_adjust: { label: 'Корректировка', icon: '/images/HistoryIcons/arrow-circle-up.png' },
 }

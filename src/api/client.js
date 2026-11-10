@@ -133,6 +133,13 @@ export const api = {
     get: () => req('GET', '/profile'),
     balanceHistory: (limit = 50, offset = 0) => req('GET', `/profile/balance/history?limit=${limit}&offset=${offset}`),
   },
+  crypto: {
+    networks: () => req('GET', '/crypto/networks'),
+    quote: (body) => req('POST', '/crypto/quotes', body),
+    createInvoice: (quoteId, symbolId) => req('POST', '/crypto/invoices', { quote_id: quoteId, symbol_id: symbolId }),
+    payment: (id) => req('GET', `/crypto/payments/${id}`),
+    cancel: (id) => req('POST', `/crypto/payments/${id}/cancel`),
+  },
   sbp: {
     getUsdToRubRate: () => req('GET', '/sbp/usd-to-rub-rate'),
     rate: (provider) => req('GET', provider ? `/sbp/rate?provider=${encodeURIComponent(provider)}` : '/sbp/rate'),

@@ -1883,6 +1883,21 @@ class CardService:
     # ------------------------------------------------------------------
 
     @staticmethod
+    async def _link_crypto_order(db, order, crypto_payment_id):
+        if crypto_payment_id is None:
+            return
+        from app.models.crypto_payment import CryptoPayment
+        payment = await db.get(CryptoPayment, crypto_payment_id)
+        if not payment or payment.user_id != order.user_id or payment.status != "paid":
+            raise ValueError("Invalid paid crypto invoice")
+        if payment.order_id and payment.order_id != order.id:
+            raise ValueError("Crypto invoice already has a fulfillment order")
+        payment.order_id = order.id
+        order.description += f" crypto_payment:{payment.id}"
+        order.fee = payment.charge_usdt - (payment.amount_usd if payment.purpose == "card_topup" else Decimal("0"))
+        await db.flush()
+
+    @staticmethod
     def _balance_charge_tag(charge: Optional[Decimal]) -> str:
         """Order description suffix marking an operation paid from the internal
         balance; parsed back by _refund_balance_charge on failure."""
@@ -1939,6 +1954,7 @@ class CardService:
         defer_follow_up: bool = False,
         sbp_invoice_id: Optional[int] = None,
         balance_charge_usd: Optional[Decimal] = None,
+        crypto_payment_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Issue a virtual card for the given user (O-Plata; Rocketpay "Pay"
         cards are dispatched to rocketpay_service).
@@ -1948,7 +1964,7 @@ class CardService:
         failed issuance refunds it, and the referral reward is booked on it."""
         from app.services import rocketpay_service as _rp
         if _rp.is_rocketpay(offer_id):
-            return await _rp.issue_card(db, user, sbp_invoice_id=sbp_invoice_id, balance_charge_usd=balance_charge_usd)
+            return await _rp.issue_card(db, user, sbp_invoice_id=sbp_invoice_id, balance_charge_usd=balance_charge_usd, crypto_payment_id=crypto_payment_id)
         if offer_id in OFFER_REPLACEMENTS:
             logger.info("[ISSUE] offer %s retired, issuing on %s", offer_id, OFFER_REPLACEMENTS[offer_id])
             offer_id = OFFER_REPLACEMENTS[offer_id]
@@ -2084,6 +2100,12 @@ class CardService:
         result = await db.execute(_select(AdminSetting).where(AdminSetting.key == "CARD_ISSUANCE_PRICE_USD"))
         price_setting = result.scalar_one_or_none()
         user_payment = Decimal(str(price_setting.value if price_setting else "10.0"))
+        if crypto_payment_id is not None:
+            from app.models.crypto_payment import CryptoPayment
+            crypto_payment = await db.get(CryptoPayment, crypto_payment_id)
+            if not crypto_payment or crypto_payment.user_id != user.id or crypto_payment.status != "paid" or crypto_payment.purpose != "card_issue":
+                raise ValueError("Invalid paid crypto invoice")
+            user_payment = crypto_payment.charge_usdt
 
         # Card will be issued with zero balance (no initial funding)
         card_amount = Decimal("0")
@@ -2182,6 +2204,7 @@ class CardService:
         db.add(order)
         await db.flush()
         order.status = "processing"
+        await self._link_crypto_order(db, order, crypto_payment_id)
         if eager_placeholder_commit or defer_follow_up:
             await db.commit()
             logger.info(
@@ -2842,6 +2865,7 @@ class CardService:
         amount: float,
         skip_balance_check: bool = False,
         balance_charge_usd: Optional[Decimal] = None,
+        crypto_payment_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Top up a specific card balance (O-Plata; Rocketpay cards are
         dispatched to rocketpay_service).
@@ -2857,7 +2881,7 @@ class CardService:
 
         from app.services import rocketpay_service as _rp
         if _rp.is_rocketpay(card.offer_id):
-            return await _rp.deposit_card(db, user, card, amount, balance_charge_usd=balance_charge_usd)
+            return await _rp.deposit_card(db, user, card, amount, balance_charge_usd=balance_charge_usd, crypto_payment_id=crypto_payment_id)
 
         base_amount = Decimal(str(amount))
         # Markup is per card type: univ providers (RT-8 / Online+Pay) carry a
@@ -2869,6 +2893,12 @@ class CardService:
             else settings.ONLINE_TOPUP_MARKUP_PERCENT
         )
         markup_percent = Decimal(str(_markup_setting))
+        if crypto_payment_id is not None:
+            from app.models.crypto_payment import CryptoPayment
+            crypto_payment = await db.get(CryptoPayment, crypto_payment_id)
+            if not crypto_payment or crypto_payment.user_id != user.id or crypto_payment.status != "paid" or crypto_payment.purpose != "card_topup":
+                raise ValueError("Invalid paid crypto invoice")
+            markup_percent = crypto_payment.fee_percent
         our_profit = base_amount * markup_percent / Decimal("100")
         user_total = base_amount + our_profit
 
@@ -2984,6 +3014,9 @@ class CardService:
         )
         db.add(order)
         await db.flush()
+        await self._link_crypto_order(db, order, crypto_payment_id)
+        if crypto_payment_id is not None:
+            await db.commit()
 
         topup_payment = await self._follow_payment(client_id, payment_uuid, "topup")
         topup_payment_state = str(topup_payment.get("state") or "").upper() if topup_payment else ""

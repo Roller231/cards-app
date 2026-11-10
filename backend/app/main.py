@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routers import auth, admin, cards, faq, orders, balance, sbp, kyc, profile, services, rocketpay_webhook
+from app.api.routers import auth, admin, cards, faq, orders, balance, sbp, kyc, profile, services, rocketpay_webhook, crypto_payments
 from app.core.config import settings
 from app.core.database import engine
 from app.models import Base
@@ -63,6 +63,7 @@ app.include_router(kyc.router)
 app.include_router(profile.router)
 app.include_router(services.router)
 app.include_router(rocketpay_webhook.router)
+app.include_router(crypto_payments.router)
 
 
 # Static uploads (bot welcome image, broadcast images)
@@ -447,6 +448,8 @@ async def startup_db_client():
     asyncio.create_task(_scheduled_broadcast_loop())
     asyncio.create_task(_auto_recover_loop())
     asyncio.create_task(_transaction_watch_loop())
+    from app.services.crypto_payment_service import poll_payments
+    asyncio.create_task(poll_payments())
     logger.info("Database tables created (if not existed) and schema updated")
 
 
