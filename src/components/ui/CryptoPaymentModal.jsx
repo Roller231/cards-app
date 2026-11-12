@@ -9,7 +9,7 @@ const font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif'
 const display = (value) => Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 8 })
 const panel = { background: '#fff', borderRadius: 14, padding: 16 }
 
-export default function CryptoPaymentModal({ isOpen, onClose, purpose, offerId = null, cardId = null, amountUsd = null, onPaid }) {
+export default function CryptoPaymentModal({ isOpen, onClose, purpose, offerId = null, cardId = null, amountUsd = null, serviceRequestId = null, onPaid }) {
   const [payment, setPayment] = useState(null)
   const [networks, setNetworks] = useState([])
   const [network, setNetwork] = useState('')
@@ -17,6 +17,8 @@ export default function CryptoPaymentModal({ isOpen, onClose, purpose, offerId =
   const [error, setError] = useState('')
   const [qr, setQr] = useState('')
   const [showKyc, setShowKyc] = useState(false)
+  const [contactEmail, setContactEmail] = useState('')
+  const [contactPhone, setContactPhone] = useState('')
   const [now, setNow] = useState(Date.now())
   const requestId = useRef('')
   const generation = useRef(0)
@@ -30,6 +32,7 @@ export default function CryptoPaymentModal({ isOpen, onClose, purpose, offerId =
       const [available, quote] = await Promise.all([
         api.crypto.networks(),
         api.crypto.quote({ request_id: requestId.current, purpose, offer_id: offerId, card_id: cardId,
+          service_request_id: serviceRequestId,
           amount_usd: purpose === 'card_topup' ? String(amountUsd) : null }),
       ])
       if (generation.current !== run) return
@@ -39,7 +42,7 @@ export default function CryptoPaymentModal({ isOpen, onClose, purpose, offerId =
     } catch (e) {
       if (generation.current === run) setError(e.message || 'Не удалось подготовить оплату.')
     } finally { if (generation.current === run) setLoading(false) }
-  }, [purpose, offerId, cardId, amountUsd])
+  }, [purpose, offerId, cardId, amountUsd, serviceRequestId])
 
   useEffect(() => {
     if (!isOpen) return
@@ -74,6 +77,18 @@ export default function CryptoPaymentModal({ isOpen, onClose, purpose, offerId =
     return () => { cancelled = true }
   }, [payment?.address])
 
+  useEffect(() => {
+    setContactEmail(payment?.contact_email || '')
+    setContactPhone(payment?.contact_phone || '')
+  }, [payment?.id, payment?.contact_email, payment?.contact_phone])
+
+  async function saveContact() {
+    setLoading(true); setError('')
+    try { await api.crypto.saveContact(contactEmail, contactPhone); await refresh() }
+    catch (e) { setError(e.message) }
+    finally { setLoading(false) }
+  }
+
   async function create() {
     if (!payment?.id || !network || loading) return
     setLoading(true); setError('')
@@ -97,6 +112,8 @@ export default function CryptoPaymentModal({ isOpen, onClose, purpose, offerId =
 
   if (!isOpen) return null
   const needsKyc = payment?.kyc_required && !payment?.kyc_verified
+  const needsContact = payment?.contact_required && (!payment.contact_ready || contactEmail !== (payment.contact_email || '') || contactPhone !== (payment.contact_phone || ''))
+  const isChina = purpose === 'china_payment'
   const completed = payment?.fulfillment_status === 'completed'
   const review = payment?.status === 'review' || payment?.fulfillment_status === 'review'
   const paid = payment?.status === 'paid'
@@ -115,16 +132,23 @@ export default function CryptoPaymentModal({ isOpen, onClose, purpose, offerId =
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {payment && <div style={panel}>
-            <div style={{ fontSize: 13, color: '#6B7280' }}>{purpose === 'card_issue' ? 'Выпуск карты' : 'На карту'}</div>
+            <div style={{ fontSize: 13, color: '#6B7280' }}>{isChina ? 'Alipay / WeChat Pay' : purpose === 'card_issue' ? 'Выпуск карты' : 'На карту'}</div>
             <div style={{ fontSize: 25, fontWeight: 700, marginTop: 4 }}>{display(payment.total_usdt)} USDT</div>
-            {purpose === 'card_topup'
+            {isChina
+              ? <p style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5, margin: '8px 0 0' }}>{Number(payment.amount_cny).toLocaleString('ru-RU')} ¥ ÷ {Number(payment.cny_per_usdt).toLocaleString('ru-RU')} CNY/USDT. Курс зафиксирован для этой заявки. Без комиссии СБП.</p>
+              : purpose === 'card_topup'
               ? <p style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5, margin: '8px 0 0' }}>На карту поступит ${display(payment.amount_usd)}. Комиссия за пополнение {Number(payment.fee_percent)}% включена в сумму. Комиссии СБП нет.</p>
               : <p style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5, margin: '8px 0 0' }}>{Number(payment.price_rub).toLocaleString('ru-RU')} ₽ ÷ {Number(payment.base_rate).toFixed(4)} ₽/USDT. Курс зафиксирован для этого счёта, без комиссии СБП.{Number(payment.discount_percent) > 0 ? ` Скидка ${Number(payment.discount_percent)}% учтена.` : ''}</p>}
           </div>}
           {error && <div role="alert" style={{ ...panel, background: '#FEF2F2', color: '#B91C1C', fontSize: 13, lineHeight: 1.5 }}>{error}</div>}
           {!payment && (loading ? <p>Подготавливаем оплату…</p> : <Button onClick={() => load()}>Повторить</Button>)}
-          {payment && !payment.kyc_required && <div style={{ ...panel, fontSize: 13, lineHeight: 1.5 }}>Карта Pay: выпуск и пополнение за USDT доступны без верификации личности (KYC).</div>}
+          {payment && !isChina && !payment.kyc_required && <div style={{ ...panel, fontSize: 13, lineHeight: 1.5 }}>Карта Pay: выпуск и пополнение за USDT доступны без верификации личности (KYC).</div>}
           {payment?.status === 'quoted' && <>
+            {payment.contact_required && <div style={panel}>
+              <div style={{ fontWeight: 600, marginBottom: 10 }}>Контакты для карты Online</div>
+              <label style={{ display: 'block', fontSize: 13 }}>Email<input type="email" autoComplete="email" value={contactEmail} readOnly={loading} onChange={e => setContactEmail(e.target.value)} placeholder="Ваш действующий email" style={{ width: '100%', boxSizing: 'border-box', padding: 12, margin: '5px 0 12px', borderRadius: 10, border: '1px solid #D1D5DB' }} /></label>
+              <label style={{ display: 'block', fontSize: 13 }}>Телефон<input type="tel" autoComplete="tel" value={contactPhone} readOnly={loading} onChange={e => setContactPhone(e.target.value)} placeholder="+7 999 123-45-67" style={{ width: '100%', boxSizing: 'border-box', padding: 12, marginTop: 5, borderRadius: 10, border: '1px solid #D1D5DB' }} /></label>
+            </div>}
             <div style={panel}>
               <label htmlFor="crypto-network" style={{ display: 'block', fontWeight: 600, marginBottom: 10 }}>Сеть перевода</label>
               <select id="crypto-network" value={network} onChange={e => setNetwork(e.target.value)} style={{ width: '100%', padding: 12, borderRadius: 10, border: '1px solid #D1D5DB', background: '#fff', color: '#111827', fontSize: 15 }}>
@@ -133,7 +157,9 @@ export default function CryptoPaymentModal({ isOpen, onClose, purpose, offerId =
               <p style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.5, marginBottom: 0 }}>Комиссия Cryptoway уже учтена — дополнительных сборов с нашей стороны нет. Комиссия вашего кошелька за отправку оплачивается отдельно.</p>
             </div>
             {needsKyc && <div style={{ ...panel, fontSize: 13, lineHeight: 1.5 }}>Для выпуска и пополнения этой карты требуется верификация личности (KYC), в том числе при оплате USDT.</div>}
-            {needsKyc
+            {needsContact
+              ? <Button disabled={loading || !contactEmail.trim() || !contactPhone.trim()} onClick={saveContact}>{loading ? 'Сохраняем…' : 'Сохранить контакты'}</Button>
+              : needsKyc
               ? <Button onClick={() => setShowKyc(true)}>Пройти верификацию</Button>
               : <Button disabled={loading || !network || seconds <= 0} onClick={create}>{loading ? 'Создаём счёт…' : 'Получить адрес для оплаты'}</Button>}
             {seconds <= 0 && <Button variant="secondary" onClick={() => load(true)}>Обновить расчёт</Button>}
@@ -156,9 +182,9 @@ export default function CryptoPaymentModal({ isOpen, onClose, purpose, offerId =
             <Button disabled={loading} onClick={refresh}>Проверить оплату</Button>
             {Number(payment.received_usdt) === 0 && <Button variant="secondary" disabled={loading} onClick={cancel}>Отменить счёт</Button>}
           </>}
-          {paid && !completed && !failed && !review && <div style={{ ...panel, lineHeight: 1.6 }}><b>Оплата получена</b><br />{purpose === 'card_issue' ? 'Выпускаем карту.' : 'Пополняем карту.'} Обработка может занять до 5 минут. Можно закрыть это окно.</div>}
+          {paid && !completed && !failed && !review && <div style={{ ...panel, lineHeight: 1.6 }}><b>Оплата получена</b><br />{isChina ? 'Передаём заявку менеджеру для перевода юаней.' : purpose === 'card_issue' ? 'Выпускаем карту.' : 'Пополняем карту.'} Можно закрыть это окно.</div>}
           {paid && Number(payment.overpaid_usdt) > 0 && <div style={{ ...panel, lineHeight: 1.5 }}>Переплата: {display(payment.overpaid_usdt)} USDT. <a href="https://t.me/exprontopay1" style={{ color: '#DC4D35' }}>Напишите в поддержку для возврата разницы.</a></div>}
-          {completed && <><div style={panel}>{purpose === 'card_issue' ? 'Карта выпущена.' : 'Карта пополнена.'}</div><Button onClick={() => { onPaid?.(); onClose() }}>Готово</Button></>}
+          {completed && <><div style={panel}>{isChina ? 'Заявка оплачена. Менеджер выполнит перевод юаней получателю.' : purpose === 'card_issue' ? 'Карта выпущена.' : 'Карта пополнена.'}</div><Button onClick={() => { onPaid?.(); onClose() }}>Готово</Button></>}
           {(review || failed) && <div style={{ ...panel, lineHeight: 1.6 }}>
             {payment.last_error || 'Платёж требует проверки поддержки.'}
             {payment.refund_credited && <p>Возврат: {display(payment.total_usdt)} $ на внутренний баланс.</p>}

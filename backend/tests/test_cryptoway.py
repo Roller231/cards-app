@@ -29,6 +29,7 @@ def payment(**changes):
     values = dict(id=1, user_id=11, request_id='request-0123456789', external_id='pp-cw-unit-test',
         provider_invoice_id='11111111-1111-4111-8111-111111111111', purpose='card_topup',
         offer_id='ROCKETPAY', card_id=22, amount_usd=Decimal('100.00'), fee_percent=Decimal('3.6'),
+        service_request_id=None, amount_cny=None, cny_per_usdt=None,
         charge_usdt=Decimal('103.60'), status='active', fulfillment_status='not_started', order_id=None,
         symbol_id='USDTBEP20', wallet_address='test-wallet', network_name='Binance', pay_url=None,
         expires_at=datetime.utcnow()+timedelta(minutes=30), created_at=datetime.utcnow(), updated_at=datetime.utcnow(),

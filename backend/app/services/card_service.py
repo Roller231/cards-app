@@ -1968,6 +1968,9 @@ class CardService:
         from app.services.card_kyc import kyc_ready
         if not kyc_ready(user):
             raise ValueError("Для выпуска карты Online требуется верификация личности (KYC).")
+        from app.services.card_kyc import contacts_ready
+        if crypto_payment_id is not None and not contacts_ready(user):
+            raise ValueError("Для выпуска Online за USDT укажите действующие телефон и email.")
         if offer_id in OFFER_REPLACEMENTS:
             logger.info("[ISSUE] offer %s retired, issuing on %s", offer_id, OFFER_REPLACEMENTS[offer_id])
             offer_id = OFFER_REPLACEMENTS[offer_id]
@@ -2888,6 +2891,9 @@ class CardService:
         from app.services.card_kyc import kyc_ready
         if not kyc_ready(user):
             raise ValueError("Для пополнения карты Online требуется верификация личности (KYC).")
+        from app.services.card_kyc import contacts_ready
+        if crypto_payment_id is not None and not contacts_ready(user):
+            raise ValueError("Для пополнения Online за USDT укажите действующие телефон и email.")
 
         base_amount = Decimal(str(amount))
         # Markup is per card type: univ providers (RT-8 / Online+Pay) carry a

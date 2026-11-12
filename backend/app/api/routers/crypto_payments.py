@@ -19,7 +19,8 @@ router = APIRouter(tags=["crypto"])
 
 class QuoteRequest(BaseModel):
     request_id: str = Field(min_length=16, max_length=80, pattern=r"^[a-zA-Z0-9_-]+$")
-    purpose: Literal["card_issue", "card_topup"]
+    purpose: Literal["card_issue", "card_topup", "china_payment"]
+    service_request_id: Optional[int] = Field(default=None, gt=0)
     offer_id: Optional[str] = Field(default=None, max_length=255)
     card_id: Optional[int] = Field(default=None, gt=0)
     amount_usd: Optional[Decimal] = Field(default=None, gt=0, le=10000, max_digits=7, decimal_places=2, allow_inf_nan=False)
@@ -28,6 +29,23 @@ class QuoteRequest(BaseModel):
 class InvoiceRequest(BaseModel):
     quote_id: int = Field(gt=0)
     symbol_id: str = Field(min_length=4, max_length=32, pattern=r"^USDT[A-Z0-9]+$")
+
+
+class ContactRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    phone: str = Field(min_length=7, max_length=32)
+
+
+@router.put("/crypto/contact")
+async def save_contact(body: ContactRequest, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    from app.services.card_kyc import normalize_contacts
+    service.require_enabled()
+    try:
+        user.email, user.phone = normalize_contacts(body.email, body.phone)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    await db.commit()
+    return {"ok": True, "email": user.email, "phone": user.phone}
 
 
 @router.get("/crypto/networks")
@@ -123,6 +141,7 @@ async def admin_payments(status: str = "", limit: int = Query(100, ge=1, le=200)
     rows = (await db.execute(query)).scalars().all()
     return {"items": [{
         "id": r.id, "user_id": r.user_id, "purpose": r.purpose, "amount_usd": str(r.amount_usd),
+        "service_request_id": r.service_request_id, "amount_cny": str(r.amount_cny) if r.amount_cny is not None else None,
         "total_usdt": str(r.charge_usdt), "received_usdt": str(r.received_usdt), "symbol_id": r.symbol_id,
         "status": r.status, "fulfillment_status": r.fulfillment_status, "order_id": r.order_id,
         "refund_credited": r.refund_credited, "last_error": r.last_error,

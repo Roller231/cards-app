@@ -100,12 +100,13 @@ export const api = {
     issueQuote: (offerId) => req('GET', `/cards/issue-quote?offer_id=${encodeURIComponent(offerId)}`),
   },
   services: {
-    rate: () => req('GET', '/services/rate'),
+    rate: (method = 'sbp') => req('GET', `/services/rate?payment_method=${encodeURIComponent(method)}`),
     // multipart: the recipient QR image travels as a file
-    createRequest: async ({ service, amount, recipientType, phone, name, note, qrFile }) => {
+    createRequest: async ({ service, amount, recipientType, phone, name, note, qrFile, paymentMethod = 'sbp' }) => {
       const fd = new FormData()
       fd.append('service', service)
       fd.append('amount', String(amount))
+      fd.append('payment_method', paymentMethod)
       fd.append('recipient_type', recipientType)
       if (phone) fd.append('recipient_phone', phone)
       if (name) fd.append('recipient_name', name)
@@ -134,6 +135,7 @@ export const api = {
     balanceHistory: (limit = 50, offset = 0) => req('GET', `/profile/balance/history?limit=${limit}&offset=${offset}`),
   },
   crypto: {
+    saveContact: (email, phone) => req('PUT', '/crypto/contact', { email, phone }),
     networks: () => req('GET', '/crypto/networks'),
     quote: (body) => req('POST', '/crypto/quotes', body),
     createInvoice: (quoteId, symbolId) => req('POST', '/crypto/invoices', { quote_id: quoteId, symbol_id: symbolId }),

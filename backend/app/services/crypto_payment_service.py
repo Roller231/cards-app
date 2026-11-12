@@ -21,7 +21,8 @@ from app.models.crypto_payment import CryptoPayment
 from app.models.card import Card
 from app.models.order import Order
 from app.models.user import User
-from app.services.card_kyc import kyc_ready
+from app.models.service_request import ServiceRequest
+from app.services.card_kyc import kyc_ready, contacts_ready
 
 logger = logging.getLogger(__name__)
 CENT = Decimal("0.01")
@@ -77,8 +78,13 @@ async def networks():
 
 
 def payment_view(row, user):
+    from app.services.rocketpay_service import is_rocketpay
+    contact_required = row.purpose in ("card_issue", "card_topup") and not is_rocketpay(row.offer_id)
     return {
         "id": row.id, "purpose": row.purpose, "status": row.status,
+        "service_request_id": row.service_request_id,
+        "amount_cny": str(row.amount_cny) if row.amount_cny is not None else None,
+        "cny_per_usdt": str(row.cny_per_usdt) if row.cny_per_usdt is not None else None,
         "fulfillment_status": row.fulfillment_status, "order_id": row.order_id,
         "amount_usd": str(row.amount_usd), "fee_percent": str(row.fee_percent),
         "total_usdt": str(row.charge_usdt), "price_rub": str(row.price_rub) if row.price_rub is not None else None,
@@ -88,7 +94,10 @@ def payment_view(row, user):
         "received_usdt": str(row.received_usdt or 0), "refund_credited": row.refund_credited,
         "overpaid_usdt": str(max(money(row.received_usdt or 0) - row.charge_usdt, Decimal("0"))),
         "expires_at": row.expires_at.replace(tzinfo=timezone.utc).isoformat(),
-        "kyc_required": requires_kyc(row.offer_id), "kyc_verified": kyc_ready(user),
+        "kyc_required": row.purpose != "china_payment" and requires_kyc(row.offer_id), "kyc_verified": kyc_ready(user),
+        "contact_required": contact_required, "contact_ready": contacts_ready(user) if contact_required else True,
+        "contact_email": user.email if contact_required else None,
+        "contact_phone": user.phone if contact_required else None,
         "last_error": row.last_error if row.status in ("error", "review") or row.fulfillment_status in ("failed", "review") else None,
     }
 
@@ -112,8 +121,24 @@ async def create_quote(db, user, body):
 
     offer_id = OFFER_REPLACEMENTS.get(body.offer_id, body.offer_id) if body.offer_id else None
     card_id = None
+    service_request = None
+    service_request_id = body.service_request_id if body.purpose == "china_payment" else None
     requested = money(body.amount_usd or 0)
-    if body.purpose == "card_topup":
+    if body.purpose == "china_payment":
+        service_request = (await db.execute(select(ServiceRequest).where(
+            ServiceRequest.id == service_request_id, ServiceRequest.user_id == user.id,
+        ))).scalar_one_or_none()
+        if service_request is None:
+            raise HTTPException(404, "Заявка не найдена.")
+        if service_request.payment_method != "crypto" or service_request.status != "awaiting_payment":
+            raise HTTPException(409, "Эта заявка уже оплачена или использует другой способ оплаты.")
+        if service_request.created_at < datetime.utcnow() - timedelta(hours=2):
+            raise HTTPException(409, "Срок заявки истёк. Создайте новый перевод.")
+        if not service_request.amount_usdt or not service_request.cny_per_usdt:
+            raise HTTPException(409, "Расчёт заявки недоступен. Создайте новый перевод.")
+        offer_id = None
+        requested = money(service_request.amount_usdt)
+    elif body.purpose == "card_topup":
         card = (await db.execute(select(Card).where(Card.id == body.card_id, Card.user_id == user.id))).scalar_one_or_none()
         if not card or card.status != "active" or not card.aifory_card_id or not card.offer_id:
             raise HTTPException(400, "Карта недоступна для пополнения.")
@@ -133,7 +158,7 @@ async def create_quote(db, user, body):
         CryptoPayment.user_id == user.id, CryptoPayment.request_id == body.request_id,
     ).with_for_update())).scalar_one_or_none()
     if existing:
-        if existing.purpose != body.purpose or existing.offer_id != offer_id or existing.card_id != card_id or (body.purpose == "card_topup" and existing.amount_usd != requested):
+        if existing.purpose != body.purpose or existing.offer_id != offer_id or existing.card_id != card_id or existing.service_request_id != service_request_id or (body.purpose == "card_topup" and existing.amount_usd != requested):
             raise HTTPException(409, "Запрос уже использован для другой суммы или карты.")
         return existing
     # Resume an unpaid invoice for the same purchase instead of showing a
@@ -141,15 +166,19 @@ async def create_quote(db, user, body):
     pending = (await db.execute(select(CryptoPayment).where(
         CryptoPayment.user_id == user.id, CryptoPayment.purpose == body.purpose,
         CryptoPayment.offer_id == offer_id, CryptoPayment.card_id == card_id,
-        CryptoPayment.status.in_(("creating", "active")), CryptoPayment.expires_at > datetime.utcnow(),
+        CryptoPayment.service_request_id == service_request_id,
+        CryptoPayment.status.in_(("creating", "active", "paid", "review") if service_request_id else ("creating", "active")),
+        CryptoPayment.expires_at > datetime.utcnow(),
     ).order_by(CryptoPayment.id.desc()).with_for_update())).scalars().all()
     for row in pending:
-        if body.purpose == "card_issue" or row.amount_usd == requested:
+        if body.purpose in ("card_issue", "china_payment") or row.amount_usd == requested:
             return row
 
     rate = price_rub = None
     discount = Decimal("0")
-    if body.purpose == "card_issue":
+    if service_request is not None:
+        percent, charge = Decimal("0"), requested
+    elif body.purpose == "card_issue":
         discount = money(await invitee_discount_percent(db, user))
         price_rub = money(apply_discount_rub(await _issue_price_rub(db, offer_id), float(discount)))
         try:
@@ -166,6 +195,9 @@ async def create_quote(db, user, body):
     row = CryptoPayment(
         user_id=user.id, request_id=body.request_id, external_id="pp-cw-" + uuid.uuid4().hex,
         purpose=body.purpose, offer_id=offer_id, card_id=card_id, amount_usd=requested,
+        service_request_id=service_request_id,
+        amount_cny=service_request.amount if service_request is not None else None,
+        cny_per_usdt=service_request.cny_per_usdt if service_request is not None else None,
         fee_percent=percent, charge_usdt=charge, price_rub=price_rub, base_rate=rate,
         discount_percent=discount, status="quoted", fulfillment_status="not_started",
         received_usdt=0, refund_credited=False, paid_notified=False, review_notified=False,
@@ -201,10 +233,17 @@ async def attach_invoice(row, invoice):
 
 
 async def create_invoice(db, user, payment_id, symbol_id):
+    from app.services.rocketpay_service import is_rocketpay
     require_enabled()
     selected = next((n for n in await networks() if n["symbol_id"] == symbol_id), None)
     if selected is None:
         raise HTTPException(400, "Выберите доступную сеть USDT.")
+    row = await owned_payment(db, user.id, payment_id)
+    service_request = None
+    if row.purpose == "china_payment" and row.status == "quoted":
+        service_request = (await db.execute(select(ServiceRequest).where(
+            ServiceRequest.id == row.service_request_id, ServiceRequest.user_id == user.id,
+        ).with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
     row = await owned_payment(db, user.id, payment_id, lock=True)
     if row.status != "quoted":
         if row.symbol_id and row.symbol_id != symbol_id:
@@ -212,8 +251,21 @@ async def create_invoice(db, user, payment_id, symbol_id):
         return row
     if row.expires_at <= datetime.utcnow():
         raise HTTPException(409, "Расчёт устарел. Откройте оплату заново.")
-    if requires_kyc(row.offer_id) and not kyc_ready(user):
+    if row.purpose == "china_payment":
+        if not service_request or service_request.status != "awaiting_payment" or service_request.payment_method != "crypto":
+            raise HTTPException(409, "Заявка недоступна для оплаты.")
+        if money(service_request.amount_usdt) != row.charge_usdt or service_request.amount != row.amount_cny or service_request.cny_per_usdt != row.cny_per_usdt:
+            raise HTTPException(409, "Расчёт заявки изменился. Откройте оплату заново.")
+        competing = (await db.execute(select(CryptoPayment).where(
+            CryptoPayment.service_request_id == row.service_request_id, CryptoPayment.id != row.id,
+            CryptoPayment.status.in_(("creating", "active", "paid", "review")),
+        ).with_for_update())).scalars().all()
+        if competing:
+            raise HTTPException(409, "Для этой заявки уже есть счёт. Откройте его через историю переводов.")
+    elif requires_kyc(row.offer_id) and not kyc_ready(user):
         raise HTTPException(403, "Для этой карты требуется верификация личности перед оплатой.")
+    if row.purpose in ("card_issue", "card_topup") and not is_rocketpay(row.offer_id) and not contacts_ready(user):
+        raise HTTPException(400, "Для карты Online укажите действующие телефон и email перед оплатой.")
     if row.charge_usdt < money(selected["min_amount"]):
         raise HTTPException(400, f"Минимальный платёж в этой сети — {selected['min_amount']} USDT.")
     row.status, row.symbol_id, row.network_name = "creating", symbol_id, selected["name"]
@@ -222,7 +274,7 @@ async def create_invoice(db, user, payment_id, symbol_id):
     await db.commit()  # Persist the at-most-once creation claim before POST.
     try:
         invoice = await cryptoway_client.create_invoice({
-            "name": "ProntoPay — " + ("выпуск карты" if row.purpose == "card_issue" else "пополнение карты"),
+            "name": "ProntoPay — " + ({"card_issue": "выпуск карты", "card_topup": "пополнение карты", "china_payment": "Alipay / WeChat Pay"}[row.purpose]),
             "description": f"ProntoPay order {row.external_id}", "external_id": row.external_id,
             "symbol_id": symbol_id, "target_value_symbol": str(row.charge_usdt), "is_payer_fee": False,
             "deadline_at": row.expires_at.replace(tzinfo=timezone.utc).isoformat(),
@@ -294,7 +346,7 @@ async def fulfill_payment(payment_id):
         row.fulfillment_started_at = datetime.utcnow()
         await db.commit()  # All retries see the durable claim.
         user = await db.get(User, row.user_id)
-        if not row.paid_notified and getattr(user, "telegram_user_id", None):
+        if row.purpose != "china_payment" and not row.paid_notified and getattr(user, "telegram_user_id", None):
             row.paid_notified = True
             await db.commit()
             try:
@@ -306,7 +358,16 @@ async def fulfill_payment(payment_id):
             except Exception as exc:
                 logger.warning("Crypto receipt notification failed: %s", type(exc).__name__)
         try:
-            if row.purpose == "card_issue":
+            if row.purpose == "china_payment":
+                from app.api.routers.services import on_request_paid
+                request = await db.get(ServiceRequest, row.service_request_id)
+                if not request or request.user_id != user.id or money(request.amount_usdt) != row.charge_usdt:
+                    raise ValueError("Invalid paid service request")
+                await on_request_paid(db, row.service_request_id, crypto_payment_id=row.id)
+                row.fulfillment_status = "completed"
+                await db.commit()
+                return
+            elif row.purpose == "card_issue":
                 result = await card_service.issue_card(
                     db, user, row.offer_id, user.kyc_first_name or user.username or "ProntoPay",
                     user.kyc_last_name or "User", skip_balance_check=True, email=user.email,
@@ -323,7 +384,9 @@ async def fulfill_payment(payment_id):
             # A provider may have accepted a request before the exception.
             # Reconcile the linked order or request manual review, never retry.
             if not row.order_id:
-                row.fulfillment_status, row.last_error = "review", "Оплата получена. Требуется проверка выпуска или пополнения."
+                row.fulfillment_status = "review"
+                row.last_error = ("Оплата получена. Требуется проверка перевода юаней." if row.purpose == "china_payment"
+                                  else "Оплата получена. Требуется проверка выпуска или пополнения.")
                 logger.error("Crypto fulfillment needs review: payment=%s error_type=%s", payment_id, type(exc).__name__)
                 await alert_review(row)
             else:
@@ -335,6 +398,11 @@ async def fulfill_payment(payment_id):
 
 
 async def update_order_outcome(db, row):
+    if row.purpose == "china_payment":
+        request = await db.get(ServiceRequest, row.service_request_id)
+        if request and request.crypto_payment_id == row.id and request.status in ("paid", "in_progress", "done", "rejected"):
+            row.fulfillment_status = "completed"
+            return
     started_at = row.fulfillment_started_at or row.paid_at or row.created_at
     if not row.order_id:
         if row.fulfillment_status == "processing" and started_at < datetime.utcnow() - timedelta(minutes=15):

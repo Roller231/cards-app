@@ -14,7 +14,10 @@ class CryptoPayment(Base):
     request_id = Column(String(80), nullable=False)
     external_id = Column(String(80), nullable=False, unique=True)
     provider_invoice_id = Column(String(36), nullable=True, unique=True)
-    purpose = Column(String(24), nullable=False)  # card_issue | card_topup
+    purpose = Column(String(24), nullable=False)  # card_issue | card_topup | china_payment
+    service_request_id = Column(BigInteger, ForeignKey("service_requests.id"), nullable=True, index=True)
+    amount_cny = Column(Numeric(18, 2), nullable=True)
+    cny_per_usdt = Column(Numeric(18, 6), nullable=True)
     offer_id = Column(String(255), nullable=True)
     card_id = Column(BigInteger, ForeignKey("cards.id"), nullable=True)
     amount_usd = Column(Numeric(18, 2), nullable=False)

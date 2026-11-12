@@ -87,7 +87,7 @@ SETTINGS_KEYS: Dict[str, Dict[str, Any]] = {
     "REFERRAL_INVITEE_DISCOUNT_PERCENT": {"desc": "Скидка приглашённому на выпуск первой карты (%)", "type": float},
     "REFERRAL_INVITER_BONUS_USD": {"desc": "Бонус пригласившему на внутренний баланс ($) после выпуска карты приглашённым. Своя карта не нужна", "type": float},
     "SERVICE_REQUEST_MANAGER_IDS": {"desc": "Telegram ID менеджеров для заявок Alipay / WeChat Pay (через запятую)", "type": str},
-    "CHINA_CNY_DIVISOR": {"desc": "Курс юаня = курс Битбанкера / это число (например 6.6)", "type": float},
+    "CHINA_CNY_DIVISOR": {"desc": "CNY/USDT: сколько юаней выдаём за 1 USDT (например 6.54)", "type": float},
     "CHINA_MIN_CNY_ALIPAY": {"desc": "Минимальная сумма перевода в Alipay (¥)", "type": float},
     "CHINA_MIN_CNY_WECHAT": {"desc": "Минимальная сумма перевода в WeChat Pay (¥)", "type": float},
     "SUPPORT_CONTACT": {"desc": "Контакт поддержки для сообщений клиентам (например @exprontopay1)", "type": str},
@@ -1792,6 +1792,10 @@ async def delete_service_request(request_id: int, db: AsyncSession = Depends(get
     r = (await db.execute(select(ServiceRequest).where(ServiceRequest.id == request_id))).scalar_one_or_none()
     if not r:
         raise HTTPException(404, "Заявка не найдена")
+    from app.models.crypto_payment import CryptoPayment
+    linked = (await db.execute(select(CryptoPayment.id).where(CryptoPayment.service_request_id == request_id).limit(1))).scalar_one_or_none()
+    if linked is not None:
+        raise HTTPException(409, "У заявки есть криптосчета. Сохраните историю платежей; используйте изменение статуса.")
     f = qr_file(r)
     await db.delete(r)
     await db.commit()

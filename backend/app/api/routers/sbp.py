@@ -477,6 +477,8 @@ async def create_invoice(
         ))).scalar_one_or_none()
         if not china_request:
             raise HTTPException(status_code=404, detail="Заявка не найдена")
+        if china_request.payment_method != "sbp":
+            raise HTTPException(status_code=409, detail="Эта заявка оплачивается через USDT.")
         if china_request.status != "awaiting_payment":
             raise HTTPException(status_code=400, detail="Заявка уже оплачена или закрыта")
         if abs(float(china_request.amount_rub or 0) - float(body.amount_rub)) > 1:

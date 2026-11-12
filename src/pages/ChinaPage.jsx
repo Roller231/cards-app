@@ -4,6 +4,7 @@ import Card from '../components/ui/Card'
 import Section from '../components/ui/Section'
 import Button from '../components/ui/Button'
 import SbpPaymentModal from '../components/ui/SbpPaymentModal'
+import CryptoPaymentModal from '../components/ui/CryptoPaymentModal'
 import { BOTTOM_BAR_SPACE } from '../components/BottomBar'
 import { metrikaGoal } from '../utils/metrika'
 import { useAuth } from '../context/AuthContext'
@@ -55,6 +56,7 @@ function Row({ label, value, muted, strong, top }) {
 export default function ChinaPage() {
   const { appConfig } = useAuth()
   const sbpOff = !!appConfig?.sbp_disabled
+  const [paymentMethod, setPaymentMethod] = useState(() => appConfig?.sbp_disabled && appConfig?.cryptoway_enabled ? 'crypto' : 'sbp')
   const [service, setService] = useState('alipay')
   const [recipientType, setRecipientType] = useState('phone') // alipay: 'phone' | 'qr'; wechat: always 'qr'
   const [amount, setAmount] = useState('')
@@ -82,22 +84,30 @@ export default function ChinaPage() {
   }, [])
   useEffect(() => { loadRequests() }, [loadRequests])
   useEffect(() => {
-    api.services.rate().then(setQuote).catch(() => setQuoteError(true))
-  }, [])
+    let cancelled = false
+    setQuote(null); setQuoteError(false)
+    api.services.rate(paymentMethod).then(value => { if (!cancelled) setQuote(value) }).catch(() => { if (!cancelled) setQuoteError(true) })
+    return () => { cancelled = true }
+  }, [paymentMethod])
   useEffect(() => () => { if (qrPreview) URL.revokeObjectURL(qrPreview) }, [qrPreview])
 
   const amountNum = parseFloat(amount) || 0
   const calc = useMemo(() => {
+    if (quote?.payment_method && quote.payment_method !== paymentMethod) return null
+    if (paymentMethod === 'crypto') {
+      if (!quote?.cny_per_usdt || amountNum <= 0) return null
+      return { totalUsdt: Math.round((amountNum / Number(quote.cny_per_usdt) + Number.EPSILON) * 100) / 100 }
+    }
     if (!quote?.rate || amountNum <= 0) return null
     const baseRub = Math.ceil(amountNum * quote.rate)
     const fee = baseRub < Number(quote.small_payment_threshold_rub) ? Number(quote.small_payment_fee_rub) : 0
     return { baseRub, fee, total: baseRub + fee }
-  }, [quote, amountNum])
+  }, [quote, amountNum, paymentMethod])
   const minCny = Number(quote?.min_cny?.[service] || 0)
   const belowMin = minCny > 0 && amountNum > 0 && amountNum < minCny
   const limitError = belowMin
     ? `Минимальная сумма перевода в ${service === 'wechat' ? 'WeChat Pay' : 'Alipay'} — ${minCny.toLocaleString('ru-RU')} ¥.`
-    : calc
+    : calc && paymentMethod === 'sbp'
     ? (calc.total < quote.min_transfer_rub
         ? `Минимальная сумма оплаты по СБП — ${fmtRub(quote.min_transfer_rub)}. Увеличьте сумму в юанях.`
         : calc.total > quote.max_transfer_rub
@@ -108,7 +118,7 @@ export default function ChinaPage() {
   const nameOk = /^[A-Za-z][A-Za-z' .-]*\s+[A-Za-z' .-]*[A-Za-z.]$/.test(name.trim())
   const phoneOk = phone.replace(/[^\d]/g, '').length >= 7
   const recipientOk = effectiveType === 'qr' ? !!qrFile : (phoneOk && nameOk)
-  const canSubmit = !sbpOff && calc && !limitError && recipientOk && !sending
+  const canSubmit = (paymentMethod === 'crypto' ? appConfig?.cryptoway_enabled : !sbpOff) && calc && !limitError && recipientOk && !sending
 
   const pickFile = (e) => {
     const f = e.target.files && e.target.files[0]
@@ -129,6 +139,7 @@ export default function ChinaPage() {
       const res = await api.services.createRequest({
         service,
         amount: amountNum,
+        paymentMethod,
         recipientType: effectiveType,
         phone: effectiveType === 'phone' ? phone : '',
         name: effectiveType === 'phone' ? name : '',
@@ -162,14 +173,14 @@ export default function ChinaPage() {
           <div style={{ position: 'absolute', right: -30, top: -30, width: 150, height: 150, borderRadius: '50%', background: 'rgba(255,255,255,0.12)' }} />
           <div style={{ position: 'relative', fontSize: 26, fontWeight: 800, lineHeight: 1.15 }}>Alipay и WeChat Pay</div>
           <div style={{ position: 'relative', fontSize: 14, lineHeight: 1.5, marginTop: 8, color: 'rgba(255,255,255,0.92)' }}>
-            Переведём юани на Alipay или WeChat — оплата по СБП.
+            Переведём юани на Alipay или WeChat — оплата по СБП или USDT.
           </div>
-          {quote?.base_rate && (
+          {quote?.payment_method === paymentMethod && (quote?.base_rate || quote?.cny_per_usdt) && (
             <div style={{
               position: 'relative', display: 'inline-block', marginTop: 12, padding: '6px 12px', borderRadius: 10,
               background: 'rgba(255,255,255,0.2)', fontSize: 14, fontWeight: 700,
             }}>
-              1 ¥ = {Number(quote.base_rate).toFixed(2)} ₽
+              {paymentMethod === 'crypto' ? `1 USDT = ${Number(quote.cny_per_usdt).toLocaleString('ru-RU')} ¥` : `1 ¥ = ${Number(quote.base_rate).toFixed(2)} ₽`}
             </div>
           )}
         </div>
@@ -188,6 +199,17 @@ export default function ChinaPage() {
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+              <div>
+                <label style={labelStyle}>Способ оплаты</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {[{ id: 'sbp', label: 'СБП', disabled: sbpOff }, ...(appConfig?.cryptoway_enabled ? [{ id: 'crypto', label: 'USDT', disabled: false }] : [])].map(method => (
+                    <button key={method.id} disabled={method.disabled} onClick={() => setPaymentMethod(method.id)}
+                      style={{ flex: 1, borderRadius: 12, padding: 12, border: paymentMethod === method.id ? '2px solid #DC4D35' : '2px solid transparent', background: '#F3F5F8', color: '#111827', fontFamily: font, fontWeight: 600, opacity: method.disabled ? .45 : 1, cursor: 'pointer' }}>
+                      {method.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               {/* Service */}
               <div>
                 <label style={labelStyle}>Сервис</label>
@@ -337,10 +359,15 @@ export default function ChinaPage() {
               {/* Price breakdown */}
               {amountNum > 0 && (
                 <div style={{ background: '#F9FAFB', borderRadius: 12, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 7 }}>
-                  {quoteError || !quote ? (
+                  {quoteError || !quote || !calc ? (
                     <div style={{ fontSize: 13, color: quoteError ? '#DC2626' : '#6B7280', fontFamily: font }}>
                       {quoteError ? 'Курс временно недоступен. Попробуйте позже.' : 'Загружаем курс…'}
                     </div>
+                  ) : paymentMethod === 'crypto' ? (
+                    <>
+                      <Row label="CNY/USDT" value={`1 USDT = ${Number(quote.cny_per_usdt).toLocaleString('ru-RU')} ¥`} />
+                      <Row label={`${amountNum.toLocaleString('ru-RU')} ¥ ÷ ${Number(quote.cny_per_usdt).toLocaleString('ru-RU')}`} value={`${Number(calc.totalUsdt).toFixed(2)} USDT`} strong top />
+                    </>
                   ) : (
                     <>
                       <Row label="Курс юаня" value={`${Number(quote.base_rate).toFixed(2)} ₽`} />
@@ -359,14 +386,14 @@ export default function ChinaPage() {
               )}
 
               {error && <div style={{ fontSize: 13, color: '#DC2626', fontFamily: font, lineHeight: 1.45 }}>{error}</div>}
-              {sbpOff && (
+              {sbpOff && paymentMethod === 'sbp' && (
                 <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 12, padding: '12px 14px', fontSize: 13, color: '#991B1B', fontFamily: font, lineHeight: 1.5 }}>
                   {appConfig.sbp_disabled_text}
                 </div>
               )}
 
               <Button onClick={submit} disabled={!canSubmit} fullWidth>
-                {sending ? 'Создаём заявку…' : calc ? `Оплатить ${fmtRub(calc.total)}` : 'Перейти к оплате'}
+                {sending ? 'Создаём заявку…' : calc ? `Оплатить ${paymentMethod === 'crypto' ? `${Number(calc.totalUsdt).toFixed(2)} USDT` : fmtRub(calc.total)}` : 'Перейти к оплате'}
               </Button>
             </div>
           )}
@@ -392,7 +419,7 @@ export default function ChinaPage() {
                       №{r.id} · {r.service_label} · {Number(r.amount).toLocaleString('ru-RU')} ¥
                     </div>
                     <div style={{ fontSize: 12, color: '#6B7280', fontFamily: font, marginTop: 2 }}>
-                      {r.amount_rub ? fmtRub(r.amount_rub) : ''}
+                      {r.payment_method === 'crypto' ? `${Number(r.amount_usdt).toFixed(2)} USDT` : r.amount_rub ? fmtRub(r.amount_rub) : ''}
                       {d ? ` · ${d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}
                     </div>
                   </div>
@@ -416,7 +443,7 @@ export default function ChinaPage() {
       )}
 
       <SbpPaymentModal
-        isOpen={!!payRequest}
+        isOpen={!!payRequest && payRequest.payment_method !== 'crypto'}
         onClose={() => { setPayRequest(null); loadRequests() }}
         amountRub={payRequest?.amount_rub || 0}
         purpose="china_payment"
@@ -430,6 +457,13 @@ export default function ChinaPage() {
           loadRequests()
           setTimeout(loadRequests, 4000)
         }}
+      />
+      <CryptoPaymentModal
+        isOpen={!!payRequest && payRequest.payment_method === 'crypto'}
+        onClose={() => { setPayRequest(null); loadRequests() }}
+        purpose="china_payment"
+        serviceRequestId={payRequest?.id || null}
+        onPaid={() => { setPaidRequest(payRequest); setPayRequest(null); resetForm(); loadRequests(); setTimeout(loadRequests, 4000) }}
       />
     </div>
   )

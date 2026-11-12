@@ -79,7 +79,7 @@ class Settings(BaseSettings):
     # (comma-separated). Editable in the admin panel.
     SERVICE_REQUEST_MANAGER_IDS: str = ""
     # Yuan rate = Bitbanker exchange rate (RUB/USDT) / this divisor
-    CHINA_CNY_DIVISOR: float = 6.6
+    CHINA_CNY_DIVISOR: float = 6.54  # CNY per 1 USDT; shared by USDT and SBP
     # Minimum transfer in yuan per service
     CHINA_MIN_CNY_ALIPAY: float = 150.0
     CHINA_MIN_CNY_WECHAT: float = 150.0

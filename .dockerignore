@@ -1,4 +1,6 @@
 .git
+.claude
+backups
 node_modules
 dist
 .env

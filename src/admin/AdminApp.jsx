@@ -164,11 +164,11 @@ function ServiceRequestsPage() {
       <div style={{ background: '#fff', borderRadius: 14, padding: 20, marginBottom: 16, boxShadow: '0 1px 3px rgba(0,0,0,.08)' }}>
         <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>Курс юаня и минимальные суммы</div>
         <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}>
-          Курс = курс Битбанкера / делитель. В приложении показывается без комиссии Битбанкера, при оплате она добавляется отдельной строкой.
+          CNY/USDT — количество юаней за 1 USDT. Оплата USDT = сумма в ¥ / CNY/USDT. Для СБП эта сумма умножается на рублёвый курс и комиссию СБП.
           {meta?.quote && <> Сейчас: <b>1 ¥ = {Number(meta.quote.base_rate).toFixed(2)} ₽</b>, к оплате {Number(meta.quote.rate).toFixed(2)} ₽ за 1 ¥.</>}
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          <label style={{ fontSize: 13, color: '#374151' }}>Делитель</label>
+          <label style={{ fontSize: 13, color: '#374151' }}>CNY/USDT</label>
           <input value={divisor} onChange={e => setDivisor(e.target.value)} style={{ width: 90, padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14 }} />
           <label style={{ fontSize: 13, color: '#374151', marginLeft: 12 }}>Мин. Alipay, ¥</label>
           <input value={minAlipay} onChange={e => setMinAlipay(e.target.value)} style={{ width: 80, padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14 }} />
@@ -218,7 +218,7 @@ function ServiceRequestsPage() {
         { key: 'amount', label: 'Сумма', render: r => (
           <div>
             <b>{Number(r.amount).toLocaleString('ru-RU')} ¥</b>
-            <div style={{ fontSize: 11, color: '#9ca3af' }}>{r.amount_rub ? `${Number(r.amount_rub).toLocaleString('ru-RU')} ₽ · курс ${Number(r.rate_rub || 0).toFixed(2)}` : ''}</div>
+            <div style={{ fontSize: 11, color: '#9ca3af' }}>{r.payment_method === 'crypto' ? `${Number(r.amount_usdt).toFixed(2)} USDT · CNY/USDT ${Number(r.cny_per_usdt)}` : r.amount_rub ? `${Number(r.amount_rub).toLocaleString('ru-RU')} ₽ · курс ${Number(r.rate_rub || 0).toFixed(2)}` : ''}</div>
           </div>
         ) },
         { key: 'recipient', label: 'Получатель', render: r => r.recipient_type === 'phone'
@@ -330,8 +330,8 @@ function CryptoPaymentsPage({ onUserClick }) {
     <Table rows={items} columns={[
       { label: 'Счёт', render: r => `#${r.id}` },
       { label: 'Пользователь', render: r => <button onClick={() => onUserClick(r.user_id)} style={{ border: 0, background: 'none', color: '#6366f1', cursor: 'pointer' }}>#{r.user_id}</button> },
-      { label: 'Услуга', render: r => r.purpose === 'card_issue' ? 'Выпуск' : 'Пополнение' },
-      { label: 'На карту / выпуск', render: r => `$${Number(r.amount_usd).toFixed(2)}` },
+      { label: 'Услуга', render: r => ({ card_issue: 'Выпуск', card_topup: 'Пополнение', china_payment: 'Alipay / WeChat' })[r.purpose] || r.purpose },
+      { label: 'Сумма услуги', render: r => r.purpose === 'china_payment' ? `${Number(r.amount_cny)} ¥ · заявка #${r.service_request_id}` : `$${Number(r.amount_usd).toFixed(2)}` },
       { label: 'К оплате USDT', key: 'total_usdt' },
       { label: 'Получено USDT', key: 'received_usdt' },
       { label: 'Сеть', render: r => r.symbol_id || '—' },
@@ -1097,7 +1097,7 @@ const SETTING_LABELS = {
   REFERRAL_INVITEE_DISCOUNT_PERCENT: ['Скидка приглашённому на первую карту', '', '%'],
   REFERRAL_INVITER_BONUS_USD: ['Бонус пригласившему', 'На внутренний баланс', '$'],
 
-  CHINA_CNY_DIVISOR: ['Делитель курса юаня', 'Курс юаня = курс Битбанкера / это число'],
+  CHINA_CNY_DIVISOR: ['CNY/USDT', 'Количество юаней за 1 USDT'],
   CHINA_MIN_CNY_ALIPAY: ['Минимальный перевод Alipay', '', '¥'],
   CHINA_MIN_CNY_WECHAT: ['Минимальный перевод WeChat', '', '¥'],
   SERVICE_REQUEST_MANAGER_IDS: ['Менеджеры заявок', 'Telegram ID через запятую'],

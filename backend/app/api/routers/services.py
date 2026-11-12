@@ -55,7 +55,21 @@ _LATIN_NAME = re.compile(r"^[A-Za-z][A-Za-z' .-]{1,98}[A-Za-z.]$")
 
 # --------------------------------------------------------------------- rate
 
-async def cny_quote() -> dict:
+def cny_per_usdt() -> Decimal:
+    try:
+        value = Decimal(str(settings.CHINA_CNY_DIVISOR or 0)).quantize(Decimal('0.000001'))
+    except (InvalidOperation, ValueError):
+        raise HTTPException(502, "Курс CNY/USDT не настроен")
+    if not value.is_finite() or value <= 0:
+        raise HTTPException(502, "Курс CNY/USDT не настроен")
+    return value
+
+
+def usdt_for_cny(amount: Decimal, divisor: Decimal) -> Decimal:
+    return (amount / divisor).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+
+async def cny_quote(payment_method: str = "sbp") -> dict:
     """Yuan rate.
 
     base_rate = Bitbanker exchange rate (RUB per USDT, no fees) / CHINA_CNY_DIVISOR
@@ -65,9 +79,9 @@ async def cny_quote() -> dict:
     """
     from app.api.routers.sbp import SBP_MAX_AMOUNT_RUB, _get_bb_fee_params, _min_transfer_rub
     from app.services.rate_service import RateUnavailable, get_bb_index
-    divisor = float(settings.CHINA_CNY_DIVISOR or 0)
-    if divisor <= 0:
-        raise HTTPException(502, "Курс юаня не настроен")
+    divisor = float(cny_per_usdt())
+    if payment_method == "crypto":
+        return {"cny_per_usdt": str(cny_per_usdt()), "min_cny": min_cny_map(), "payment_method": "crypto"}
     try:
         index = await get_bb_index()
     except RateUnavailable as exc:
@@ -77,11 +91,13 @@ async def cny_quote() -> dict:
     rate = base * (1 + bb_pct / 100.0)
     bb_fee, bb_min = await _get_bb_fee_params()
     return {
-        "base_rate": round(base, 4),
-        "rate": round(rate, 4),
+        "cny_per_usdt": str(cny_per_usdt()),
+        "payment_method": "sbp",
+        "base_rate": base,
+        "rate": rate,
         "fees": [{"label": settings.SBP_BITBANKER_FEE_LABEL, "percent": bb_pct}],
-        "small_payment_fee_rub": settings.SBP_SMALL_PAYMENT_FEE_RUB,
-        "small_payment_threshold_rub": settings.SBP_SMALL_PAYMENT_THRESHOLD_RUB,
+        "small_payment_fee_rub": 0,
+        "small_payment_threshold_rub": 0,
         "min_transfer_rub": _min_transfer_rub(bb_fee, bb_min),
         "max_transfer_rub": SBP_MAX_AMOUNT_RUB,
         "min_cny": min_cny_map(),
@@ -98,13 +114,15 @@ def min_cny_map() -> dict:
 def rub_for_cny(amount_cny: Decimal, rate: float) -> tuple:
     """(base_rub, fee_rub, total_rub) — same rounding as the app."""
     base = math.ceil(float(amount_cny) * rate)
-    fee = float(settings.SBP_SMALL_PAYMENT_FEE_RUB) if base < float(settings.SBP_SMALL_PAYMENT_THRESHOLD_RUB) else 0.0
+    fee = 0
     return base, fee, base + fee
 
 
 @router.get("/rate", summary="Yuan rate for Alipay / WeChat Pay payments")
-async def get_rate(_: User = Depends(get_current_user)):
-    return await cny_quote()
+async def get_rate(payment_method: str = "sbp", _: User = Depends(get_current_user)):
+    if payment_method not in ("sbp", "crypto"):
+        raise HTTPException(400, "Выберите способ оплаты")
+    return await cny_quote(payment_method)
 
 
 # --------------------------------------------------------------------- helpers
@@ -116,6 +134,10 @@ def request_dict(r: ServiceRequest) -> dict:
         "service_label": SERVICES.get(r.service, r.service),
         "amount": float(r.amount),
         "currency": r.currency,
+        "payment_method": r.payment_method,
+        "amount_usdt": str(r.amount_usdt) if r.amount_usdt is not None else None,
+        "cny_per_usdt": str(r.cny_per_usdt) if r.cny_per_usdt is not None else None,
+        "crypto_payment_id": r.crypto_payment_id,
         "amount_rub": float(r.amount_rub) if r.amount_rub is not None else None,
         "rate_rub": float(r.rate_rub) if r.rate_rub is not None else None,
         "recipient_type": r.recipient_type,
@@ -341,23 +363,33 @@ def manager_text(r: ServiceRequest, user: User) -> str:
         recipient = "🔳 QR-код (следующим сообщением)"
     amount_cny = f"{float(r.amount):,.2f}".replace(",", " ")
     amount_rub = f"{float(r.amount_rub or 0):,.0f}".replace(",", " ")
+    payment_text = (f"💳 Оплачено USDT: {r.amount_usdt:.2f} USDT (1 USDT = {r.cny_per_usdt} ¥)"
+                    if r.payment_method == "crypto" else f"💳 Оплачено по СБП: {amount_rub} ₽ (курс {float(r.rate_rub or 0):.4f})")
     return (
         f"<b>🧧 Оплаченная заявка №{r.id}: {SERVICES.get(r.service, r.service)}</b>\n\n"
         f"💴 К переводу: <b>{amount_cny} ¥</b>\n"
-        f"💳 Оплачено по СБП: {amount_rub} ₽ (курс {float(r.rate_rub or 0):.4f})\n"
+        f"{payment_text}\n"
         f"👤 Получатель: {recipient}\n"
         f"📝 Примечание: {_html.escape(r.note or '—')}\n\n"
         f"Клиент: {handle} · ID <code>{tg}</code> · #{user.id} в админке"
     )
 
 
-async def on_request_paid(db: AsyncSession, request_id: int, invoice_id: int) -> None:
+async def on_request_paid(db: AsyncSession, request_id: int, invoice_id: Optional[int] = None,
+                          crypto_payment_id: Optional[int] = None) -> None:
     """Called once when the SBP invoice of a request is captured."""
-    r = (await db.execute(select(ServiceRequest).where(ServiceRequest.id == request_id))).scalar_one_or_none()
+    r = (await db.execute(select(ServiceRequest).where(ServiceRequest.id == request_id).with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
+    if r and ((r.payment_method == "crypto") != (crypto_payment_id is not None)):
+        raise ValueError("Payment method does not match service request")
+    if r and crypto_payment_id is not None and r.crypto_payment_id not in (None, crypto_payment_id):
+        raise ValueError("Service request already paid by another invoice")
+    if crypto_payment_id is not None and (not r or (r.status not in ("awaiting_payment", "new") and r.crypto_payment_id != crypto_payment_id)):
+        raise ValueError("Service request was closed before payment")
     if not r or r.status not in ("awaiting_payment", "new"):
         return
     r.status = "paid"
     r.invoice_id = invoice_id
+    r.crypto_payment_id = crypto_payment_id
     r.paid_at = datetime.utcnow()
     await db.commit()
     user = (await db.execute(select(User).where(User.id == r.user_id))).scalar_one_or_none()
@@ -394,6 +426,7 @@ async def on_request_paid(db: AsyncSession, request_id: int, invoice_id: int) ->
 async def create_request(
     service: str = Form(...),
     amount: str = Form(...),
+    payment_method: str = Form("sbp"),
     recipient_type: str = Form("qr"),
     recipient_phone: Optional[str] = Form(None),
     recipient_name: Optional[str] = Form(None),
@@ -402,7 +435,12 @@ async def create_request(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if settings.SBP_DISABLED:
+    if payment_method not in ("sbp", "crypto"):
+        raise HTTPException(400, "Выберите способ оплаты")
+    if payment_method == "crypto":
+        from app.services.crypto_payment_service import require_enabled
+        require_enabled()
+    if payment_method == "sbp" and settings.SBP_DISABLED:
         raise HTTPException(503, settings.SBP_DISABLED_TEXT)
     service = (service or "").strip().lower()
     if service not in SERVICES:
@@ -411,7 +449,7 @@ async def create_request(
         amount_cny = Decimal(str(amount).replace(",", ".")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     except (InvalidOperation, ValueError):
         raise HTTPException(400, "Укажите сумму в юанях")
-    if amount_cny <= 0:
+    if not amount_cny.is_finite() or amount_cny <= 0 or amount_cny > Decimal('10000000'):
         raise HTTPException(400, "Укажите сумму в юанях")
     _min = min_cny_map().get(service, 0)
     if _min > 0 and float(amount_cny) < _min:
@@ -431,11 +469,13 @@ async def create_request(
         raise HTTPException(400, "Загрузите QR-код для получения платежа")
 
     # Price check against the limits of an SBP payment
-    quote = await cny_quote()
-    base_rub, fee_rub, total_rub = rub_for_cny(amount_cny, quote["rate"])
-    if total_rub < quote["min_transfer_rub"]:
+    quote = await cny_quote(payment_method)
+    divisor = Decimal(quote['cny_per_usdt'])
+    total_usdt = usdt_for_cny(amount_cny, divisor) if payment_method == "crypto" else None
+    base_rub, fee_rub, total_rub = rub_for_cny(amount_cny, quote["rate"]) if payment_method == "sbp" else (None, 0, None)
+    if payment_method == "sbp" and total_rub < quote["min_transfer_rub"]:
         raise HTTPException(400, f"Минимальная сумма оплаты по СБП — {quote['min_transfer_rub']:,} ₽. Увеличьте сумму в юанях.".replace(",", " "))
-    if total_rub > quote["max_transfer_rub"]:
+    if payment_method == "sbp" and total_rub > quote["max_transfer_rub"]:
         raise HTTPException(400, f"Максимальная сумма оплаты по СБП — {quote['max_transfer_rub']:,} ₽. Уменьшите сумму в юанях.".replace(",", " "))
 
     # Anti-spam: fresh open requests only (an abandoned unpaid one expires)
@@ -470,7 +510,9 @@ async def create_request(
 
     req = ServiceRequest(
         user_id=current_user.id, service=service, amount=amount_cny, currency="CNY",
-        amount_rub=Decimal(str(total_rub)), rate_rub=Decimal(str(quote["rate"])),
+        payment_method=payment_method, amount_usdt=total_usdt, cny_per_usdt=divisor,
+        amount_rub=Decimal(str(total_rub)) if total_rub is not None else None,
+        rate_rub=Decimal(str(quote["rate"])) if payment_method == "sbp" else None,
         recipient_type=recipient_type, recipient_phone=phone, recipient_name=name, qr_path=qr_name,
         note=((note or "").strip()[:1000] or None), status="awaiting_payment",
     )

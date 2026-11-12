@@ -363,6 +363,10 @@ def check_and_update_schema(conn):
         sr_cols = [col['name'] for col in inspector.get_columns('service_requests')]
         for col_name, col_def in {
             'amount_rub': 'DECIMAL(18,2) NULL',
+            'payment_method': "VARCHAR(12) NOT NULL DEFAULT 'sbp'",
+            'amount_usdt': 'DECIMAL(18,2) NULL',
+            'cny_per_usdt': 'DECIMAL(18,6) NULL',
+            'crypto_payment_id': 'BIGINT NULL',
             'rate_rub': 'DECIMAL(18,4) NULL',
             'recipient_type': 'VARCHAR(8) NULL',
             'recipient_phone': 'VARCHAR(32) NULL',
@@ -377,6 +381,21 @@ def check_and_update_schema(conn):
                 conn.execute(text(f"ALTER TABLE service_requests ADD COLUMN {col_name} {col_def};"))
         if 'amount_rub' not in sr_cols:
             conn.execute(text("ALTER TABLE service_requests MODIFY status VARCHAR(20) NOT NULL DEFAULT 'awaiting_payment';"))
+        if 'crypto_payment_id' not in sr_cols:
+            conn.execute(text('CREATE INDEX ix_service_requests_crypto_payment_id ON service_requests (crypto_payment_id)'))
+
+    if 'cryptoway_payments' in inspector.get_table_names():
+        crypto_cols = {col['name'] for col in inspector.get_columns('cryptoway_payments')}
+        for col_name, col_def in {
+            'service_request_id': 'BIGINT NULL',
+            'amount_cny': 'DECIMAL(18,2) NULL',
+            'cny_per_usdt': 'DECIMAL(18,6) NULL',
+        }.items():
+            if col_name not in crypto_cols:
+                conn.execute(text(f"ALTER TABLE cryptoway_payments ADD COLUMN {col_name} {col_def};"))
+        if 'service_request_id' not in crypto_cols:
+            conn.execute(text('CREATE INDEX ix_cryptoway_payments_service_request_id ON cryptoway_payments (service_request_id)'))
+            conn.execute(text('ALTER TABLE cryptoway_payments ADD CONSTRAINT fk_crypto_service_request FOREIGN KEY (service_request_id) REFERENCES service_requests(id)'))
 
     # Internal balance ledger (the table itself is created by create_all /
     # the block below). ONE-TIME reset of users.balance, guarded by an

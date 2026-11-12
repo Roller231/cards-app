@@ -9,6 +9,7 @@ import httpx
 
 from app.api.deps import get_current_user
 from app.api.routers import cards, sbp
+from app.api.routers.crypto_payments import router as crypto_router
 from app.core.config import settings
 from app.core.database import get_db
 from app.services import crypto_payment_service as crypto, rocketpay_service, wallet_service
@@ -103,6 +104,30 @@ class CardKycTests(unittest.IsolatedAsyncioTestCase):
                         self.assertEqual(response.status_code,403,response.text)
                         self.assertIn('KYC',response.json()['detail'])
         debit.assert_not_awaited();gateway.assert_not_awaited()
+
+    async def test_online_crypto_requires_contacts_even_after_kyc(self):
+        owner=user();owner.phone=None
+        row=payment(status='quoted',purpose='card_issue',offer_id=ONLINE_OFFER_ID)
+        with patch.object(crypto.cryptoway_client,'create_invoice',AsyncMock()) as provider:
+            with self.assertRaises(HTTPException) as error:
+                await crypto.create_invoice(FakeSession(row=row),owner,row.id,'USDTBEP20')
+        self.assertEqual(error.exception.status_code,400)
+        provider.assert_not_awaited()
+
+    async def test_saving_contacts_never_verifies_identity_or_adds_a_passport(self):
+        owner=unverified_user();owner.phone=None
+        app=FastAPI();app.include_router(crypto_router)
+        async def db():yield FakeSession()
+        app.dependency_overrides[get_db]=db
+        app.dependency_overrides[get_current_user]=lambda:owner
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://unit.test') as client:
+            bad=await client.put('/crypto/contact',json={'email':'unit@example.com','phone':'+12025550123'})
+            self.assertEqual(bad.status_code,400)
+            good=await client.put('/crypto/contact',json={'email':'unit@prontopay.pro','phone':'+1 (202) 555-0123'})
+        self.assertEqual(good.status_code,200,good.text)
+        self.assertEqual(owner.phone,'+12025550123')
+        self.assertIsNone(owner.kyc_status)
+        self.assertIsNone(owner.kyc_passport)
 
 
 if __name__=='__main__':unittest.main()

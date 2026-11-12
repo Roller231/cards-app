@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Numeric, String, Text
+from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Integer, Numeric, String, Text
 
 from app.core.database import Base
 
@@ -15,11 +15,15 @@ class ServiceRequest(Base):
     """
     __tablename__ = "service_requests"
 
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
     user_id = Column(BigInteger, ForeignKey("users.id"), nullable=False, index=True)
     service = Column(String(32), nullable=False)          # alipay | wechat
     amount = Column(Numeric(18, 2), nullable=False)       # in `currency` (CNY)
     currency = Column(String(8), nullable=False)
+    payment_method = Column(String(12), nullable=False, default="sbp", server_default="sbp")
+    amount_usdt = Column(Numeric(18, 2), nullable=True)
+    cny_per_usdt = Column(Numeric(18, 6), nullable=True)
+    crypto_payment_id = Column(BigInteger, nullable=True, index=True)
     amount_rub = Column(Numeric(18, 2), nullable=True)    # SBP amount the user pays
     rate_rub = Column(Numeric(18, 4), nullable=True)      # RUB per 1 CNY used
     recipient_type = Column(String(8), nullable=True)
