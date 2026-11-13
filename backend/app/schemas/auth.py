@@ -33,6 +33,9 @@ class UserResponse(BaseModel):
     telegram_user_id: Optional[str]
     balance: float
     is_active: bool
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    kyc_status: Optional[str] = None
 
     class Config:
         from_attributes = True

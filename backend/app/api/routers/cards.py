@@ -92,8 +92,10 @@ async def issue_card(
             detail="Для этой карты нужна почта Gmail или iCloud — на неё придёт код подтверждения.",
         )
 
-    # Require KYC verification before card issuance
-    if not kyc_ready(current_user):
+    from app.services.card_service import synthetic_kyc_offer_allowed
+    from app.services.rocketpay_service import is_rocketpay
+    from app.services.card_kyc import contacts_ready, ensure_synthetic_identity
+    if not (is_rocketpay(body.offer_id) or synthetic_kyc_offer_allowed(body.offer_id) or kyc_ready(current_user)):
         raise HTTPException(
             status_code=403,
             detail="KYC verification required. Please complete identity verification before issuing a card."
@@ -106,6 +108,11 @@ async def issue_card(
             status_code=400,
             detail="Оплата по СБП проходит через счёт (QR); здесь доступна только оплата с баланса.",
         )
+
+    if not is_rocketpay(body.offer_id) and not contacts_ready(current_user):
+        raise HTTPException(400, "Для карты Online укажите действующие телефон и email.")
+    if synthetic_kyc_offer_allowed(body.offer_id):
+        ensure_synthetic_identity(current_user)
 
     quote = await _balance_issue_quote(db, body.offer_id, current_user)
     required = quote["price_usd"]
@@ -327,8 +334,12 @@ async def deposit_card(
     # Bitbanker conversion), taken from the internal balance on top of the amount.
     from app.api.routers.sbp import topup_fee_percent
     from app.services.rocketpay_service import is_rocketpay
-    if not is_rocketpay(card.offer_id) and not kyc_ready(current_user):
+    from app.services.card_service import synthetic_kyc_offer_allowed
+    from app.services.card_kyc import contacts_ready
+    if not is_rocketpay(card.offer_id) and not (synthetic_kyc_offer_allowed(card.offer_id) or kyc_ready(current_user)):
         raise HTTPException(status_code=403, detail="Для пополнения карты Online требуется верификация личности (KYC).")
+    if not is_rocketpay(card.offer_id) and not contacts_ready(current_user):
+        raise HTTPException(400, "Для карты Online укажите действующие телефон и email.")
     markup_setting = topup_fee_percent("rocketpay" if is_rocketpay(card.offer_id) else "oplata")
     amount = Decimal(str(body.amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     required = (amount + amount * Decimal(str(markup_setting)) / Decimal("100")).quantize(

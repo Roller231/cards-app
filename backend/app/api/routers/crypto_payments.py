@@ -19,7 +19,7 @@ router = APIRouter(tags=["crypto"])
 
 class QuoteRequest(BaseModel):
     request_id: str = Field(min_length=16, max_length=80, pattern=r"^[a-zA-Z0-9_-]+$")
-    purpose: Literal["card_issue", "card_topup", "china_payment"]
+    purpose: Literal["card_issue", "card_topup", "china_payment", "balance_deposit"]
     service_request_id: Optional[int] = Field(default=None, gt=0)
     offer_id: Optional[str] = Field(default=None, max_length=255)
     card_id: Optional[int] = Field(default=None, gt=0)
@@ -39,7 +39,6 @@ class ContactRequest(BaseModel):
 @router.put("/crypto/contact")
 async def save_contact(body: ContactRequest, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     from app.services.card_kyc import normalize_contacts
-    service.require_enabled()
     try:
         user.email, user.phone = normalize_contacts(body.email, body.phone)
     except ValueError as exc:
@@ -78,6 +77,18 @@ async def create_invoice(body: InvoiceRequest, db: AsyncSession = Depends(get_db
 @router.get("/crypto/payments/{payment_id}")
 async def payment_status(payment_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     row = await service.reconcile_payment(db, user, payment_id)
+    return service.payment_view(row, user)
+
+
+@router.post("/crypto/payments/{payment_id}/refresh")
+async def refresh_payment(payment_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    payment = await service.owned_payment(db, user.id, payment_id)
+    try:
+        # A confirmed payment can be shown immediately from the durable state.
+        # Only unconfirmed invoices need a fresh provider request.
+        row = await service.reconcile_payment(db, user, payment_id, force=payment.status != "paid", raise_provider_errors=True)
+    except CryptowayError as exc:
+        raise HTTPException(502, "Платёжный сервис временно недоступен. Повторите проверку позже; повторно оплачивать счёт не нужно.") from exc
     return service.payment_view(row, user)
 
 

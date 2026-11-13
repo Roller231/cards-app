@@ -29,6 +29,7 @@ def payment(**changes):
     values = dict(id=1, user_id=11, request_id='request-0123456789', external_id='pp-cw-unit-test',
         provider_invoice_id='11111111-1111-4111-8111-111111111111', purpose='card_topup',
         offer_id='ROCKETPAY', card_id=22, amount_usd=Decimal('100.00'), fee_percent=Decimal('3.6'),
+        price_rub=None, base_rate=None, discount_percent=Decimal('0'),
         service_request_id=None, amount_cny=None, cny_per_usdt=None,
         charge_usdt=Decimal('103.60'), status='active', fulfillment_status='not_started', order_id=None,
         symbol_id='USDTBEP20', wallet_address='test-wallet', network_name='Binance', pay_url=None,
@@ -256,6 +257,79 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ApiSecurityTests(unittest.IsolatedAsyncioTestCase):
+    async def manual_check(self, row, provider, transactions):
+        app=FastAPI();app.include_router(router)
+        db=FakeSession(row=row,user=user())
+        async def get_test_db():yield db
+        app.dependency_overrides[get_db]=get_test_db
+        app.dependency_overrides[get_current_user]=user
+        with patch.object(service.cryptoway_client,'invoice',provider), \
+             patch.object(service.cryptoway_client,'transactions',transactions), \
+             patch.object(service,'fulfill_payment',AsyncMock()) as fulfill:
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://unit.test') as client:
+                response=await client.post('/crypto/payments/1/refresh')
+            await asyncio.sleep(0)
+        return response,fulfill
+
+    async def test_manual_check_bypasses_poll_cache_and_confirms_full_payment(self):
+        row=payment(last_checked_at=datetime.utcnow())
+        provider=AsyncMock(return_value=invoice(row))
+        transactions=AsyncMock(return_value=[deposit()])
+        response,fulfill=await self.manual_check(row,provider,transactions)
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertEqual(response.json()['status'],'paid')
+        provider.assert_awaited_once();transactions.assert_awaited_once()
+        fulfill.assert_awaited_once()
+
+    async def test_background_poll_keeps_its_throttle(self):
+        row=payment(last_checked_at=datetime.utcnow())
+        with patch.object(service.cryptoway_client,'invoice',AsyncMock()) as provider:
+            await service.reconcile_payment(FakeSession(row=row),user(),row.id)
+        provider.assert_not_awaited()
+        self.assertEqual(row.status,'active')
+
+    async def test_background_provider_failure_keeps_retryable_payment(self):
+        row=payment()
+        with patch.object(service.cryptoway_client,'invoice',AsyncMock(side_effect=CryptowayError())):
+            result=await service.reconcile_payment(FakeSession(row=row),user(),row.id)
+        self.assertIs(result,row)
+        self.assertEqual(row.status,'active')
+        self.assertEqual(row.fulfillment_status,'not_started')
+
+    async def test_manual_check_reports_provider_failure_without_changing_payment(self):
+        row=payment(last_checked_at=datetime.utcnow())
+        provider=AsyncMock(side_effect=CryptowayError())
+        transactions=AsyncMock()
+        response,fulfill=await self.manual_check(row,provider,transactions)
+        self.assertEqual(response.status_code,502,response.text)
+        self.assertIn('повторно',response.json()['detail'].lower())
+        self.assertEqual(row.status,'active')
+        self.assertEqual(row.fulfillment_status,'not_started')
+        transactions.assert_not_awaited();fulfill.assert_not_awaited()
+
+    async def test_manual_check_cannot_treat_unconfirmed_deposit_as_payment(self):
+        row=payment()
+        response,fulfill=await self.manual_check(row,AsyncMock(return_value=invoice(row,status='active')),
+                                                AsyncMock(return_value=[deposit(status='pending')]))
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertEqual(response.json()['status'],'active')
+        fulfill.assert_not_awaited()
+
+    async def test_completed_payment_check_is_immediate_without_provider_or_repeat_fulfillment(self):
+        row=payment(status='paid',fulfillment_status='completed',order_id=99)
+        provider=AsyncMock(side_effect=AssertionError('Already confirmed'))
+        transactions=AsyncMock(side_effect=AssertionError('Already confirmed'))
+        response,fulfill=await self.manual_check(row,provider,transactions)
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertEqual(response.json()['status'],'paid')
+        provider.assert_not_awaited();transactions.assert_not_awaited();fulfill.assert_not_awaited()
+
+    async def test_foreign_manual_check_never_calls_provider_or_fulfills(self):
+        provider=AsyncMock();transactions=AsyncMock()
+        response,fulfill=await self.manual_check(None,provider,transactions)
+        self.assertEqual(response.status_code,404)
+        provider.assert_not_awaited();transactions.assert_not_awaited();fulfill.assert_not_awaited()
+
     async def test_invalid_webhook_does_not_reach_money_or_provider(self):
         app=FastAPI();app.include_router(router)
         db=FakeSession()

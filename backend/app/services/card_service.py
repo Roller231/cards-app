@@ -437,6 +437,17 @@ EXCLUDED_OFFER_IDS = {
 }
 
 
+def synthetic_kyc_offer_allowed(offer_id: Optional[str]) -> bool:
+    """True for regular (non-univ, non-Rocketpay) O-Plata offers — the Online
+    card flow where a generated identity is accepted on crypto payments.
+    offer_id may be 'RAVANA:<server>:<uuid>' (issue) or a bare ravana id (topup)."""
+    oid = (offer_id or "").strip()
+    if not oid.upper().startswith("RAVANA:"):
+        return False
+    candidates = {oid, oid.rsplit(":", 1)[0]}
+    return not any(_is_univ_ravana(c) for c in candidates)
+
+
 def _is_card_type_issuable(card_type: Dict[str, Any]) -> bool:
     if bool(card_type.get("readOnly")):
         return False
@@ -1232,8 +1243,10 @@ class CardService:
             logger.warning("register_client for %s failed: %s", client_id, exc)
             wallet_id = ""
 
-        # Require real NeuroVision KYC data — no test data fallback
-        if user.kyc_status != "success" or not user.kyc_first_name or not user.kyc_last_name or not user.kyc_birth_date:
+        # Require KYC identity data — the real NeuroVision result, or the
+        # generated identity used for crypto-paid Online issuance.
+        from app.services.card_kyc import kyc_ready, synthetic_ready
+        if not (kyc_ready(user) or synthetic_ready(user)):
             logger.error("KYC verification required for user %s to issue card", user.id)
             raise RuntimeError(
                 "KYC verification required. Please complete identity verification before issuing a card."
@@ -1955,22 +1968,29 @@ class CardService:
         sbp_invoice_id: Optional[int] = None,
         balance_charge_usd: Optional[Decimal] = None,
         crypto_payment_id: Optional[int] = None,
+        allow_synthetic_kyc: bool = False,
     ) -> Dict[str, Any]:
         """Issue a virtual card for the given user (O-Plata; Rocketpay "Pay"
         cards are dispatched to rocketpay_service).
 
         balance_charge_usd: set when the caller already debited the user's
         internal balance for this issuance; it is tagged on the order so a
-        failed issuance refunds it, and the referral reward is booked on it."""
+        failed issuance refunds it, and the referral reward is booked on it.
+        allow_synthetic_kyc: crypto-paid Online issuance may use the generated
+        identity instead of a real NeuroVision KYC."""
         from app.services import rocketpay_service as _rp
         if _rp.is_rocketpay(offer_id):
             return await _rp.issue_card(db, user, sbp_invoice_id=sbp_invoice_id, balance_charge_usd=balance_charge_usd, crypto_payment_id=crypto_payment_id)
-        from app.services.card_kyc import kyc_ready
+        from app.services.card_kyc import kyc_ready, synthetic_ready, ensure_synthetic_identity
+        _synth_ok = (allow_synthetic_kyc or balance_charge_usd is not None) and synthetic_kyc_offer_allowed(offer_id)
         if not kyc_ready(user):
-            raise ValueError("Для выпуска карты Online требуется верификация личности (KYC).")
+            if _synth_ok:
+                ensure_synthetic_identity(user)
+            if not _synth_ok:
+                raise ValueError("Для выпуска карты Online требуется верификация личности (KYC).")
         from app.services.card_kyc import contacts_ready
-        if crypto_payment_id is not None and not contacts_ready(user):
-            raise ValueError("Для выпуска Online за USDT укажите действующие телефон и email.")
+        if (crypto_payment_id is not None or balance_charge_usd is not None) and not contacts_ready(user):
+            raise ValueError("Для выпуска Online укажите действующие телефон и email.")
         if offer_id in OFFER_REPLACEMENTS:
             logger.info("[ISSUE] offer %s retired, issuing on %s", offer_id, OFFER_REPLACEMENTS[offer_id])
             offer_id = OFFER_REPLACEMENTS[offer_id]
@@ -1995,9 +2015,10 @@ class CardService:
         if is_univ:
             await self._ensure_univ_client(client_id, user)
         else:
+            from app.services.card_kyc import card_provider_identity
             await self._ensure_client(
                 client_id,
-                user=user,
+                user=card_provider_identity(user) if _synth_ok else user,
                 email=email,
                 document_number=document_number,
                 holder_first_name=holder_first_name,
@@ -2872,6 +2893,7 @@ class CardService:
         skip_balance_check: bool = False,
         balance_charge_usd: Optional[Decimal] = None,
         crypto_payment_id: Optional[int] = None,
+        allow_synthetic_kyc: bool = False,
     ) -> Dict[str, Any]:
         """Top up a specific card balance (O-Plata; Rocketpay cards are
         dispatched to rocketpay_service).
@@ -2888,12 +2910,16 @@ class CardService:
         from app.services import rocketpay_service as _rp
         if _rp.is_rocketpay(card.offer_id):
             return await _rp.deposit_card(db, user, card, amount, balance_charge_usd=balance_charge_usd, crypto_payment_id=crypto_payment_id)
-        from app.services.card_kyc import kyc_ready
+        from app.services.card_kyc import kyc_ready, synthetic_ready, ensure_synthetic_identity
+        _synth_ok = (allow_synthetic_kyc or balance_charge_usd is not None) and synthetic_kyc_offer_allowed(card.offer_id)
         if not kyc_ready(user):
-            raise ValueError("Для пополнения карты Online требуется верификация личности (KYC).")
+            if _synth_ok:
+                ensure_synthetic_identity(user)
+            if not _synth_ok:
+                raise ValueError("Для пополнения карты Online требуется верификация личности (KYC).")
         from app.services.card_kyc import contacts_ready
-        if crypto_payment_id is not None and not contacts_ready(user):
-            raise ValueError("Для пополнения Online за USDT укажите действующие телефон и email.")
+        if (crypto_payment_id is not None or balance_charge_usd is not None) and not contacts_ready(user):
+            raise ValueError("Для пополнения Online укажите действующие телефон и email.")
 
         base_amount = Decimal(str(amount))
         # Markup is per card type: univ providers (RT-8 / Online+Pay) carry a

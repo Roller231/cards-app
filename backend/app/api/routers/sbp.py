@@ -424,8 +424,8 @@ async def create_invoice(
     # Card payments must be verified before creating an external invoice.
     # The document-free Pay exception applies only to Cryptoway.
     from app.services.card_kyc import kyc_ready
-    if body.purpose in ("card_issue", "balance_topup") and not kyc_ready(current_user):
-        raise HTTPException(status_code=403, detail="Для оплаты карты по СБП требуется верификация личности (KYC).")
+    if not kyc_ready(current_user):
+        raise HTTPException(status_code=403, detail="Для оплаты и пополнения по СБП требуется верификация личности (KYC).")
 
     # Promo code (if any) is validated and applied FIRST: every check and the
     # Bitbanker invoice below run on the discounted amount the user really pays.

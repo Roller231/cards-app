@@ -45,6 +45,9 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
     db.add(user)
     await db.flush()
 
+    from app.services.card_kyc import ensure_synthetic_identity
+    ensure_synthetic_identity(user)
+
     token = create_access_token(str(user.id))
     if settings.DETAILED_DEV_LOGS:
         _auth_log.info(
@@ -81,6 +84,9 @@ async def dev_browser_auth(db: AsyncSession = Depends(get_db)):
 
     if not user.is_active:
         raise HTTPException(status_code=401, detail="User is inactive")
+
+    from app.services.card_kyc import ensure_synthetic_identity
+    ensure_synthetic_identity(user)
 
     token = create_access_token(str(user.id))
     if settings.DETAILED_DEV_LOGS:
@@ -196,6 +202,9 @@ async def me(current_user: User = Depends(get_current_user)):
         telegram_user_id=current_user.telegram_user_id,
         balance=float(current_user.balance),
         is_active=current_user.is_active,
+        email=current_user.email,
+        phone=current_user.phone,
+        kyc_status=current_user.kyc_status,
     )
 
 
@@ -281,6 +290,8 @@ async def telegram_webapp_auth(body: TelegramWebAppRequest, db: AsyncSession = D
         user = User(username=candidate, hashed_password=None, telegram_user_id=tg_id)
         db.add(user)
         await db.flush()
+        from app.services.card_kyc import ensure_synthetic_identity
+        ensure_synthetic_identity(user)
         # Referral attribution happens ONLY here, for a brand-new account:
         # an existing user opening an invite link is never re-attributed.
         try:

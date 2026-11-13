@@ -22,7 +22,7 @@ from app.models.card import Card
 from app.models.order import Order
 from app.models.user import User
 from app.models.service_request import ServiceRequest
-from app.services.card_kyc import kyc_ready, contacts_ready
+from app.services.card_kyc import kyc_ready, contacts_ready, ensure_synthetic_identity, synthetic_ready
 
 logger = logging.getLogger(__name__)
 CENT = Decimal("0.01")
@@ -51,7 +51,26 @@ def require_enabled():
 
 def requires_kyc(offer_id):
     from app.services.rocketpay_service import is_rocketpay
-    return not (is_rocketpay(offer_id) and settings.CRYPTOWAY_PAY_WITHOUT_KYC)
+    from app.services.card_service import synthetic_kyc_offer_allowed
+    return not (synthetic_kyc_offer_allowed(offer_id) or (is_rocketpay(offer_id) and settings.CRYPTOWAY_PAY_WITHOUT_KYC))
+
+
+def _kyc_verified_for_row(row, user):
+    """KYC gate for this payment: real NeuroVision KYC, or the generated
+    identity accepted for crypto-paid regular Online cards."""
+    if kyc_ready(user):
+        return True
+    if row.purpose in ("card_issue", "card_topup"):
+        from app.services.card_service import synthetic_kyc_offer_allowed
+        if synthetic_kyc_offer_allowed(row.offer_id):
+            return synthetic_ready(user)
+    return False
+
+
+def _ensure_synthetic_identity(user, offer_id):
+    from app.services.card_service import synthetic_kyc_offer_allowed
+    if synthetic_kyc_offer_allowed(offer_id):
+        ensure_synthetic_identity(user)
 
 
 async def networks():
@@ -94,7 +113,7 @@ def payment_view(row, user):
         "received_usdt": str(row.received_usdt or 0), "refund_credited": row.refund_credited,
         "overpaid_usdt": str(max(money(row.received_usdt or 0) - row.charge_usdt, Decimal("0"))),
         "expires_at": row.expires_at.replace(tzinfo=timezone.utc).isoformat(),
-        "kyc_required": row.purpose != "china_payment" and requires_kyc(row.offer_id), "kyc_verified": kyc_ready(user),
+        "kyc_required": row.purpose in ("card_issue", "card_topup") and requires_kyc(row.offer_id), "kyc_verified": _kyc_verified_for_row(row, user),
         "contact_required": contact_required, "contact_ready": contacts_ready(user) if contact_required else True,
         "contact_email": user.email if contact_required else None,
         "contact_phone": user.phone if contact_required else None,
@@ -124,7 +143,12 @@ async def create_quote(db, user, body):
     service_request = None
     service_request_id = body.service_request_id if body.purpose == "china_payment" else None
     requested = money(body.amount_usd or 0)
-    if body.purpose == "china_payment":
+    if body.purpose == "balance_deposit":
+        if body.offer_id or body.card_id or body.service_request_id:
+            raise HTTPException(400, "Для пополнения баланса не указывайте карту или заявку.")
+        if not Decimal("1") <= requested <= Decimal("10000") or requested != requested.quantize(CENT):
+            raise HTTPException(400, "Укажите сумму от $1 до $10 000, не более двух знаков после запятой.")
+    elif body.purpose == "china_payment":
         service_request = (await db.execute(select(ServiceRequest).where(
             ServiceRequest.id == service_request_id, ServiceRequest.user_id == user.id,
         ))).scalar_one_or_none()
@@ -152,13 +176,16 @@ async def create_quote(db, user, body):
         if not offer_id or offer_id not in CARD_NAME_BY_OFFER or not any(o["id"] == offer_id for o in offers):
             raise HTTPException(400, "Этот тип карты недоступен для выпуска.")
 
+    if (body.purpose in ("card_issue", "card_topup") and not kyc_ready(user)):
+        _ensure_synthetic_identity(user, offer_id)
+
     # Serializes quote creation for this user, including browser retries.
     await db.execute(select(User.id).where(User.id == user.id).with_for_update())
     existing = (await db.execute(select(CryptoPayment).where(
         CryptoPayment.user_id == user.id, CryptoPayment.request_id == body.request_id,
     ).with_for_update())).scalar_one_or_none()
     if existing:
-        if existing.purpose != body.purpose or existing.offer_id != offer_id or existing.card_id != card_id or existing.service_request_id != service_request_id or (body.purpose == "card_topup" and existing.amount_usd != requested):
+        if existing.purpose != body.purpose or existing.offer_id != offer_id or existing.card_id != card_id or existing.service_request_id != service_request_id or (body.purpose in ("card_topup", "balance_deposit") and existing.amount_usd != requested):
             raise HTTPException(409, "Запрос уже использован для другой суммы или карты.")
         return existing
     # Resume an unpaid invoice for the same purchase instead of showing a
@@ -176,7 +203,7 @@ async def create_quote(db, user, body):
 
     rate = price_rub = None
     discount = Decimal("0")
-    if service_request is not None:
+    if service_request is not None or body.purpose == "balance_deposit":
         percent, charge = Decimal("0"), requested
     elif body.purpose == "card_issue":
         discount = money(await invitee_discount_percent(db, user))
@@ -262,8 +289,11 @@ async def create_invoice(db, user, payment_id, symbol_id):
         ).with_for_update())).scalars().all()
         if competing:
             raise HTTPException(409, "Для этой заявки уже есть счёт. Откройте его через историю переводов.")
-    elif requires_kyc(row.offer_id) and not kyc_ready(user):
-        raise HTTPException(403, "Для этой карты требуется верификация личности перед оплатой.")
+    elif row.purpose in ("card_issue", "card_topup") and requires_kyc(row.offer_id) and not kyc_ready(user):
+        if row.purpose in ("card_issue", "card_topup"):
+            _ensure_synthetic_identity(user, row.offer_id)
+        if not _kyc_verified_for_row(row, user):
+            raise HTTPException(403, "Для этой карты требуется верификация личности перед оплатой.")
     if row.purpose in ("card_issue", "card_topup") and not is_rocketpay(row.offer_id) and not contacts_ready(user):
         raise HTTPException(400, "Для карты Online укажите действующие телефон и email перед оплатой.")
     if row.charge_usdt < money(selected["min_amount"]):
@@ -274,7 +304,7 @@ async def create_invoice(db, user, payment_id, symbol_id):
     await db.commit()  # Persist the at-most-once creation claim before POST.
     try:
         invoice = await cryptoway_client.create_invoice({
-            "name": "ProntoPay — " + ({"card_issue": "выпуск карты", "card_topup": "пополнение карты", "china_payment": "Alipay / WeChat Pay"}[row.purpose]),
+            "name": "ProntoPay — " + ({"card_issue": "выпуск карты", "card_topup": "пополнение карты", "china_payment": "Alipay / WeChat Pay", "balance_deposit": "пополнение баланса"}[row.purpose]),
             "description": f"ProntoPay order {row.external_id}", "external_id": row.external_id,
             "symbol_id": symbol_id, "target_value_symbol": str(row.charge_usdt), "is_payer_fee": False,
             "deadline_at": row.expires_at.replace(tzinfo=timezone.utc).isoformat(),
@@ -337,10 +367,34 @@ async def alert_review(row):
 
 
 async def fulfill_payment(payment_id):
-    from app.services.card_service import card_service
+    from app.services.card_service import card_service, synthetic_kyc_offer_allowed
     async with AsyncSessionLocal() as db:
         row = (await db.execute(select(CryptoPayment).where(CryptoPayment.id == payment_id).with_for_update())).scalar_one_or_none()
         if not row or row.status != "paid" or row.fulfillment_status != "not_started":
+            return
+        if row.purpose == "balance_deposit":
+            # Credit and completion share the row lock and ONE transaction.
+            # A crash rolls both back; duplicate callbacks cannot credit twice.
+            from app.services.wallet_service import credit
+            user = await db.get(User, row.user_id)
+            if not user or row.amount_usd <= 0 or money(row.amount_usd) != row.charge_usdt:
+                row.fulfillment_status, row.last_error = "review", "Пополнение баланса требует проверки поддержки."
+                await db.commit()
+                return
+            await credit(db, user, row.amount_usd, "crypto_deposit", f"Пополнение USDT, счёт #{row.id}")
+            row.fulfillment_status = "completed"
+            row.fulfillment_started_at = datetime.utcnow()
+            notify = bool(getattr(user, "telegram_user_id", None)) and not row.paid_notified
+            row.paid_notified = True
+            await db.commit()
+            if notify:
+                try:
+                    from app.services.telegram_bot_service import send_notification
+                    await send_notification(user.telegram_user_id,
+                        f"✅ <b>Баланс пополнен USDT</b>\n\nЗачислено: <b>${row.amount_usd:.2f}</b>.\n"
+                        f"Внутренний баланс: <b>${user.balance:.2f}</b>.")
+                except Exception as exc:
+                    logger.warning("Crypto wallet notification failed: %s", type(exc).__name__)
             return
         row.fulfillment_status = "processing"
         row.fulfillment_started_at = datetime.utcnow()
@@ -372,10 +426,12 @@ async def fulfill_payment(payment_id):
                     db, user, row.offer_id, user.kyc_first_name or user.username or "ProntoPay",
                     user.kyc_last_name or "User", skip_balance_check=True, email=user.email,
                     defer_follow_up=True, crypto_payment_id=row.id,
+                    allow_synthetic_kyc=synthetic_kyc_offer_allowed(row.offer_id),
                 )
             else:
                 result = await card_service.deposit_card(db, user, str(row.card_id), float(row.amount_usd),
-                    skip_balance_check=True, crypto_payment_id=row.id)
+                    skip_balance_check=True, crypto_payment_id=row.id,
+                    allow_synthetic_kyc=synthetic_kyc_offer_allowed(row.offer_id))
             row.order_id = result["local_order_id"]
             await db.commit()
         except Exception as exc:
@@ -398,6 +454,8 @@ async def fulfill_payment(payment_id):
 
 
 async def update_order_outcome(db, row):
+    if row.purpose == "balance_deposit":
+        return  # Wallet fulfillment is committed atomically, without a card order.
     if row.purpose == "china_payment":
         request = await db.get(ServiceRequest, row.service_request_id)
         if request and request.crypto_payment_id == row.id and request.status in ("paid", "in_progress", "done", "rejected"):
@@ -427,8 +485,9 @@ async def update_order_outcome(db, row):
         await alert_review(row)
 
 
-async def reconcile_payment(db, user, payment_id, force=False):
+async def reconcile_payment(db, user, payment_id, force=False, raise_provider_errors=False):
     row = await owned_payment(db, user.id, payment_id, lock=True)
+    # Status polling must not modify the customer's identity or KYC session.
     if row.status == "paid":
         await update_order_outcome(db, row)
         row.last_checked_at = datetime.utcnow()
@@ -471,6 +530,8 @@ async def reconcile_payment(db, user, payment_id, force=False):
         transactions = await cryptoway_client.transactions(row.provider_invoice_id)
         state, received, error = invoice_payment_state(row, invoice, transactions)
     except CryptowayError:
+        if raise_provider_errors:
+            raise
         return row  # Retriable, keep the invoice and its frozen price.
     except (ValueError, KeyError, InvalidOperation):
         state, received, error = "review", money(row.received_usdt or 0), "Данные оплаты требуют проверки поддержки."

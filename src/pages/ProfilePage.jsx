@@ -38,6 +38,8 @@ const LEDGER_META = {
   card_topup: { label: 'Пополнение карты', icon: '/images/HistoryIcons/arrow-circle-up.png' },
   refund: { label: 'Возврат', icon: '/images/HistoryIcons/arrow-down.png' },
   crypto_refund: { label: 'Возврат криптооплаты', icon: '/images/HistoryIcons/arrow-down.png' },
+  crypto_deposit: { label: 'Пополнение USDT', icon: '/images/HistoryIcons/arrow-down.png' },
+  china_payment: { label: 'Alipay / WeChat Pay', icon: '/images/HistoryIcons/shop.png' },
   referral: { label: 'Реферальное начисление', icon: '/images/HistoryIcons/arrow-down.png' },
   admin_adjust: { label: 'Корректировка', icon: '/images/HistoryIcons/arrow-circle-up.png' },
 }
@@ -265,8 +267,8 @@ export default function ProfilePage({ userCards = [], onTransferToCard }) {
             Перевести на карту
           </button>
           <div style={{ marginTop: 10, background: '#F3F5F8', borderRadius: 12, padding: '10px 12px', fontSize: 12, color: '#6B7280', fontFamily: font, lineHeight: 1.5 }}>
-            Средства с баланса можно перевести на вашу виртуальную карту: выберите карту, нажмите «Пополнить»
-            и способ оплаты «Внутренний баланс». Пополняется по СБП, выпуск и пополнение карт с баланса — без комиссии СБП.
+            Пополняйте баланс USDT без NeuroVision или по СБП после верификации. С него можно выпускать
+            и пополнять карты, оплачивать Alipay и WeChat Pay без комиссии СБП и повторной верификации.
           </div>
         </Card>
       </Section>

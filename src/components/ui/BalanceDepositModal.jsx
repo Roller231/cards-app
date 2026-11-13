@@ -5,6 +5,7 @@ import Portal from './Portal'
 import SbpPaymentModal from './SbpPaymentModal'
 import { useAuth } from '../../context/AuthContext'
 import RateBreakdown from './RateBreakdown'
+import CryptoPaymentModal from './CryptoPaymentModal'
 
 const font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif'
 const QUICK_AMOUNTS = [20, 50, 100, 200]
@@ -21,15 +22,19 @@ export default function BalanceDepositModal({ isOpen, onClose, onDeposited }) {
   const [amountInput, setAmountInput] = useState('')
   const [screen, setScreen] = useState('form') // 'form' | 'success'
   const [showSbpModal, setShowSbpModal] = useState(false)
+  const [showCryptoModal, setShowCryptoModal] = useState(false)
+  const [selectedMethod, setMethod] = useState(null)
+  const method = selectedMethod || (sbpOff && appConfig?.cryptoway_enabled ? 'crypto' : 'sbp')
   const [rateInfo, setRateInfo] = useState(null)
   const [rateError, setRateError] = useState(false)
   const inputRef = useRef(null)
 
   useEffect(() => {
-    if (!isOpen) return
-    setRateError(false)
-    api.sbp.rate().then(setRateInfo).catch(() => setRateError(true))
-  }, [isOpen])
+    if (!isOpen || method !== 'sbp' || sbpOff) return
+    let cancelled = false
+    api.sbp.rate().then(info => { if (!cancelled) { setRateInfo(info); setRateError(false) } }).catch(() => { if (!cancelled) setRateError(true) })
+    return () => { cancelled = true }
+  }, [isOpen, method, sbpOff])
 
   useEffect(() => {
     if (isOpen && screen === 'form') setTimeout(() => inputRef.current?.focus(), 380)
@@ -37,7 +42,7 @@ export default function BalanceDepositModal({ isOpen, onClose, onDeposited }) {
 
   useEffect(() => {
     if (!isOpen) {
-      const t = setTimeout(() => { setAmount(0); setAmountInput(''); setScreen('form') }, 350)
+      const t = setTimeout(() => { setAmount(0); setAmountInput(''); setScreen('form'); setShowSbpModal(false); setShowCryptoModal(false); setMethod(null) }, 350)
       return () => clearTimeout(t)
     }
   }, [isOpen])
@@ -65,6 +70,12 @@ export default function BalanceDepositModal({ isOpen, onClose, onDeposited }) {
       ? `Максимальная сумма перевода по СБП — ${maxTransferRub.toLocaleString('ru-RU')} ₽. Уменьшите сумму.`
       : ''
   const hasAmount = amount > 0
+  const cryptoLimitError = method === 'crypto' && hasAmount && (amount < 1 || amount > 10000)
+  const deposited = () => {
+    setShowSbpModal(false); setShowCryptoModal(false); setScreen('success')
+    fetchMe?.(); onDeposited?.()
+    ;[1500, 5000, 12000].forEach(ms => setTimeout(() => { fetchMe?.(); onDeposited?.() }, ms))
+  }
 
   return (
     <Portal>
@@ -95,7 +106,7 @@ export default function BalanceDepositModal({ isOpen, onClose, onDeposited }) {
             Пополнить баланс
           </h2>
           <div style={{ fontSize: 13, color: '#6B7280', fontFamily: font, marginTop: 6, lineHeight: 1.5 }}>
-            Внутренний баланс в долларах. С него можно выпускать и пополнять карты — уже без комиссии СБП.
+            С баланса можно выпускать и пополнять карты, оплачивать Alipay и WeChat Pay без NeuroVision.
           </div>
         </div>
 
@@ -103,6 +114,14 @@ export default function BalanceDepositModal({ isOpen, onClose, onDeposited }) {
           {screen === 'form' && (
             <div style={{ padding: '0 16px 16px' }}>
               <div className="flex flex-col gap-4">
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {[{ id: 'sbp', label: 'СБП', disabled: sbpOff }, ...(appConfig?.cryptoway_enabled ? [{ id: 'crypto', label: 'USDT', disabled: false }] : [])].map(option => (
+                    <button key={option.id} disabled={option.disabled} onClick={() => setMethod(option.id)}
+                      style={{ flex: 1, border: method === option.id ? '2px solid #DC4D35' : '2px solid transparent', borderRadius: 12, padding: 14, background: '#fff', fontWeight: 600, opacity: option.disabled ? .45 : 1, cursor: 'pointer' }}>
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
                 {/* Amount */}
                 <div
                   onClick={() => inputRef.current?.focus()}
@@ -153,7 +172,11 @@ export default function BalanceDepositModal({ isOpen, onClose, onDeposited }) {
                   <label style={{ fontSize: 13, fontWeight: 600, color: '#6B7280', fontFamily: font, display: 'block', marginBottom: 10 }}>
                     Сумма к оплате
                   </label>
-                  <RateBreakdown
+                  {method === 'crypto' ? <div style={{ fontSize: 14, lineHeight: 1.6 }}>
+                    <b>{amount.toFixed(2)} USDT → ${amount.toFixed(2)} на баланс</b><br />
+                    Зачисление 1:1, без дополнительной наценки и NeuroVision. Комиссию сети за отправку оплачивает ваш кошелёк.
+                    {cryptoLimitError && <div style={{ color: '#B91C1C' }}>Укажите сумму от $1 до $10 000.</div>}
+                  </div> : <><RateBreakdown
                     rateInfo={rateInfo}
                     amountUsd={amount}
                     baseRub={baseRub}
@@ -171,20 +194,22 @@ export default function BalanceDepositModal({ isOpen, onClose, onDeposited }) {
                       Не удалось загрузить курс. Закройте окно и попробуйте ещё раз.
                     </div>
                   )}
+                  </>}
                 </div>
 
-                {sbpOff && (
+                {sbpOff && method === 'sbp' && (
                   <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 12, padding: '12px 14px', fontSize: 13, color: '#991B1B', fontFamily: font, lineHeight: 1.5 }}>
                     {appConfig.sbp_disabled_text}
                   </div>
                 )}
-                <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 12, padding: '12px 14px', fontSize: 12, color: '#92400E', fontFamily: font, lineHeight: 1.55 }}>
+                {method === 'sbp' && <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 12, padding: '12px 14px', fontSize: 12, color: '#92400E', fontFamily: font, lineHeight: 1.55 }}>
+                  Для пополнения по СБП нужна успешная проверка NeuroVision.<br />
                   <b>Лимиты СБП:</b> от 1 000 ₽ до 50 000 ₽ за перевод, не более 2 пополнений в сутки
                   (обновляется в 00:00 по Москве).
                   <br />
                   <b>Важно:</b> оплачивайте каждый созданный QR-код — после трёх неоплаченных подряд
                   платёжная система блокирует пополнения по СБП.
-                </div>
+                </div>}
               </div>
             </div>
           )}
@@ -205,8 +230,8 @@ export default function BalanceDepositModal({ isOpen, onClose, onDeposited }) {
         <div style={{ padding: '12px 16px 24px 16px' }}>
           {screen === 'form' ? (
             <Button
-              disabled={sbpOff || !hasAmount || !payRub || rubTooSmall || rubTooBig}
-              onClick={() => setShowSbpModal(true)}
+              disabled={method === 'crypto' ? !appConfig?.cryptoway_enabled || !hasAmount || cryptoLimitError : sbpOff || !hasAmount || !payRub || rubTooSmall || rubTooBig}
+              onClick={() => method === 'crypto' ? setShowCryptoModal(true) : setShowSbpModal(true)}
               fullWidth
             >
               Продолжить
@@ -218,19 +243,16 @@ export default function BalanceDepositModal({ isOpen, onClose, onDeposited }) {
       </div>
 
       <SbpPaymentModal
-        isOpen={showSbpModal}
+        isOpen={isOpen && showSbpModal}
         onClose={() => setShowSbpModal(false)}
         amountRub={payRub || 0}
         purpose="balance_deposit"
         amountUsdRequested={parseFloat(amount) || 0}
         skipSuccessScreen={true}
-        onPaid={() => {
-          setShowSbpModal(false)
-          setScreen('success')
-          // The webhook credits the balance within seconds — refresh a few times
-          ;[1500, 5000, 12000].forEach((ms) => setTimeout(() => { fetchMe?.(); onDeposited?.() }, ms))
-        }}
+        onPaid={deposited}
       />
+      <CryptoPaymentModal isOpen={isOpen && showCryptoModal} onClose={() => setShowCryptoModal(false)}
+        purpose="balance_deposit" amountUsd={amount} onPaid={deposited} />
     </Portal>
   )
 }

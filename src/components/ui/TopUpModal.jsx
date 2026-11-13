@@ -6,7 +6,8 @@ import SbpPaymentModal from './SbpPaymentModal'
 import { useAuth } from '../../context/AuthContext'
 import RateBreakdown from './RateBreakdown'
 import CryptoPaymentModal from './CryptoPaymentModal'
-import KycModal from './KycModal'
+import CardContactModal from './CardContactModal'
+import { cardContactsReady } from '../../utils/cardContacts'
 
 const TOPUP_PAYMENT_METHODS = [
   { id: 'sbp', label: 'СБП', description: 'Мгновенное пополнение через Систему Быстрых Платежей', iconSrc: '/images/sbp.png' },
@@ -24,7 +25,7 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, initialMethod = 'sbp' }) {
   const [screen, setScreen] = useState('form') // 'form' | 'confirmation' | 'loading' | 'success' | 'failure'
   const [showSbpModal, setShowSbpModal] = useState(false)
   const [showCryptoModal, setShowCryptoModal] = useState(false)
-  const [showKycModal, setShowKycModal] = useState(false)
+  const [showContactModal, setShowContactModal] = useState(false)
   // App rate = [BB index] × bitbFee × myFee × clarusFee (computed on backend,
   // multipliers configured in the admin panel). Plus a fixed fee for small payments.
   const [rateInfo, setRateInfo] = useState(null)  // { index, rate, small_payment_fee_rub, small_payment_threshold_rub }
@@ -62,7 +63,7 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, initialMethod = 'sbp' }) {
         setScreen('form')
         setDepositError('')
         setMethod('sbp')
-        setShowKycModal(false)
+        setShowContactModal(false)
         setShowCryptoModal(false)
       }, 350)
       return () => clearTimeout(t)
@@ -119,7 +120,7 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, initialMethod = 'sbp' }) {
   // rate is still loading or failed — the balance check used to wait for the
   // rate and showed "not enough funds" meanwhile.
   const isRocketpayCard = String(card?.offer_id || '').startsWith('ROCKETPAY')
-  const needsBalanceKyc = method === 'balance' && !isRocketpayCard && user?.kyc_status !== 'success'
+  const needsBalanceContact = method === 'balance' && !isRocketpayCard && !cardContactsReady(user)
   const configFee = Number(isRocketpayCard ? appConfig?.univ_topup_markup_percent : appConfig?.online_topup_markup_percent)
   const rateFee = Number(rateInfo?.topup_fee_percent)
   const balanceMarkup = Number.isFinite(rateFee) ? rateFee : (Number.isFinite(configFee) ? configFee : null)
@@ -535,9 +536,9 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, initialMethod = 'sbp' }) {
             {screen === 'form' && (
               <Button
                 disabled={method === 'crypto' ? (!hasAmount || amount < 1 || amount > 10000) : method === 'balance'
-                  ? (!hasAmount || (!needsBalanceKyc && !balanceEnough))
+                  ? (!hasAmount || !balanceEnough)
                   : (!hasAmount || !payRub || rubTooSmall || rubTooBig)}
-                onClick={() => (method === 'crypto' ? setShowCryptoModal(true) : needsBalanceKyc ? setShowKycModal(true) : method === 'balance' ? setScreen('confirmation') : setShowSbpModal(true))}
+                onClick={() => (method === 'crypto' ? setShowCryptoModal(true) : needsBalanceContact ? setShowContactModal(true) : method === 'balance' ? setScreen('confirmation') : setShowSbpModal(true))}
                 fullWidth
               >
                 Продолжить
@@ -589,8 +590,8 @@ function TopUpModal({ isOpen, onClose, card, onTopUp, initialMethod = 'sbp' }) {
         amountUsd={amount}
         onPaid={() => { setShowCryptoModal(false); setScreen('success'); fetchMe(); onTopUp?.() }}
       />
-      <KycModal isOpen={showKycModal} onClose={() => setShowKycModal(false)}
-        onSuccess={() => { setShowKycModal(false); fetchMe?.() }} />
+      <CardContactModal isOpen={showContactModal} onClose={() => setShowContactModal(false)}
+        onSaved={() => { setShowContactModal(false); setScreen('confirmation') }} />
     </Portal>
   )
 }

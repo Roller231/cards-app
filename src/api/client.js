@@ -100,6 +100,7 @@ export const api = {
     issueQuote: (offerId) => req('GET', `/cards/issue-quote?offer_id=${encodeURIComponent(offerId)}`),
   },
   services: {
+    payBalance: (id) => req('POST', `/services/requests/${id}/pay-balance`),
     rate: (method = 'sbp') => req('GET', `/services/rate?payment_method=${encodeURIComponent(method)}`),
     // multipart: the recipient QR image travels as a file
     createRequest: async ({ service, amount, recipientType, phone, name, note, qrFile, paymentMethod = 'sbp' }) => {
@@ -140,6 +141,7 @@ export const api = {
     quote: (body) => req('POST', '/crypto/quotes', body),
     createInvoice: (quoteId, symbolId) => req('POST', '/crypto/invoices', { quote_id: quoteId, symbol_id: symbolId }),
     payment: (id) => req('GET', `/crypto/payments/${id}`),
+    checkPayment: (id) => req('POST', `/crypto/payments/${id}/refresh`),
     cancel: (id) => req('POST', `/crypto/payments/${id}/cancel`),
   },
   sbp: {

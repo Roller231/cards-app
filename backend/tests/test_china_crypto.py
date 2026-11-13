@@ -37,7 +37,7 @@ class AsyncDb:
     async def flush(self):self.session.flush()
     async def commit(self):self.session.commit()
     async def rollback(self):self.session.rollback()
-    async def refresh(self,row):self.session.refresh(row)
+    async def refresh(self,row,*args,**kwargs):self.session.refresh(row,*args,**kwargs)
     async def __aenter__(self):return self
     async def __aexit__(self,*a):pass
 

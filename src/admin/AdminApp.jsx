@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import BotGuidesEditor from './BotGuidesEditor'
 import adminApi, { clearAdminToken, getAdminToken, setAdminToken } from './api'
 
 /* ================================================================
@@ -218,7 +219,7 @@ function ServiceRequestsPage() {
         { key: 'amount', label: 'Сумма', render: r => (
           <div>
             <b>{Number(r.amount).toLocaleString('ru-RU')} ¥</b>
-            <div style={{ fontSize: 11, color: '#9ca3af' }}>{r.payment_method === 'crypto' ? `${Number(r.amount_usdt).toFixed(2)} USDT · CNY/USDT ${Number(r.cny_per_usdt)}` : r.amount_rub ? `${Number(r.amount_rub).toLocaleString('ru-RU')} ₽ · курс ${Number(r.rate_rub || 0).toFixed(2)}` : ''}</div>
+            <div style={{ fontSize: 11, color: '#9ca3af' }}>{r.payment_method === 'balance' ? `$${Number(r.amount_usd).toFixed(2)} с баланса · CNY/USD ${Number(r.cny_per_usdt)}` : r.payment_method === 'crypto' ? `${Number(r.amount_usdt).toFixed(2)} USDT · CNY/USDT ${Number(r.cny_per_usdt)}` : r.amount_rub ? `${Number(r.amount_rub).toLocaleString('ru-RU')} ₽ · курс ${Number(r.rate_rub || 0).toFixed(2)}` : ''}</div>
           </div>
         ) },
         { key: 'recipient', label: 'Получатель', render: r => r.recipient_type === 'phone'
@@ -330,7 +331,7 @@ function CryptoPaymentsPage({ onUserClick }) {
     <Table rows={items} columns={[
       { label: 'Счёт', render: r => `#${r.id}` },
       { label: 'Пользователь', render: r => <button onClick={() => onUserClick(r.user_id)} style={{ border: 0, background: 'none', color: '#6366f1', cursor: 'pointer' }}>#{r.user_id}</button> },
-      { label: 'Услуга', render: r => ({ card_issue: 'Выпуск', card_topup: 'Пополнение', china_payment: 'Alipay / WeChat' })[r.purpose] || r.purpose },
+      { label: 'Услуга', render: r => ({ card_issue: 'Выпуск', card_topup: 'Пополнение карты', china_payment: 'Alipay / WeChat', balance_deposit: 'Пополнение баланса' })[r.purpose] || r.purpose },
       { label: 'Сумма услуги', render: r => r.purpose === 'china_payment' ? `${Number(r.amount_cny)} ¥ · заявка #${r.service_request_id}` : `$${Number(r.amount_usd).toFixed(2)}` },
       { label: 'К оплате USDT', key: 'total_usdt' },
       { label: 'Получено USDT', key: 'received_usdt' },
@@ -776,7 +777,7 @@ function UserDetailPage({ userId, goBack }) {
       {tab === 'balance' && <Table columns={[
         { key: 'id', label: 'ID' },
         { key: 'type', label: 'Тип', render: r => badge(
-          ({ deposit: 'Пополнение', card_issue: 'Выпуск карты', card_topup: 'Пополнение карты', refund: 'Возврат', referral: 'Рефералка', admin_adjust: 'Админ' })[r.type] || r.type,
+          ({ deposit: 'Пополнение', crypto_deposit: 'Пополнение USDT', china_payment: 'Alipay / WeChat', card_issue: 'Выпуск карты', card_topup: 'Пополнение карты', refund: 'Возврат', referral: 'Рефералка', admin_adjust: 'Админ' })[r.type] || r.type,
           ({ deposit: '#22c55e', card_issue: '#6366f1', card_topup: '#0ea5e9', refund: '#f59e0b', referral: '#10b981', admin_adjust: '#6b7280' })[r.type] || '#6b7280') },
         { key: 'amount', label: 'Сумма', render: r => <span style={{ color: r.amount > 0 ? '#16a34a' : '#111827', fontWeight: 600 }}>{r.amount > 0 ? '+' : ''}${fmt(r.amount)}</span> },
         { key: 'balance_after', label: 'Баланс после', render: r => `$${fmt(r.balance_after)}` },
@@ -1499,6 +1500,8 @@ function BotPage() {
   const [testChatId, setTestChatId] = useState('')
   const [testing, setTesting] = useState(false)
   const [imgLoading, setImgLoading] = useState(false)
+  const [guides, setGuides] = useState([])
+  const [guideUploading, setGuideUploading] = useState(false)
 
   // — broadcast tab state —
   const [bcText, setBcText] = useState('')
@@ -1555,6 +1558,7 @@ function BotPage() {
       setParseMode(s.parse_mode || 'HTML')
       setHasImage(s.has_image)
       setImageUrl(s.image_url ? s.image_url + '?t=' + Date.now() : null)
+      setGuides(s.guides || [])
     }).catch(() => {})
     adminApi.bot.getNotificationSettings().then(s => setNotifHeaders(s || {})).catch(() => {})
     loadBcMeta()
@@ -1567,7 +1571,10 @@ function BotPage() {
 
   const saveWelcome = async () => {
     setSaving(true)
-    try { await adminApi.bot.updateSettings(text, buttons, parseMode); alert('Сохранено') }
+    try {
+      await adminApi.bot.updateSettings(text, buttons, parseMode, guides.map(({ id, title, text, enabled, video_key }) => ({ id, title, text, enabled, video_key })))
+      alert('Сохранено')
+    }
     catch (e) { alert(e.message) }
     finally { setSaving(false) }
   }
@@ -1737,8 +1744,9 @@ function BotPage() {
               )}
             </div>
 
-            <h3 style={{ fontSize: 15, fontWeight: 600, margin: '0 0 8px' }}>Кнопки</h3>
+            <h3 style={{ fontSize: 15, fontWeight: 600, margin: '0 0 8px' }}>Кнопки-ссылки</h3>
             <ButtonsEditor value={buttons} onChange={setButtons} />
+            <BotGuidesEditor value={guides} onChange={setGuides} onBusyChange={setGuideUploading} />
 
             <h3 style={{ fontSize: 15, fontWeight: 600, margin: '16px 0 8px' }}>Изображение</h3>
             {hasImage && imageUrl && (
@@ -1753,7 +1761,7 @@ function BotPage() {
             </label>
 
             <div style={{ display: 'flex', gap: 10, marginTop: 20, flexWrap: 'wrap' }}>
-              <Btn onClick={saveWelcome} disabled={saving}>{saving ? 'Сохранение...' : 'Сохранить настройки'}</Btn>
+              <Btn onClick={saveWelcome} disabled={saving || guideUploading}>{saving ? 'Сохранение...' : 'Сохранить настройки'}</Btn>
             </div>
 
             <div style={{ marginTop: 16, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>

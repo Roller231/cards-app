@@ -27,6 +27,7 @@ from app.models.order import Order
 from app.models.topup import BalanceTopUpRequest
 from app.models.user import User
 from app.seed.faq_seed import seed_faqs
+from app.services.bot_guides import BotGuide, GUIDES_KEY, MAX_VIDEO_BYTES, admin_guide, get_guides, serialize_guides, video_path
 
 logger = logging.getLogger(__name__)
 
@@ -1239,6 +1240,7 @@ async def get_bot_settings(db: AsyncSession = Depends(get_db), _=Depends(get_adm
         "parse_mode": sm.get("BOT_WELCOME_PARSE_MODE", "HTML"),
         "has_image": _WELCOME_IMG.exists(),
         "image_url": "/uploads/bot_welcome.jpg" if _WELCOME_IMG.exists() else None,
+        "guides": [admin_guide(g) for g in await get_guides(db)],
     }
 
 
@@ -1246,15 +1248,45 @@ class BotSettingsUpdate(BaseModel):
     text: str
     buttons: str = "[]"
     parse_mode: str = "HTML"
+    guides: Optional[List[BotGuide]] = None
 
 
 @router.put("/bot/settings", summary="Update bot welcome-message settings")
 async def update_bot_settings(body: BotSettingsUpdate, db: AsyncSession = Depends(get_db), _=Depends(get_admin)):
+    guides_json = None
+    if body.guides is not None:
+        try:
+            guides_json = serialize_guides(body.guides)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        for guide in body.guides:
+            if guide.video_key:
+                path = video_path(guide.video_key)
+                if not path or not path.is_file():
+                    raise HTTPException(400, f"Сначала загрузите видео для инструкции «{guide.title}».")
     await _upsert_setting(db, "BOT_WELCOME_TEXT", body.text)
     await _upsert_setting(db, "BOT_WELCOME_BUTTONS", body.buttons)
     await _upsert_setting(db, "BOT_WELCOME_PARSE_MODE", body.parse_mode)
     await _upsert_setting(db, "BOT_WELCOME_FILE_ID", "")  # reset cache on text/button change
+    if guides_json is not None:
+        await _upsert_setting(db, GUIDES_KEY, guides_json, "Инструкции под приветствием бота")
     return {"ok": True}
+
+
+@router.post("/bot/guides/upload-video", summary="Upload an MP4 video for a bot instruction")
+async def upload_guide_video(file: UploadFile = File(...), _=Depends(get_admin)):
+    if Path(file.filename or "").suffix.lower() != ".mp4":
+        raise HTTPException(400, "Загрузите видео в формате MP4.")
+    content = await file.read(MAX_VIDEO_BYTES + 1)
+    if len(content) > MAX_VIDEO_BYTES:
+        raise HTTPException(413, "Видео слишком большое. Максимум — 50 МБ.")
+    if len(content) < 12 or content[4:8] != b"ftyp":
+        raise HTTPException(400, "Файл не является видео MP4.")
+    key = f"bot_guides/{uuid.uuid4().hex}.mp4"
+    path = video_path(key)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+    return {"video_key": key, "video_url": "/uploads/" + key}
 
 
 @router.post("/bot/upload-image", summary="Upload welcome image")

@@ -10,6 +10,7 @@ import json
 import logging
 import re
 import uuid
+from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -28,6 +29,9 @@ UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 WELCOME_IMAGE_PATH = UPLOADS_DIR / "bot_welcome.jpg"
 
 _last_update_id: int = 0
+_guide_video_locks = defaultdict(asyncio.Lock)
+_guide_chats_in_flight = set()
+_guide_tasks = set()
 
 
 # ─── low-level Telegram API wrappers ───────────────────────────────────────
@@ -138,6 +142,11 @@ async def send_welcome(chat_id: int, db: AsyncSession) -> None:
         buttons = []
 
     markup = _build_markup(buttons)
+    from app.services.bot_guides import get_guides
+    guide_rows = [[{"text": g["title"], "callback_data": "guide:" + g["id"]}]
+                  for g in await get_guides(db) if g["enabled"]]
+    if guide_rows:
+        markup = {"inline_keyboard": (markup or {}).get("inline_keyboard", []) + guide_rows}
 
     async def _send(body_text: str, mode: Optional[str]) -> dict:
         nonlocal cached_fid
@@ -190,6 +199,90 @@ async def send_welcome(chat_id: int, db: AsyncSession) -> None:
 
 
 # ─── broadcast ─────────────────────────────────────────────────────────────
+
+async def _send_guide_video(chat_id: int, path: Path, caption: str, db: AsyncSession) -> dict:
+    from app.services.bot_guides import video_cache_key
+    cache_key = video_cache_key(path)
+    payload = {"chat_id": chat_id, "caption": caption, "parse_mode": "HTML", "supports_streaming": True}
+    # Serialize the first upload. Later requests reuse Telegram's file_id.
+    async with _guide_video_locks[cache_key]:
+        cached = await _get_setting(db, cache_key)
+        if cached:
+            result = await _tg_post("sendVideo", {**payload, "video": cached})
+            if result.get("ok"):
+                return result
+        url = f"https://api.telegram.org/bot{_token()}/sendVideo"
+        async with httpx.AsyncClient(timeout=180) as client:
+            with path.open("rb") as file:
+                response = await client.post(url, data={**payload, "supports_streaming": "true"},
+                    files={"video": (path.name, file, "video/mp4")})
+        result = response.json()
+        if result.get("ok"):
+            fid = (result.get("result", {}).get("video") or {}).get("file_id")
+            if fid:
+                await _save_setting(db, cache_key, fid, "Telegram video file_id cache")
+        return result
+
+
+async def handle_guide_callback(callback: dict, db: AsyncSession) -> None:
+    from app.services.bot_guides import get_guides, video_path
+    chat = (callback.get("message") or {}).get("chat") or {}
+    chat_id = chat.get("id")
+    sender = (callback.get("from") or {}).get("id")
+    if chat.get("type") != "private" or str(chat_id) != str(sender):
+        await _tg_post("answerCallbackQuery", {"callback_query_id": callback["id"], "text": "Откройте инструкцию в личном чате с ботом.", "show_alert": True})
+        return
+    guide_id = str(callback.get("data") or "").removeprefix("guide:")
+    guide = next((g for g in await get_guides(db) if g["id"] == guide_id and g["enabled"]), None)
+    if guide is None:
+        await _tg_post("answerCallbackQuery", {"callback_query_id": callback["id"], "text": "Инструкция больше недоступна. Отправьте /start, чтобы обновить меню.", "show_alert": True})
+        return
+    await _tg_post("answerCallbackQuery", {"callback_query_id": callback["id"], "text": "Открываем инструкцию…"})
+    text = guide["text"] or _html.escape(guide["title"])
+    path = video_path(guide.get("video_key"))
+    try:
+        if path and path.is_file():
+            await db.commit()  # End the settings snapshot before reading the shared file_id cache.
+            # Keep long HTML intact instead of cutting through formatting tags.
+            caption = text if len(text) <= 1024 else ""
+            result = await _send_guide_video(chat_id, path, caption, db)
+            if not result.get("ok") and "parse" in str(result.get("description", "")).lower():
+                result = await _send_guide_video(chat_id, path, re.sub(r"<[^>]+>", "", caption), db)
+            if not result.get("ok"):
+                raise RuntimeError("Telegram rejected instruction video")
+            if caption:
+                return
+        result = await _tg_post("sendMessage", {"chat_id": chat_id, "text": text, "parse_mode": "HTML"})
+        if not result.get("ok"):
+            result = await _tg_post("sendMessage", {"chat_id": chat_id, "text": re.sub(r"<[^>]+>", "", text)})
+        if not result.get("ok"):
+            raise RuntimeError("Telegram rejected instruction text")
+    except Exception:
+        logger.exception("Bot instruction delivery failed: guide=%s", guide_id)
+        await _tg_post("sendMessage", {"chat_id": chat_id, "text": "Не удалось загрузить инструкцию. Попробуйте нажать кнопку чуть позже."})
+
+
+async def schedule_guide_callback(callback: dict) -> None:
+    """Video uploads must not block other /start or manager callbacks."""
+    from app.core.database import AsyncSessionLocal
+    chat_id = ((callback.get("message") or {}).get("chat") or {}).get("id")
+    if chat_id in _guide_chats_in_flight:
+        await _tg_post("answerCallbackQuery", {"callback_query_id": callback["id"], "text": "Инструкция уже отправляется. Подождите немного."})
+        return
+    _guide_chats_in_flight.add(chat_id)
+
+    async def deliver():
+        try:
+            async with AsyncSessionLocal() as db:
+                await handle_guide_callback(callback, db)
+        except Exception:
+            logger.exception("Bot instruction callback failed")
+        finally:
+            _guide_chats_in_flight.discard(chat_id)
+
+    task = asyncio.create_task(deliver())
+    _guide_tasks.add(task)
+    task.add_done_callback(_guide_tasks.discard)
 
 # ---------------------------------------------------------------------------
 # Broadcast segments: named user filters for targeted broadcasts
@@ -586,6 +679,9 @@ async def poll_once() -> None:
         _last_update_id = update["update_id"]
         cb = update.get("callback_query")
         if cb:
+            if str(cb.get("data") or "").startswith("guide:"):
+                await schedule_guide_callback(cb)
+                continue
             # Managers' buttons for China requests (when no separate bot is set)
             if str(cb.get("data") or "").startswith("sr:"):
                 try:

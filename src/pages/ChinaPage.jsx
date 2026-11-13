@@ -54,7 +54,7 @@ function Row({ label, value, muted, strong, top }) {
  * and the recipient, pays in rubles by SBP, and the team sends the yuan.
  */
 export default function ChinaPage() {
-  const { appConfig } = useAuth()
+  const { appConfig, user, fetchMe } = useAuth()
   const sbpOff = !!appConfig?.sbp_disabled
   const [paymentMethod, setPaymentMethod] = useState(() => appConfig?.sbp_disabled && appConfig?.cryptoway_enabled ? 'crypto' : 'sbp')
   const [service, setService] = useState('alipay')
@@ -80,7 +80,7 @@ export default function ChinaPage() {
     try {
       const r = await api.services.myRequests()
       setRequests(r?.items || [])
-    } catch {}
+    } catch { /* Keep the current history if the refresh fails. */ }
   }, [])
   useEffect(() => { loadRequests() }, [loadRequests])
   useEffect(() => {
@@ -94,7 +94,7 @@ export default function ChinaPage() {
   const amountNum = parseFloat(amount) || 0
   const calc = useMemo(() => {
     if (quote?.payment_method && quote.payment_method !== paymentMethod) return null
-    if (paymentMethod === 'crypto') {
+    if (paymentMethod !== 'sbp') {
       if (!quote?.cny_per_usdt || amountNum <= 0) return null
       return { totalUsdt: Math.round((amountNum / Number(quote.cny_per_usdt) + Number.EPSILON) * 100) / 100 }
     }
@@ -118,7 +118,16 @@ export default function ChinaPage() {
   const nameOk = /^[A-Za-z][A-Za-z' .-]*\s+[A-Za-z' .-]*[A-Za-z.]$/.test(name.trim())
   const phoneOk = phone.replace(/[^\d]/g, '').length >= 7
   const recipientOk = effectiveType === 'qr' ? !!qrFile : (phoneOk && nameOk)
-  const canSubmit = (paymentMethod === 'crypto' ? appConfig?.cryptoway_enabled : !sbpOff) && calc && !limitError && recipientOk && !sending
+  const balanceEnough = paymentMethod !== 'balance' || (calc && Number(user?.balance || 0) >= calc.totalUsdt)
+  const canSubmit = (paymentMethod === 'crypto' ? appConfig?.cryptoway_enabled : paymentMethod === 'balance' || !sbpOff) && calc && !limitError && balanceEnough && recipientOk && !sending
+  const displayedRate = Number(quote?.payment_method === paymentMethod
+    ? paymentMethod === 'sbp' ? quote.base_rate : quote.cny_per_usdt
+    : null)
+  const rateLabel = Number.isFinite(displayedRate) && displayedRate > 0
+    ? paymentMethod === 'sbp'
+      ? `1 ¥ = ${displayedRate.toFixed(2)} ₽`
+      : `1 ${paymentMethod === 'balance' ? '$' : 'USDT'} = ${displayedRate.toLocaleString('ru-RU')} ¥`
+    : null
 
   const pickFile = (e) => {
     const f = e.target.files && e.target.files[0]
@@ -147,7 +156,12 @@ export default function ChinaPage() {
         qrFile: effectiveType === 'qr' ? qrFile : null,
       })
       metrikaGoal('china_request', { service })
-      setPayRequest(res)
+      if (paymentMethod === 'balance') {
+        const paid = await api.services.payBalance(res.id)
+        setPaidRequest(paid)
+        resetForm()
+        fetchMe?.()
+      } else setPayRequest(res)
       loadRequests()
     } catch (e) {
       setError(e.message || 'Не удалось создать заявку')
@@ -173,14 +187,14 @@ export default function ChinaPage() {
           <div style={{ position: 'absolute', right: -30, top: -30, width: 150, height: 150, borderRadius: '50%', background: 'rgba(255,255,255,0.12)' }} />
           <div style={{ position: 'relative', fontSize: 26, fontWeight: 800, lineHeight: 1.15 }}>Alipay и WeChat Pay</div>
           <div style={{ position: 'relative', fontSize: 14, lineHeight: 1.5, marginTop: 8, color: 'rgba(255,255,255,0.92)' }}>
-            Переведём юани на Alipay или WeChat — оплата по СБП или USDT.
+            Переведём юани на Alipay или WeChat — оплата с баланса, по СБП или USDT.
           </div>
-          {quote?.payment_method === paymentMethod && (quote?.base_rate || quote?.cny_per_usdt) && (
+          {rateLabel && (
             <div style={{
               position: 'relative', display: 'inline-block', marginTop: 12, padding: '6px 12px', borderRadius: 10,
               background: 'rgba(255,255,255,0.2)', fontSize: 14, fontWeight: 700,
             }}>
-              {paymentMethod === 'crypto' ? `1 USDT = ${Number(quote.cny_per_usdt).toLocaleString('ru-RU')} ¥` : `1 ¥ = ${Number(quote.base_rate).toFixed(2)} ₽`}
+              {rateLabel}
             </div>
           )}
         </div>
@@ -202,7 +216,7 @@ export default function ChinaPage() {
               <div>
                 <label style={labelStyle}>Способ оплаты</label>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  {[{ id: 'sbp', label: 'СБП', disabled: sbpOff }, ...(appConfig?.cryptoway_enabled ? [{ id: 'crypto', label: 'USDT', disabled: false }] : [])].map(method => (
+                  {[{ id: 'sbp', label: 'СБП', disabled: sbpOff }, ...(appConfig?.cryptoway_enabled ? [{ id: 'crypto', label: 'USDT', disabled: false }] : []), { id: 'balance', label: 'С баланса', disabled: false }].map(method => (
                     <button key={method.id} disabled={method.disabled} onClick={() => setPaymentMethod(method.id)}
                       style={{ flex: 1, borderRadius: 12, padding: 12, border: paymentMethod === method.id ? '2px solid #DC4D35' : '2px solid transparent', background: '#F3F5F8', color: '#111827', fontFamily: font, fontWeight: 600, opacity: method.disabled ? .45 : 1, cursor: 'pointer' }}>
                       {method.label}
@@ -210,6 +224,9 @@ export default function ChinaPage() {
                   ))}
                 </div>
               </div>
+              {paymentMethod === 'balance' && <div style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5 }}>
+                Доступно ${Number(user?.balance || 0).toFixed(2)}. Оплата без NeuroVision.
+              </div>}
               {/* Service */}
               <div>
                 <label style={labelStyle}>Сервис</label>
@@ -363,10 +380,11 @@ export default function ChinaPage() {
                     <div style={{ fontSize: 13, color: quoteError ? '#DC2626' : '#6B7280', fontFamily: font }}>
                       {quoteError ? 'Курс временно недоступен. Попробуйте позже.' : 'Загружаем курс…'}
                     </div>
-                  ) : paymentMethod === 'crypto' ? (
+                  ) : paymentMethod !== 'sbp' ? (
                     <>
-                      <Row label="CNY/USDT" value={`1 USDT = ${Number(quote.cny_per_usdt).toLocaleString('ru-RU')} ¥`} />
-                      <Row label={`${amountNum.toLocaleString('ru-RU')} ¥ ÷ ${Number(quote.cny_per_usdt).toLocaleString('ru-RU')}`} value={`${Number(calc.totalUsdt).toFixed(2)} USDT`} strong top />
+                      <Row label={paymentMethod === 'balance' ? 'CNY/USD' : 'CNY/USDT'} value={`1 ${paymentMethod === 'balance' ? 'USD' : 'USDT'} = ${Number(quote.cny_per_usdt).toLocaleString('ru-RU')} ¥`} />
+                      <Row label={paymentMethod === 'balance' ? 'Списание с баланса' : `${amountNum.toLocaleString('ru-RU')} ¥ ÷ ${Number(quote.cny_per_usdt).toLocaleString('ru-RU')}`} value={paymentMethod === 'balance' ? `$${Number(calc.totalUsdt).toFixed(2)}` : `${Number(calc.totalUsdt).toFixed(2)} USDT`} strong top />
+                      {!balanceEnough && <div style={{ color: '#B91C1C', fontSize: 13 }}>Недостаточно средств. Пополните внутренний баланс в профиле.</div>}
                     </>
                   ) : (
                     <>
@@ -393,7 +411,7 @@ export default function ChinaPage() {
               )}
 
               <Button onClick={submit} disabled={!canSubmit} fullWidth>
-                {sending ? 'Создаём заявку…' : calc ? `Оплатить ${paymentMethod === 'crypto' ? `${Number(calc.totalUsdt).toFixed(2)} USDT` : fmtRub(calc.total)}` : 'Перейти к оплате'}
+                {sending ? 'Обрабатываем…' : calc ? paymentMethod === 'balance' ? `Оплатить $${Number(calc.totalUsdt).toFixed(2)} с баланса` : `Оплатить ${paymentMethod === 'crypto' ? `${Number(calc.totalUsdt).toFixed(2)} USDT` : fmtRub(calc.total)}` : 'Перейти к оплате'}
               </Button>
             </div>
           )}
@@ -419,13 +437,20 @@ export default function ChinaPage() {
                       №{r.id} · {r.service_label} · {Number(r.amount).toLocaleString('ru-RU')} ¥
                     </div>
                     <div style={{ fontSize: 12, color: '#6B7280', fontFamily: font, marginTop: 2 }}>
-                      {r.payment_method === 'crypto' ? `${Number(r.amount_usdt).toFixed(2)} USDT` : r.amount_rub ? fmtRub(r.amount_rub) : ''}
+                      {r.payment_method === 'balance' ? `$${Number(r.amount_usd).toFixed(2)} с баланса` : r.payment_method === 'crypto' ? `${Number(r.amount_usdt).toFixed(2)} USDT` : r.amount_rub ? fmtRub(r.amount_rub) : ''}
                       {d ? ` · ${d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}
                     </div>
                   </div>
                   {canPay ? (
                     <button
-                      onClick={() => setPayRequest(r)}
+                      disabled={sending}
+                      onClick={async () => {
+                        if (r.payment_method !== 'balance') { setPayRequest(r); return }
+                        setSending(true); setError('')
+                        try { setPaidRequest(await api.services.payBalance(r.id)); resetForm(); fetchMe?.(); loadRequests() }
+                        catch (e) { setError(e.message || 'Не удалось оплатить заявку') }
+                        finally { setSending(false) }
+                      }}
                       style={{ border: 'none', background: '#DC4D35', color: '#fff', borderRadius: 10, padding: '7px 12px', fontSize: 13, fontWeight: 600, fontFamily: font, cursor: 'pointer', flexShrink: 0 }}
                     >
                       Оплатить
@@ -443,7 +468,7 @@ export default function ChinaPage() {
       )}
 
       <SbpPaymentModal
-        isOpen={!!payRequest && payRequest.payment_method !== 'crypto'}
+        isOpen={!!payRequest && payRequest.payment_method === 'sbp'}
         onClose={() => { setPayRequest(null); loadRequests() }}
         amountRub={payRequest?.amount_rub || 0}
         purpose="china_payment"

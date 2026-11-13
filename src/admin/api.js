@@ -90,8 +90,21 @@ const adminApi = {
   },
   bot: {
     getSettings: () => req('GET', '/admin/bot/settings'),
-    updateSettings: (text, buttons, parse_mode) =>
-      req('PUT', '/admin/bot/settings', { text, buttons, parse_mode }),
+    updateSettings: (text, buttons, parse_mode, guides) =>
+      req('PUT', '/admin/bot/settings', { text, buttons, parse_mode, guides }),
+    uploadGuideVideo: async (file) => {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await fetch('/api/admin/bot/guides/upload-video', {
+        method: 'POST', headers: { Authorization: `Bearer ${getAdminToken()}` }, body: fd,
+      })
+      if (!res.ok) {
+        let message = 'Не удалось загрузить видео. Максимальный размер — 50 МБ.'
+        try { const body = await res.json(); if (typeof body.detail === 'string') message = body.detail } catch { /* Keep the upload error if the proxy returned HTML. */ }
+        throw new Error(message)
+      }
+      return res.json()
+    },
     uploadImage: async (file) => {
       const fd = new FormData()
       fd.append('file', file)

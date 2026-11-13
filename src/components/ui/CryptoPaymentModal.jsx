@@ -14,6 +14,8 @@ export default function CryptoPaymentModal({ isOpen, onClose, purpose, offerId =
   const [networks, setNetworks] = useState([])
   const [network, setNetwork] = useState('')
   const [loading, setLoading] = useState(false)
+  const [checking, setChecking] = useState(false)
+  const [checkResult, setCheckResult] = useState(null)
   const [error, setError] = useState('')
   const [qr, setQr] = useState('')
   const [showKyc, setShowKyc] = useState(false)
@@ -22,18 +24,22 @@ export default function CryptoPaymentModal({ isOpen, onClose, purpose, offerId =
   const [now, setNow] = useState(Date.now())
   const requestId = useRef('')
   const generation = useRef(0)
+  const pollingRequest = useRef(null)
+  const manualCheck = useRef(null)
   const { showToast } = useToast()
 
   const load = useCallback(async (fresh = false) => {
     if (fresh || !requestId.current) requestId.current = crypto.randomUUID()
     const run = ++generation.current
+    pollingRequest.current = null; manualCheck.current = null
+    setChecking(false); setCheckResult(null)
     setLoading(true); setError('')
     try {
       const [available, quote] = await Promise.all([
         api.crypto.networks(),
         api.crypto.quote({ request_id: requestId.current, purpose, offer_id: offerId, card_id: cardId,
           service_request_id: serviceRequestId,
-          amount_usd: purpose === 'card_topup' ? String(amountUsd) : null }),
+          amount_usd: ['card_topup', 'balance_deposit'].includes(purpose) ? String(amountUsd) : null }),
       ])
       if (generation.current !== run) return
       setNetworks(available.networks || [])
@@ -46,20 +52,59 @@ export default function CryptoPaymentModal({ isOpen, onClose, purpose, offerId =
 
   useEffect(() => {
     if (!isOpen) return
-    requestId.current = ''; setPayment(null); setQr(''); setShowKyc(false)
+    requestId.current = ''; setPayment(null); setQr(''); setShowKyc(false); setChecking(false); setCheckResult(null)
     load()
     const clock = setInterval(() => setNow(Date.now()), 1000)
     return () => { generation.current++; clearInterval(clock) }
   }, [isOpen, load])
 
   const refresh = useCallback(async () => {
-    if (!payment?.id) return
+    if (!payment?.id || pollingRequest.current || manualCheck.current) return
     const run = generation.current
+    const request = api.crypto.payment(payment.id)
+    pollingRequest.current = request
     try {
-      const updated = await api.crypto.payment(payment.id)
-      if (generation.current === run) { setPayment(updated); setError('') }
+      const updated = await request
+      if (generation.current === run) {
+        setPayment(updated); setError('')
+        if (!['active', 'creating'].includes(updated.status)) setCheckResult(null)
+      }
     } catch (e) { if (generation.current === run) setError(e.message || 'Статус временно недоступен. Продолжаем проверку оплаты.') }
+    finally { if (pollingRequest.current === request) pollingRequest.current = null }
   }, [payment?.id])
+
+  async function checkPayment() {
+    if (!payment?.id || manualCheck.current) return
+    const run = generation.current
+    const check = {}
+    manualCheck.current = check
+    setChecking(true); setCheckResult(null); setError('')
+    try {
+      // Let an older poll finish before the explicit check so it cannot
+      // overwrite a newer paid response with an earlier active response.
+      await pollingRequest.current?.catch(() => {})
+      if (generation.current !== run) return
+      const updated = await api.crypto.checkPayment(payment.id)
+      if (generation.current !== run) return
+      setPayment(updated); setError('')
+      const message = updated.status === 'paid'
+        ? 'Оплата подтверждена.'
+        : updated.status === 'review' || updated.fulfillment_status === 'review'
+          ? updated.last_error || 'Платёж ожидает проверки платёжным сервисом.'
+          : ['expired', 'cancelled', 'error'].includes(updated.status)
+            ? 'Счёт закрыт. Если перевод уже отправлен, не платите повторно — обратитесь в поддержку.'
+            : Number(updated.received_usdt) > 0
+              ? `Подтверждено ${display(updated.received_usdt)} из ${display(updated.total_usdt)} USDT. Ожидаем полную оплату.`
+              : 'Проверка выполнена. Платёжный сервис пока не подтвердил оплату. Если перевод отправлен, дождитесь подтверждения сети; повторно платить не нужно.'
+      setCheckResult({ message, error: false })
+      showToast({ title: updated.status === 'paid' ? 'Оплата подтверждена' : 'Статус оплаты проверен' })
+    } catch (e) {
+      if (generation.current === run) setCheckResult({ message: e.message || 'Не удалось проверить оплату. Повторите проверку позже; повторно платить не нужно.', error: true })
+    } finally {
+      if (manualCheck.current === check) manualCheck.current = null
+      if (generation.current === run) setChecking(false)
+    }
+  }
 
   useEffect(() => {
     if (!isOpen || !payment?.id || ['quoted', 'error', 'cancelled'].includes(payment.status) || ['completed', 'failed'].includes(payment.fulfillment_status)) return
@@ -99,7 +144,7 @@ export default function CryptoPaymentModal({ isOpen, onClose, purpose, offerId =
 
   async function cancel() {
     if (!payment?.id || loading) return
-    setLoading(true); setError('')
+    setLoading(true); setError(''); setCheckResult(null)
     try { setPayment(await api.crypto.cancel(payment.id)) }
     catch (e) { setError(e.message) }
     finally { setLoading(false) }
@@ -114,6 +159,7 @@ export default function CryptoPaymentModal({ isOpen, onClose, purpose, offerId =
   const needsKyc = payment?.kyc_required && !payment?.kyc_verified
   const needsContact = payment?.contact_required && (!payment.contact_ready || contactEmail !== (payment.contact_email || '') || contactPhone !== (payment.contact_phone || ''))
   const isChina = purpose === 'china_payment'
+  const isBalance = purpose === 'balance_deposit'
   const completed = payment?.fulfillment_status === 'completed'
   const review = payment?.status === 'review' || payment?.fulfillment_status === 'review'
   const paid = payment?.status === 'paid'
@@ -132,9 +178,11 @@ export default function CryptoPaymentModal({ isOpen, onClose, purpose, offerId =
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {payment && <div style={panel}>
-            <div style={{ fontSize: 13, color: '#6B7280' }}>{isChina ? 'Alipay / WeChat Pay' : purpose === 'card_issue' ? 'Выпуск карты' : 'На карту'}</div>
+            <div style={{ fontSize: 13, color: '#6B7280' }}>{isBalance ? 'Пополнение внутреннего баланса' : isChina ? 'Alipay / WeChat Pay' : purpose === 'card_issue' ? 'Выпуск карты' : 'На карту'}</div>
             <div style={{ fontSize: 25, fontWeight: 700, marginTop: 4 }}>{display(payment.total_usdt)} USDT</div>
-            {isChina
+            {isBalance
+              ? <p style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5, margin: '8px 0 0' }}>На внутренний баланс поступит ${display(payment.amount_usd)}. Зачисление 1:1 без дополнительной наценки.</p>
+              : isChina
               ? <p style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5, margin: '8px 0 0' }}>{Number(payment.amount_cny).toLocaleString('ru-RU')} ¥ ÷ {Number(payment.cny_per_usdt).toLocaleString('ru-RU')} CNY/USDT. Курс зафиксирован для этой заявки. Без комиссии СБП.</p>
               : purpose === 'card_topup'
               ? <p style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5, margin: '8px 0 0' }}>На карту поступит ${display(payment.amount_usd)}. Комиссия за пополнение {Number(payment.fee_percent)}% включена в сумму. Комиссии СБП нет.</p>
@@ -142,7 +190,7 @@ export default function CryptoPaymentModal({ isOpen, onClose, purpose, offerId =
           </div>}
           {error && <div role="alert" style={{ ...panel, background: '#FEF2F2', color: '#B91C1C', fontSize: 13, lineHeight: 1.5 }}>{error}</div>}
           {!payment && (loading ? <p>Подготавливаем оплату…</p> : <Button onClick={() => load()}>Повторить</Button>)}
-          {payment && !isChina && !payment.kyc_required && <div style={{ ...panel, fontSize: 13, lineHeight: 1.5 }}>Карта Pay: выпуск и пополнение за USDT доступны без верификации личности (KYC).</div>}
+          {payment && !payment.kyc_required && <div style={{ ...panel, fontSize: 13, lineHeight: 1.5 }}>Оплата USDT доступна без проверки NeuroVision.</div>}
           {payment?.status === 'quoted' && <>
             {payment.contact_required && <div style={panel}>
               <div style={{ fontWeight: 600, marginBottom: 10 }}>Контакты для карты Online</div>
@@ -165,6 +213,7 @@ export default function CryptoPaymentModal({ isOpen, onClose, purpose, offerId =
             {seconds <= 0 && <Button variant="secondary" onClick={() => load(true)}>Обновить расчёт</Button>}
           </>}
           {payment?.status === 'creating' && <p style={{ ...panel, lineHeight: 1.5 }}>Проверяем создание счёта. Адрес появится автоматически — не создавайте повторную оплату.</p>}
+          {checkResult && (paid || closed || review) && <div role={checkResult.error ? 'alert' : 'status'} aria-live="polite" style={{ ...panel, fontSize: 13, lineHeight: 1.5, color: checkResult.error ? '#B91C1C' : '#374151' }}>{checkResult.message}</div>}
           {payment?.address && !paid && !closed && !review && <>
             <div style={{ ...panel, textAlign: 'center' }}>
               <div style={{ fontWeight: 600 }}>USDT · {payment.network_name}</div>
@@ -179,12 +228,13 @@ export default function CryptoPaymentModal({ isOpen, onClose, purpose, offerId =
               {seconds > 0 ? <>Отправьте ровно <b>{display(payment.total_usdt)} USDT</b> в сети <b>{payment.network_name}</b>. До окончания счёта: {timerText}. Сумма должна дойти целиком.</> : <>Время счёта истекло. Не отправляйте новый перевод — проверяем, успел ли поступить платёж.</>}
             </div>
             {Number(payment.received_usdt) > 0 && <p style={{ fontSize: 13 }}>Подтверждено: {display(payment.received_usdt)} USDT из {display(payment.total_usdt)}.</p>}
-            <Button disabled={loading} onClick={refresh}>Проверить оплату</Button>
-            {Number(payment.received_usdt) === 0 && <Button variant="secondary" disabled={loading} onClick={cancel}>Отменить счёт</Button>}
+            <Button disabled={loading || checking} onClick={checkPayment}>{checking ? 'Проверяем оплату…' : 'Проверить оплату'}</Button>
+            {checkResult && <div role={checkResult.error ? 'alert' : 'status'} aria-live="polite" style={{ ...panel, fontSize: 13, lineHeight: 1.5, color: checkResult.error ? '#B91C1C' : '#374151' }}>{checkResult.message}</div>}
+            {Number(payment.received_usdt) === 0 && <Button variant="secondary" disabled={loading || checking} onClick={cancel}>Отменить счёт</Button>}
           </>}
-          {paid && !completed && !failed && !review && <div style={{ ...panel, lineHeight: 1.6 }}><b>Оплата получена</b><br />{isChina ? 'Передаём заявку менеджеру для перевода юаней.' : purpose === 'card_issue' ? 'Выпускаем карту.' : 'Пополняем карту.'} Можно закрыть это окно.</div>}
+          {paid && !completed && !failed && !review && <div style={{ ...panel, lineHeight: 1.6 }}><b>Оплата получена</b><br />{isBalance ? 'Зачисляем средства на внутренний баланс.' : isChina ? 'Передаём заявку менеджеру для перевода юаней.' : purpose === 'card_issue' ? 'Выпускаем карту.' : 'Пополняем карту.'} Можно закрыть это окно.</div>}
           {paid && Number(payment.overpaid_usdt) > 0 && <div style={{ ...panel, lineHeight: 1.5 }}>Переплата: {display(payment.overpaid_usdt)} USDT. <a href="https://t.me/exprontopay1" style={{ color: '#DC4D35' }}>Напишите в поддержку для возврата разницы.</a></div>}
-          {completed && <><div style={panel}>{isChina ? 'Заявка оплачена. Менеджер выполнит перевод юаней получателю.' : purpose === 'card_issue' ? 'Карта выпущена.' : 'Карта пополнена.'}</div><Button onClick={() => { onPaid?.(); onClose() }}>Готово</Button></>}
+          {completed && <><div style={panel}>{isBalance ? `$${display(payment.amount_usd)} зачислено на внутренний баланс.` : isChina ? 'Заявка оплачена. Менеджер выполнит перевод юаней получателю.' : purpose === 'card_issue' ? 'Карта выпущена.' : 'Карта пополнена.'}</div><Button onClick={() => { onPaid?.(); onClose() }}>Готово</Button></>}
           {(review || failed) && <div style={{ ...panel, lineHeight: 1.6 }}>
             {payment.last_error || 'Платёж требует проверки поддержки.'}
             {payment.refund_credited && <p>Возврат: {display(payment.total_usdt)} $ на внутренний баланс.</p>}

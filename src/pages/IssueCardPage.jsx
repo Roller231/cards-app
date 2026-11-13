@@ -6,6 +6,8 @@ import PageHeader from '../components/ui/PageHeader'
 import SbpPaymentModal from '../components/ui/SbpPaymentModal'
 import KycModal from '../components/ui/KycModal'
 import CryptoPaymentModal from '../components/ui/CryptoPaymentModal'
+import CardContactModal from '../components/ui/CardContactModal'
+import { cardContactsReady } from '../utils/cardContacts'
 import { cardBackgroundByTypeName, McChip } from '../utils/cardAssets'
 import PromoCard, { usePromoCards, PROMO_KEY_BY_TYPE } from '../components/PromoCard'
 
@@ -30,6 +32,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
   const [showSbpModal, setShowSbpModal] = useState(false)
   const [showCryptoModal, setShowCryptoModal] = useState(false)
   const [showKycModal, setShowKycModal] = useState(false)
+  const [showContactModal, setShowContactModal] = useState(false)
   const [kycStatus, setKycStatus] = useState(null)
   const [paymentMethod, setPaymentMethod] = useState(() => (appConfig?.sbp_disabled ? 'balance' : 'sbp')) // 'sbp' | 'balance'
   const [quote, setQuote] = useState(null) // /cards/issue-quote: { price_usd, balance_usd, enough, rate }
@@ -619,8 +622,12 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
                     setShowCryptoModal(true)
                     return
                   }
-                  // KYC is required for both payment methods (the provider
-                  // needs a verified identity to issue the card)
+                  if (paymentMethod === 'balance') {
+                    if (!String(selectedCardType).startsWith('ROCKETPAY') && !cardContactsReady(user)) setShowContactModal(true)
+                    else handleIssueCard()
+                    return
+                  }
+                  // All SBP payments require a successful NeuroVision check.
                   try {
                     const s = await api.kyc.status()
                     if (s.kyc_status === 'success') {
@@ -848,6 +855,8 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
         </div>
       )}
 
+      <CardContactModal isOpen={showContactModal} onClose={() => setShowContactModal(false)}
+        onSaved={() => { setShowContactModal(false); handleIssueCard() }} />
       <KycModal
         isOpen={showKycModal}
         onClose={() => setShowKycModal(false)}

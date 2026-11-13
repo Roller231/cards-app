@@ -80,8 +80,8 @@ async def cny_quote(payment_method: str = "sbp") -> dict:
     from app.api.routers.sbp import SBP_MAX_AMOUNT_RUB, _get_bb_fee_params, _min_transfer_rub
     from app.services.rate_service import RateUnavailable, get_bb_index
     divisor = float(cny_per_usdt())
-    if payment_method == "crypto":
-        return {"cny_per_usdt": str(cny_per_usdt()), "min_cny": min_cny_map(), "payment_method": "crypto"}
+    if payment_method in ("crypto", "balance"):
+        return {"cny_per_usdt": str(cny_per_usdt()), "min_cny": min_cny_map(), "payment_method": payment_method}
     try:
         index = await get_bb_index()
     except RateUnavailable as exc:
@@ -120,7 +120,7 @@ def rub_for_cny(amount_cny: Decimal, rate: float) -> tuple:
 
 @router.get("/rate", summary="Yuan rate for Alipay / WeChat Pay payments")
 async def get_rate(payment_method: str = "sbp", _: User = Depends(get_current_user)):
-    if payment_method not in ("sbp", "crypto"):
+    if payment_method not in ("sbp", "crypto", "balance"):
         raise HTTPException(400, "Выберите способ оплаты")
     return await cny_quote(payment_method)
 
@@ -136,6 +136,7 @@ def request_dict(r: ServiceRequest) -> dict:
         "currency": r.currency,
         "payment_method": r.payment_method,
         "amount_usdt": str(r.amount_usdt) if r.amount_usdt is not None else None,
+        "amount_usd": str(r.amount_usdt) if r.payment_method == "balance" and r.amount_usdt is not None else None,
         "cny_per_usdt": str(r.cny_per_usdt) if r.cny_per_usdt is not None else None,
         "crypto_payment_id": r.crypto_payment_id,
         "amount_rub": float(r.amount_rub) if r.amount_rub is not None else None,
@@ -365,6 +366,8 @@ def manager_text(r: ServiceRequest, user: User) -> str:
     amount_rub = f"{float(r.amount_rub or 0):,.0f}".replace(",", " ")
     payment_text = (f"💳 Оплачено USDT: {r.amount_usdt:.2f} USDT (1 USDT = {r.cny_per_usdt} ¥)"
                     if r.payment_method == "crypto" else f"💳 Оплачено по СБП: {amount_rub} ₽ (курс {float(r.rate_rub or 0):.4f})")
+    if r.payment_method == "balance":
+        payment_text = f"💼 Оплачено с внутреннего баланса: ${r.amount_usdt:.2f} (1 USD = {r.cny_per_usdt} ¥)"
     return (
         f"<b>🧧 Оплаченная заявка №{r.id}: {SERVICES.get(r.service, r.service)}</b>\n\n"
         f"💴 К переводу: <b>{amount_cny} ¥</b>\n"
@@ -376,10 +379,11 @@ def manager_text(r: ServiceRequest, user: User) -> str:
 
 
 async def on_request_paid(db: AsyncSession, request_id: int, invoice_id: Optional[int] = None,
-                          crypto_payment_id: Optional[int] = None) -> None:
+                          crypto_payment_id: Optional[int] = None, balance_payment: bool = False) -> None:
     """Called once when the SBP invoice of a request is captured."""
     r = (await db.execute(select(ServiceRequest).where(ServiceRequest.id == request_id).with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
-    if r and ((r.payment_method == "crypto") != (crypto_payment_id is not None)):
+    expected_method = "balance" if balance_payment else "crypto" if crypto_payment_id is not None else "sbp"
+    if r and r.payment_method != expected_method:
         raise ValueError("Payment method does not match service request")
     if r and crypto_payment_id is not None and r.crypto_payment_id not in (None, crypto_payment_id):
         raise ValueError("Service request already paid by another invoice")
@@ -435,7 +439,7 @@ async def create_request(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if payment_method not in ("sbp", "crypto"):
+    if payment_method not in ("sbp", "crypto", "balance"):
         raise HTTPException(400, "Выберите способ оплаты")
     if payment_method == "crypto":
         from app.services.crypto_payment_service import require_enabled
@@ -471,7 +475,9 @@ async def create_request(
     # Price check against the limits of an SBP payment
     quote = await cny_quote(payment_method)
     divisor = Decimal(quote['cny_per_usdt'])
-    total_usdt = usdt_for_cny(amount_cny, divisor) if payment_method == "crypto" else None
+    total_usdt = usdt_for_cny(amount_cny, divisor) if payment_method in ("crypto", "balance") else None
+    if total_usdt is not None and total_usdt <= 0:
+        raise HTTPException(400, "Сумма оплаты должна быть не менее 0,01.")
     base_rub, fee_rub, total_rub = rub_for_cny(amount_cny, quote["rate"]) if payment_method == "sbp" else (None, 0, None)
     if payment_method == "sbp" and total_rub < quote["min_transfer_rub"]:
         raise HTTPException(400, f"Минимальная сумма оплаты по СБП — {quote['min_transfer_rub']:,} ₽. Увеличьте сумму в юанях.".replace(",", " "))
@@ -523,6 +529,36 @@ async def create_request(
     out = request_dict(req)
     out.update({"base_rub": base_rub, "fee_rub": fee_rub})
     return out
+
+
+@router.post("/requests/{request_id}/pay-balance", summary="Pay an Alipay / WeChat request from the internal balance")
+async def pay_from_balance(
+    request_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    req = (await db.execute(select(ServiceRequest).where(
+        ServiceRequest.id == request_id, ServiceRequest.user_id == current_user.id,
+    ).with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
+    if not req:
+        raise HTTPException(404, "Заявка не найдена.")
+    if req.payment_method != "balance":
+        raise HTTPException(409, "В заявке выбран другой способ оплаты.")
+    if req.status in ("paid", "in_progress", "done"):
+        return request_dict(req)
+    if req.status != "awaiting_payment" or req.created_at < datetime.utcnow() - UNPAID_TTL:
+        raise HTTPException(409, "Срок заявки истёк или она закрыта. Создайте новый перевод.")
+    if not req.amount_usdt or req.amount_usdt <= 0:
+        raise HTTPException(409, "Расчёт заявки недоступен. Создайте новый перевод.")
+    from app.services.wallet_service import debit
+    try:
+        await debit(db, current_user, req.amount_usdt, "china_payment",
+                    f"{SERVICES.get(req.service, req.service)}, заявка #{req.id}: {req.amount:.2f} CNY")
+    except ValueError:
+        raise HTTPException(400, f"Недостаточно средств на балансе: нужно ${req.amount_usdt:.2f}.")
+    # The debit and paid status commit together before manager notifications.
+    await on_request_paid(db, req.id, balance_payment=True)
+    return request_dict(req)
 
 
 @router.get("/requests", summary="My Alipay / WeChat Pay requests")

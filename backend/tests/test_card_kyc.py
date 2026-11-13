@@ -13,6 +13,7 @@ from app.api.routers.crypto_payments import router as crypto_router
 from app.core.config import settings
 from app.core.database import get_db
 from app.services import crypto_payment_service as crypto, rocketpay_service, wallet_service
+from app.services.card_kyc import synthetic_ready
 from app.services.card_service import card_service, ONLINE_OFFER_ID
 from test_cryptoway import FakeSession, invoice, payment, user
 
@@ -44,21 +45,24 @@ class CardKycTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(row.status,'active')
                 self.assertFalse(crypto.requires_kyc(offer))
 
-    async def test_online_issue_and_topup_crypto_blocked_before_invoice(self):
+    async def test_online_issue_and_topup_crypto_accept_without_neurovision(self):
         for purpose in ['card_issue','card_topup']:
             with self.subTest(purpose=purpose):
+                owner=unverified_user();owner.phone='+79991234567';owner.email='unit@prontopay.pro'
                 row=payment(status='quoted',purpose=purpose,offer_id=ONLINE_OFFER_ID)
-                with patch.object(crypto.cryptoway_client,'create_invoice',AsyncMock()) as api:
-                    with self.assertRaises(HTTPException) as error:
-                        await crypto.create_invoice(FakeSession(row=row),unverified_user(),row.id,'USDTBEP20')
-                self.assertEqual(error.exception.status_code,403)
-                api.assert_not_awaited()
-                self.assertTrue(crypto.requires_kyc(ONLINE_OFFER_ID))
+                api=AsyncMock(return_value=invoice(row,status='active'))
+                with patch.object(crypto.cryptoway_client,'create_invoice',api):
+                    await crypto.create_invoice(FakeSession(row=row),owner,row.id,'USDTBEP20')
+                api.assert_awaited_once()
+                self.assertEqual(row.status,'active')
+                self.assertIsNone(owner.kyc_status)
+                self.assertFalse(crypto.requires_kyc(ONLINE_OFFER_ID))
 
-    async def test_online_cannot_use_pay_exemption_on_old_bins(self):
-        from app.services.card_service import CARD_NAME_BY_OFFER
+    async def test_only_supported_regular_online_and_pay_skip_neurovision(self):
+        from app.services.card_service import CARD_NAME_BY_OFFER, synthetic_kyc_offer_allowed
         for offer,name in CARD_NAME_BY_OFFER.items():
-            if name!='Pay':self.assertTrue(crypto.requires_kyc(offer),offer)
+            if name!='Pay':self.assertEqual(crypto.requires_kyc(offer),not synthetic_kyc_offer_allowed(offer),offer)
+        self.assertTrue(crypto.requires_kyc('UNKNOWN'))
 
     async def test_pay_service_dispatch_needs_no_customer_identity(self):
         db=FakeSession();owner=unverified_user()
@@ -82,7 +86,22 @@ class CardKycTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaisesRegex(ValueError,'KYC'):
                 await card_service.deposit_card(db,owner,'unit-card',100,skip_balance_check=True)
 
-    async def test_online_balance_and_sbp_require_kyc_before_charging(self):
+    async def test_online_crypto_issue_and_topup_pass_kyc_gate_with_generated_identity(self):
+        owner=unverified_user();owner.phone='+79991234567';owner.email='unit@prontopay.pro'
+        db=FakeSession()
+        with patch.object(card_service,'_ensure_client',AsyncMock(side_effect=RuntimeError('PAST_KYC'))) as provider:
+            with self.assertRaisesRegex(RuntimeError,'PAST_KYC'):
+                await card_service.issue_card(db,owner,ONLINE_OFFER_ID,'User','',skip_balance_check=True,
+                                              crypto_payment_id=1,allow_synthetic_kyc=True)
+        provider.assert_awaited_once()
+        self.assertTrue(synthetic_ready(owner))
+        card=SimpleNamespace(offer_id='RAVANA:RT-prod',aifory_card_id='unit-card')
+        with patch.object(card_service,'_resolve_card',AsyncMock(return_value=card)):
+            with self.assertRaisesRegex(ValueError,'Invalid paid crypto invoice'):
+                await card_service.deposit_card(db,owner,'unit-card',100,skip_balance_check=True,
+                                                crypto_payment_id=1,allow_synthetic_kyc=True)
+
+    async def test_balance_requires_contacts_and_sbp_requires_kyc_before_charging(self):
         app=FastAPI();app.include_router(cards.router);app.include_router(sbp.router)
         async def fake_db():yield FakeSession()
         app.dependency_overrides[get_db]=fake_db
@@ -101,8 +120,12 @@ class CardKycTests(unittest.IsolatedAsyncioTestCase):
                 for path,body in requests:
                     with self.subTest(path=path,purpose=body.get('purpose')):
                         response=await client.post(path,json=body)
-                        self.assertEqual(response.status_code,403,response.text)
-                        self.assertIn('KYC',response.json()['detail'])
+                        if path.startswith('/sbp'):
+                            self.assertEqual(response.status_code,403,response.text)
+                            self.assertIn('KYC',response.json()['detail'])
+                        else:
+                            self.assertEqual(response.status_code,400,response.text)
+                            self.assertIn('email',response.json()['detail'])
         debit.assert_not_awaited();gateway.assert_not_awaited()
 
     async def test_online_crypto_requires_contacts_even_after_kyc(self):
