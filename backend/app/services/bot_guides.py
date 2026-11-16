@@ -1,4 +1,4 @@
-"""Editable instructions below the bot greeting. Videos are sent on demand."""
+"""Editable instructions below the bot greeting, opened in the same message."""
 import hashlib
 import json
 import logging

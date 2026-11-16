@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.admin_setting import AdminSetting
 from app.models.user import User
+from app.services.bot_menu import caption_pages, with_navigation
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ UPLOADS_DIR = Path(__file__).parent.parent.parent / "static" / "uploads"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 WELCOME_IMAGE_PATH = UPLOADS_DIR / "bot_welcome.jpg"
+DEFAULT_MENU_IMAGE_PATH = Path(__file__).parent.parent.parent / "static" / "bot_menu_cover.jpg"
 
 _last_update_id: int = 0
 _guide_video_locks = defaultdict(asyncio.Lock)
@@ -129,56 +131,28 @@ async def _ensure_user_from_start(db: AsyncSession, message: dict, chat_id: int)
 
 # ─── send welcome ──────────────────────────────────────────────────────────
 
-async def send_welcome(chat_id: int, db: AsyncSession) -> None:
-    """Send configured welcome message to a chat_id."""
+async def _welcome_content(db: AsyncSession) -> tuple:
     text = await _get_setting(db, "BOT_WELCOME_TEXT", "Добро пожаловать!")
     parse_mode = await _get_setting(db, "BOT_WELCOME_PARSE_MODE", "HTML")
-    buttons_json = await _get_setting(db, "BOT_WELCOME_BUTTONS", "[]")
-    cached_fid = await _get_setting(db, "BOT_WELCOME_FILE_ID", "")
-
     try:
-        buttons = json.loads(buttons_json)
-    except Exception:
+        buttons = json.loads(await _get_setting(db, "BOT_WELCOME_BUTTONS", "[]"))
+    except (ValueError, TypeError):
         buttons = []
-
     markup = _build_markup(buttons)
     from app.services.bot_guides import get_guides
     guide_rows = [[{"text": g["title"], "callback_data": "guide:" + g["id"]}]
                   for g in await get_guides(db) if g["enabled"]]
     if guide_rows:
         markup = {"inline_keyboard": (markup or {}).get("inline_keyboard", []) + guide_rows}
+    return text, parse_mode, markup
 
+
+async def send_welcome(chat_id: int, db: AsyncSession) -> None:
+    """Send the text-only greeting and its navigation buttons."""
+    text, parse_mode, markup = await _welcome_content(db)
+    # Both the first greeting and the Back destination are text-only.
     async def _send(body_text: str, mode: Optional[str]) -> dict:
-        nonlocal cached_fid
-        if WELCOME_IMAGE_PATH.exists():
-            if cached_fid:
-                payload: dict = {"chat_id": chat_id, "photo": cached_fid, "caption": body_text}
-                if mode:
-                    payload["parse_mode"] = mode
-                if markup:
-                    payload["reply_markup"] = markup
-                r = await _tg_post("sendPhoto", payload)
-                if r.get("ok"):
-                    return r
-                # Cached file_id may belong to a previous bot token — drop it and re-upload
-                logger.warning("Welcome photo via cached file_id failed (%s) — re-uploading",
-                               r.get("description"))
-                cached_fid = ""
-            base_data: dict = {"chat_id": str(chat_id), "caption": body_text}
-            if mode:
-                base_data["parse_mode"] = mode
-            if markup:
-                base_data["reply_markup"] = json.dumps(markup)
-            file_bytes = WELCOME_IMAGE_PATH.read_bytes()
-            r = await _tg_post_file("sendPhoto", base_data, file_bytes, WELCOME_IMAGE_PATH.name)
-            if r.get("ok"):
-                photos = r.get("result", {}).get("photo", [])
-                if photos:
-                    cached_fid = photos[-1]["file_id"]
-                    await _save_setting(db, "BOT_WELCOME_FILE_ID", cached_fid,
-                                        "Telegram file_id (кеш, не менять вручную)")
-            return r
-        payload = {"chat_id": chat_id, "text": body_text}
+        payload = {"chat_id": chat_id, "text": body_text, "link_preview_options": {"is_disabled": True}}
         if mode:
             payload["parse_mode"] = mode
         if markup:
@@ -200,66 +174,166 @@ async def send_welcome(chat_id: int, db: AsyncSession) -> None:
 
 # ─── broadcast ─────────────────────────────────────────────────────────────
 
-async def _send_guide_video(chat_id: int, path: Path, caption: str, db: AsyncSession) -> dict:
+def _edit_ok(result: dict) -> bool:
+    return bool(result.get("ok")) or "message is not modified" in str(result.get("description", "")).lower()
+
+
+async def _menu_replacements(db: AsyncSession, chat_id: int) -> dict:
+    try:
+        value = json.loads(await _get_setting(db, f"BOT_MENU_NAV_{chat_id}", "{}"))
+        return value if isinstance(value, dict) else {}
+    except (TypeError, ValueError):
+        return {}
+
+
+async def _store_menu_replacements(db: AsyncSession, chat_id: int, mapping: dict) -> None:
+    # One bounded record per chat prevents duplicate menus when Telegram repeats
+    # a callback, including after a backend restart.
+    key = f"BOT_MENU_NAV_{chat_id}"
+    value = json.dumps(dict(list(mapping.items())[-16:]))
+    row = (await db.execute(select(AdminSetting).where(AdminSetting.key == key))).scalar_one_or_none()
+    if row:
+        row.value = value
+    else:
+        db.add(AdminSetting(key=key, value=value, description="Bot menu navigation state"))
+    await db.commit()
+
+
+async def _replace_media_with_text(message: dict, text: str, mode: Optional[str], markup: dict, db: AsyncSession) -> dict:
+    chat_id, old_id = message["chat"]["id"], message["message_id"]
+    mapping = await _menu_replacements(db, chat_id)
+    old_key = str(old_id)
+    new_id = mapping.get(old_key)
+    if new_id is None:
+        payload = {"chat_id": chat_id, "text": text, "reply_markup": markup,
+                   "disable_notification": True, "link_preview_options": {"is_disabled": True}}
+        if mode:
+            payload["parse_mode"] = mode
+        result = await _tg_post("sendMessage", payload)
+        if not result.get("ok"):
+            return result  # leave the video and its Back button available to retry
+        new_id = (result.get("result") or {}).get("message_id")
+        if not new_id:
+            raise RuntimeError("Telegram did not return the replacement message id")
+        mapping[old_key] = new_id
+        try:
+            await _store_menu_replacements(db, chat_id, mapping)
+        except Exception:
+            await db.rollback()
+            await _tg_post("deleteMessage", {"chat_id": chat_id, "message_id": new_id})
+            raise
+    result = await _tg_post("deleteMessage", {"chat_id": chat_id, "message_id": old_id})
+    if not result.get("ok") and "message to delete not found" not in str(result.get("description", "")).lower():
+        # If Telegram cannot delete an old video, undo the new text menu rather
+        # than leave two menus behind. A network timeout keeps the durable map
+        # so retrying can finish without sending another message.
+        cleanup = await _tg_post("deleteMessage", {"chat_id": chat_id, "message_id": new_id})
+        if cleanup.get("ok"):
+            mapping.pop(old_key, None)
+            await _store_menu_replacements(db, chat_id, mapping)
+        return result
+    return {"ok": True, "result": {"message_id": new_id}}
+
+
+async def _edit_menu_media(chat_id: int, message_id: int, path: Path, caption: str,
+                           mode: Optional[str], markup: dict, db: AsyncSession) -> dict:
     from app.services.bot_guides import video_cache_key
+    kind = "video"
     cache_key = video_cache_key(path)
-    payload = {"chat_id": chat_id, "caption": caption, "parse_mode": "HTML", "supports_streaming": True}
-    # Serialize the first upload. Later requests reuse Telegram's file_id.
+    media = {"type": kind, "caption": caption}
+    if mode:
+        media["parse_mode"] = mode
+    if kind == "video":
+        media["supports_streaming"] = True
+    target = {"chat_id": chat_id, "message_id": message_id, "reply_markup": markup}
     async with _guide_video_locks[cache_key]:
         cached = await _get_setting(db, cache_key)
         if cached:
-            result = await _tg_post("sendVideo", {**payload, "video": cached})
-            if result.get("ok"):
+            result = await _tg_post("editMessageMedia", {**target, "media": {**media, "media": cached}})
+            if _edit_ok(result) or "parse" in str(result.get("description", "")).lower():
                 return result
-        url = f"https://api.telegram.org/bot{_token()}/sendVideo"
+        data = {"chat_id": str(chat_id), "message_id": str(message_id),
+                "reply_markup": json.dumps(markup), "media": json.dumps({**media, "media": "attach://" + kind})}
+        url = f"https://api.telegram.org/bot{_token()}/editMessageMedia"
         async with httpx.AsyncClient(timeout=180) as client:
             with path.open("rb") as file:
-                response = await client.post(url, data={**payload, "supports_streaming": "true"},
-                    files={"video": (path.name, file, "video/mp4")})
+                response = await client.post(url, data=data,
+                    files={kind: (path.name, file, "image/jpeg" if kind == "photo" else "video/mp4")})
         result = response.json()
         if result.get("ok"):
-            fid = (result.get("result", {}).get("video") or {}).get("file_id")
-            if fid:
-                await _save_setting(db, cache_key, fid, "Telegram video file_id cache")
+            message = result.get("result") or {}
+            item = (message.get("photo") or [{}])[-1] if kind == "photo" else message.get("video") or {}
+            if item.get("file_id"):
+                await _save_setting(db, cache_key, item["file_id"], "Telegram menu media file_id cache")
         return result
+
+
+async def _edit_menu_body(message: dict, text: str, mode: Optional[str], markup: dict, db: AsyncSession) -> dict:
+    media_message = any(message.get(key) for key in ("photo", "video", "animation", "document", "audio"))
+    if media_message:
+        return await _replace_media_with_text(message, text, mode, markup, db)
+    payload = {"chat_id": message["chat"]["id"], "message_id": message["message_id"],
+               "text": text, "reply_markup": markup, "link_preview_options": {"is_disabled": True}}
+    if mode:
+        payload["parse_mode"] = mode
+    return await _tg_post("editMessageText", payload)
 
 
 async def handle_guide_callback(callback: dict, db: AsyncSession) -> None:
     from app.services.bot_guides import get_guides, video_path
-    chat = (callback.get("message") or {}).get("chat") or {}
+    message = callback.get("message") or {}
+    chat = message.get("chat") or {}
     chat_id = chat.get("id")
     sender = (callback.get("from") or {}).get("id")
-    if chat.get("type") != "private" or str(chat_id) != str(sender):
-        await _tg_post("answerCallbackQuery", {"callback_query_id": callback["id"], "text": "Откройте инструкцию в личном чате с ботом.", "show_alert": True})
+    if chat.get("type") != "private" or str(chat_id) != str(sender) or not message.get("message_id"):
+        await _tg_post("answerCallbackQuery", {"callback_query_id": callback["id"], "text": "Откройте меню в личном чате с ботом.", "show_alert": True})
         return
-    guide_id = str(callback.get("data") or "").removeprefix("guide:")
-    guide = next((g for g in await get_guides(db) if g["id"] == guide_id and g["enabled"]), None)
-    if guide is None:
-        await _tg_post("answerCallbackQuery", {"callback_query_id": callback["id"], "text": "Инструкция больше недоступна. Отправьте /start, чтобы обновить меню.", "show_alert": True})
+    data = str(callback.get("data") or "")
+    parts = data.split(":")
+    home = parts[:2] == ["bot", "home"]
+    if len(parts) not in (2, 3) or (not home and parts[0] != "guide") or (len(parts) == 3 and not parts[2].isdigit()):
+        await _tg_post("answerCallbackQuery", {"callback_query_id": callback["id"], "text": "Отправьте /start, чтобы обновить меню.", "show_alert": True})
         return
-    await _tg_post("answerCallbackQuery", {"callback_query_id": callback["id"], "text": "Открываем инструкцию…"})
-    text = guide["text"] or _html.escape(guide["title"])
-    path = video_path(guide.get("video_key"))
+    page = int(parts[2]) if len(parts) == 3 else 0
+    path = None
+    if home:
+        text, mode, markup = await _welcome_content(db)
+        callback_prefix = "bot:home"
+    else:
+        guide_id = parts[1]
+        guide = next((g for g in await get_guides(db) if g["id"] == guide_id and g["enabled"]), None)
+        if guide is None:
+            await _tg_post("answerCallbackQuery", {"callback_query_id": callback["id"], "text": "Инструкция больше недоступна. Нажмите «Назад» или отправьте /start.", "show_alert": True})
+            return
+        text, mode, markup = guide["text"] or _html.escape(guide["title"]), "HTML", None
+        video = video_path(guide.get("video_key"))
+        if video and video.is_file():
+            path = video
+        callback_prefix = "guide:" + guide_id
+    # Media captions have a smaller limit than ordinary text messages. Pages
+    # preserve full instructions and formatting in the same message_id.
+    media_message = path is not None
+    pages = caption_pages(text, mode) if media_message else [(text, mode)]
+    page = min(page, len(pages) - 1)
+    body, mode = pages[page]
+    markup = with_navigation(markup, callback_prefix, page, len(pages), back=not home)
+    await _tg_post("answerCallbackQuery", {"callback_query_id": callback["id"]})
     try:
-        if path and path.is_file():
-            await db.commit()  # End the settings snapshot before reading the shared file_id cache.
-            # Keep long HTML intact instead of cutting through formatting tags.
-            caption = text if len(text) <= 1024 else ""
-            result = await _send_guide_video(chat_id, path, caption, db)
-            if not result.get("ok") and "parse" in str(result.get("description", "")).lower():
-                result = await _send_guide_video(chat_id, path, re.sub(r"<[^>]+>", "", caption), db)
-            if not result.get("ok"):
-                raise RuntimeError("Telegram rejected instruction video")
-            if caption:
-                return
-        result = await _tg_post("sendMessage", {"chat_id": chat_id, "text": text, "parse_mode": "HTML"})
-        if not result.get("ok"):
-            result = await _tg_post("sendMessage", {"chat_id": chat_id, "text": re.sub(r"<[^>]+>", "", text)})
-        if not result.get("ok"):
-            raise RuntimeError("Telegram rejected instruction text")
+        await db.commit()  # release the settings snapshot before shared media cache reads
+        async def edit(value, parse_mode):
+            if path:
+                return await _edit_menu_media(chat_id, message["message_id"], path, value, parse_mode, markup, db)
+            return await _edit_menu_body(message, value, parse_mode, markup, db)
+        result = await edit(body, mode)
+        if not _edit_ok(result) and "parse" in str(result.get("description", "")).lower():
+            result = await edit(_html.unescape(re.sub(r"<[^>]+>", "", body)), None)
+        if not _edit_ok(result):
+            raise RuntimeError("Telegram rejected menu edit")
     except Exception:
-        logger.exception("Bot instruction delivery failed: guide=%s", guide_id)
-        await _tg_post("sendMessage", {"chat_id": chat_id, "text": "Не удалось загрузить инструкцию. Попробуйте нажать кнопку чуть позже."})
+        logger.exception("Bot menu edit failed")
+        # Keep failed transitions retryable without sending error messages.
+        await _tg_post("answerCallbackQuery", {"callback_query_id": callback["id"],
+            "text": "Не удалось открыть раздел. Попробуйте нажать кнопку чуть позже.", "show_alert": True})
 
 
 async def schedule_guide_callback(callback: dict) -> None:
@@ -267,7 +341,7 @@ async def schedule_guide_callback(callback: dict) -> None:
     from app.core.database import AsyncSessionLocal
     chat_id = ((callback.get("message") or {}).get("chat") or {}).get("id")
     if chat_id in _guide_chats_in_flight:
-        await _tg_post("answerCallbackQuery", {"callback_query_id": callback["id"], "text": "Инструкция уже отправляется. Подождите немного."})
+        await _tg_post("answerCallbackQuery", {"callback_query_id": callback["id"], "text": "Меню обновляется. Подождите немного."})
         return
     _guide_chats_in_flight.add(chat_id)
 
@@ -679,7 +753,7 @@ async def poll_once() -> None:
         _last_update_id = update["update_id"]
         cb = update.get("callback_query")
         if cb:
-            if str(cb.get("data") or "").startswith("guide:"):
+            if str(cb.get("data") or "").startswith(("guide:", "bot:home")):
                 await schedule_guide_callback(cb)
                 continue
             # Managers' buttons for China requests (when no separate bot is set)
