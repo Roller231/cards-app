@@ -324,7 +324,7 @@ function CryptoPaymentsPage({ onUserClick }) {
   const fulfillment = { not_started: 'Не начато', processing: 'Обработка', completed: 'Выполнено', failed: 'Не выполнено', review: 'Нужна проверка' }
   return <div>
     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center', marginBottom: 20 }}>
-      <div><h2 style={{ margin: 0 }}>Криптооплаты</h2><p style={{ color: '#6b7280', fontSize: 13 }}>Последние 100 счетов Cryptoway · USDT</p></div>
+      <div><h2 style={{ margin: 0 }}>Криптооплаты</h2><p style={{ color: '#6b7280', fontSize: 13 }}>Последние 100 счетов · USDT</p></div>
       <Btn onClick={load}>Обновить</Btn>
     </div>
     {error && <p style={{ color: '#dc2626' }}>{error}</p>}
@@ -1028,7 +1028,7 @@ const SETTING_GROUPS = [
   },
   {
     title: '₮ Оплата USDT',
-    desc: 'Выпуск — цена в рублях / исходный курс Bitbanker. Комиссию Cryptoway оплачиваем мы. Секретные ключи хранятся на сервере.',
+    desc: 'Выпуск — цена в рублях / исходный курс Bitbanker. Комиссию платёжного сервиса оплачиваем мы. Секретные ключи хранятся на сервере.',
     keys: ['CRYPTOWAY_ENABLED', 'CRYPTOWAY_TOPUP_MARKUP_PERCENT'],
   },
   {
@@ -1064,7 +1064,7 @@ const SETTING_LABELS = {
   MAINTENANCE_TEXT: ['Текст о технических работах'],
   SBP_DISABLED: ['Отключить оплату по СБП', 'Новые счета не создаются'],
   CRYPTOWAY_ENABLED: ['Оплата USDT включена'],
-  CRYPTOWAY_TOPUP_MARKUP_PERCENT: ['Комиссия за пополнение', 'Комиссия Cryptoway покрывается из этой наценки', '%'],
+  CRYPTOWAY_TOPUP_MARKUP_PERCENT: ['Комиссия за пополнение', 'Комиссия платёжного сервиса покрывается из этой наценки', '%'],
   SBP_DISABLED_TEXT: ['Текст при отключённой оплате'],
 
   CARD_ONLINE_ENABLED: ['Выпуск открыт'],

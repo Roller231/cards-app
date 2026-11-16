@@ -190,7 +190,7 @@ export default function CryptoPaymentModal({ isOpen, onClose, purpose, offerId =
           </div>}
           {error && <div role="alert" style={{ ...panel, background: '#FEF2F2', color: '#B91C1C', fontSize: 13, lineHeight: 1.5 }}>{error}</div>}
           {!payment && (loading ? <p>Подготавливаем оплату…</p> : <Button onClick={() => load()}>Повторить</Button>)}
-          {payment && !payment.kyc_required && <div style={{ ...panel, fontSize: 13, lineHeight: 1.5 }}>Оплата USDT доступна без проверки NeuroVision.</div>}
+          {payment && !payment.kyc_required && <div style={{ ...panel, fontSize: 13, lineHeight: 1.5 }}>Оплата USDT доступна без верификации личности.</div>}
           {payment?.status === 'quoted' && <>
             {payment.contact_required && <div style={panel}>
               <div style={{ fontWeight: 600, marginBottom: 10 }}>Контакты для карты Online</div>
@@ -202,7 +202,7 @@ export default function CryptoPaymentModal({ isOpen, onClose, purpose, offerId =
               <select id="crypto-network" value={network} onChange={e => setNetwork(e.target.value)} style={{ width: '100%', padding: 12, borderRadius: 10, border: '1px solid #D1D5DB', background: '#fff', color: '#111827', fontSize: 15 }}>
                 {networks.map(n => <option key={n.symbol_id} value={n.symbol_id}>USDT · {n.name} ({n.network})</option>)}
               </select>
-              <p style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.5, marginBottom: 0 }}>Комиссия Cryptoway уже учтена — дополнительных сборов с нашей стороны нет. Комиссия вашего кошелька за отправку оплачивается отдельно.</p>
+              <p style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.5, marginBottom: 0 }}>Комиссия платёжного сервиса уже учтена — дополнительных сборов с нашей стороны нет. Комиссия вашего кошелька за отправку оплачивается отдельно.</p>
             </div>
             {needsKyc && <div style={{ ...panel, fontSize: 13, lineHeight: 1.5 }}>Для выпуска и пополнения этой карты требуется верификация личности (KYC), в том числе при оплате USDT.</div>}
             {needsContact

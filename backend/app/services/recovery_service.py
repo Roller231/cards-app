@@ -28,6 +28,7 @@ from app.core.database import AsyncSessionLocal
 from app.models.bb_invoice import BbInvoice
 from app.models.card import Card
 from app.models.order import Order
+from app.models.service_request import ServiceRequest
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +99,7 @@ async def scan_and_recover() -> None:
         candidates = (await db.execute(
             select(BbInvoice).where(
                 BbInvoice.status.in_(("captured", "authorized")),
-                BbInvoice.purpose.in_(("card_issue", "balance_topup")),
+                BbInvoice.purpose.in_(("card_issue", "balance_topup", "balance_deposit", "china_payment")),
                 BbInvoice.created_at >= now - timedelta(hours=RECOVER_MAX_AGE_H),
                 BbInvoice.created_at <= now - timedelta(minutes=RECOVER_GRACE_MIN),
             ).order_by(BbInvoice.id.asc())
@@ -111,7 +112,14 @@ async def scan_and_recover() -> None:
             if inv.last_recover_at and inv.last_recover_at > now - timedelta(minutes=RECOVER_MIN_INTERVAL_MIN):
                 continue
 
-            outcome = await (_issue_outcome(db, inv) if inv.purpose == "card_issue" else _topup_outcome(db, inv))
+            if inv.purpose == "china_payment":
+                request = await db.get(ServiceRequest, inv.service_request_id) if inv.service_request_id else None
+                # Manual fulfillment must never be reopened or sent for payment again.
+                outcome = "done" if not request or request.status not in ("awaiting_payment", "new") else None
+            elif inv.purpose == "balance_deposit":
+                outcome = "done" if inv.amount_usd else None
+            else:
+                outcome = await (_issue_outcome(db, inv) if inv.purpose == "card_issue" else _topup_outcome(db, inv))
             if outcome == "done":
                 if attempts > 0 and inv.last_recover_at:
                     # A previous auto-attempt finished the job — say so once.
@@ -129,7 +137,8 @@ async def scan_and_recover() -> None:
             inv.last_recover_at = now
             await db.commit()
 
-            kind = "выпуск карты" if inv.purpose == "card_issue" else "пополнение карты"
+            kind = {"card_issue": "выпуск карты", "balance_topup": "пополнение карты",
+                    "balance_deposit": "пополнение баланса", "china_payment": "оплата Alipay/WeChat"}[inv.purpose]
             logger.warning("[RECOVER] invoice %s (%s, user %s): attempt %s/%s",
                            inv.id, inv.purpose, inv.user_id, attempts + 1, RECOVER_MAX_ATTEMPTS)
             await _alert(
@@ -137,8 +146,13 @@ async def scan_and_recover() -> None:
                 f"{float(inv.amount_rub):.0f} ₽) не завершился — запускаю попытку {attempts + 1}/{RECOVER_MAX_ATTEMPTS}."
             )
             try:
-                from app.api.routers.sbp import _trigger_post_payment
-                await _trigger_post_payment(inv.id)
+                from app.api.routers.sbp import _credit_and_trigger, _trigger_post_payment, _stored_payment_payload
+                if not inv.amount_usd or inv.purpose == "china_payment":
+                    # A status poll can win the race with the webhook. Restore
+                    # the missing booking before attempting fulfillment.
+                    await _credit_and_trigger(inv.id, _stored_payment_payload(inv))
+                else:
+                    await _trigger_post_payment(inv.id)
             except Exception as exc:
                 logger.error("[RECOVER] invoice %s attempt failed: %s", inv.id, str(exc)[:300])
 

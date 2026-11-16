@@ -134,6 +134,7 @@ export const api = {
   profile: {
     get: () => req('GET', '/profile'),
     balanceHistory: (limit = 50, offset = 0) => req('GET', `/profile/balance/history?limit=${limit}&offset=${offset}`),
+    cryptoHistory: (limit = 50, offset = 0) => req('GET', `/profile/crypto/history?limit=${limit}&offset=${offset}`),
   },
   crypto: {
     saveContact: (email, phone) => req('PUT', '/crypto/contact', { email, phone }),
@@ -162,6 +163,7 @@ export const api = {
     updateContact: (email, phone, gender) => req('PUT', '/kyc/contact', { email, phone, gender }),
     start: () => req('POST', '/kyc/start'),
     status: () => req('GET', '/kyc/status'),
+    refresh: () => req('POST', '/kyc/refresh'),
     complete: (session_id) => req('POST', '/kyc/complete', { session_id }),
   },
 }

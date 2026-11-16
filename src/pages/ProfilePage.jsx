@@ -7,6 +7,7 @@ import { BOTTOM_BAR_SPACE } from '../components/BottomBar'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../components/ui/ToastProvider'
 import Portal from '../components/ui/Portal'
+import { formatOperationDate } from '../utils/operationDates'
 
 const font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif'
 
@@ -64,6 +65,23 @@ function CopyIcon({ color = '#DC4D35' }) {
   )
 }
 
+function HistoryRow({ label, icon, date, description, amount, currency = '$', positive = false, last = false }) {
+  return <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingTop: 14, paddingBottom: 14, borderBottom: last ? 'none' : '1px solid #F3F5F8' }}>
+    <div style={{ width: 40, height: 40, borderRadius: 12, background: '#F3F5F8', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+      <img src={icon} alt="" style={{ width: 18, height: 18, objectFit: 'contain' }} />
+    </div>
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', fontFamily: font }}>{label}</div>
+      <div style={{ fontSize: 12, color: '#6B7280', fontFamily: font, marginTop: 2, lineHeight: 1.5 }}>
+        {formatOperationDate(date)}{description ? ` · ${description}` : ''}
+      </div>
+    </div>
+    <div style={{ fontSize: 15, fontWeight: 700, color: positive ? '#22C55E' : '#111827', fontFamily: font, flexShrink: 0, whiteSpace: 'nowrap' }}>
+      {positive ? '+' : '−'}{Math.abs(Number(amount)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {currency}
+    </div>
+  </div>
+}
+
 export default function ProfilePage({ userCards = [], onTransferToCard }) {
   const { user, fetchMe, appConfig } = useAuth()
   const { showToast } = useToast()
@@ -76,17 +94,22 @@ export default function ProfilePage({ userCards = [], onTransferToCard }) {
 
   const [profile, setProfile] = useState(null)
   const [ledger, setLedger] = useState([])
+  const [cryptoPayments, setCryptoPayments] = useState([])
+  const [historyError, setHistoryError] = useState(false)
   const [showDeposit, setShowDeposit] = useState(false)
 
   const load = useCallback(async () => {
     try {
-      const [p, h] = await Promise.all([
-        api.profile.get(),
-        api.profile.balanceHistory(20).catch(() => ({ items: [] })),
+      const [p, h, crypto] = await Promise.all([
+        api.profile.get().catch(() => null),
+        api.profile.balanceHistory(20).catch(() => null),
+        api.profile.cryptoHistory(20).catch(() => null),
       ])
-      setProfile(p)
-      setLedger(h?.items || [])
-    } catch {}
+      if (p) setProfile(p)
+      if (h) setLedger(h.items || [])
+      if (crypto) setCryptoPayments(crypto.items || [])
+      setHistoryError(!h || !crypto)
+    } catch { setHistoryError(true) }
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -429,7 +452,10 @@ export default function ProfilePage({ userCards = [], onTransferToCard }) {
       {/* Balance operations */}
       <Section>
         <Card padding="20px">
-          <h2 style={{ fontSize: 20, fontWeight: 700, color: '#111827', fontFamily: font, margin: 0 }}>Операции по балансу</h2>
+          <h2 style={{ fontSize: 20, fontWeight: 700, color: '#111827', fontFamily: font, margin: 0 }}>Операции по внутреннему балансу</h2>
+          {historyError && <div role="alert" style={{ marginTop: 12, color: '#B91C1C', fontSize: 13, lineHeight: 1.5 }}>
+            История операций загружена не полностью. <button onClick={load} style={{ border: 0, background: 'none', padding: 0, color: '#DC4D35', textDecoration: 'underline', cursor: 'pointer', font: 'inherit' }}>Обновить</button>
+          </div>}
           {ledger.length === 0 ? (
             <div style={{ paddingTop: 22, paddingBottom: 8, textAlign: 'center', fontSize: 13, fontWeight: 600, color: '#6B7280', fontFamily: font }}>
               Пока нет операций
@@ -437,30 +463,35 @@ export default function ProfilePage({ userCards = [], onTransferToCard }) {
           ) : (
             <div style={{ marginTop: 8 }}>
               {ledger.map((row, idx) => {
-                const meta = LEDGER_META[row.type] || { label: row.type, icon: '/images/HistoryIcons/shop.png' }
-                const positive = row.amount > 0
-                const abs = Math.abs(row.amount)
-                const d = row.created_at ? new Date(row.created_at + (row.created_at.endsWith('Z') ? '' : 'Z')) : null
-                const dateStr = d ? d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''
-                return (
-                  <div key={row.id} style={{ display: 'flex', alignItems: 'center', gap: 12, paddingTop: 14, paddingBottom: 14, borderBottom: idx < ledger.length - 1 ? '1px solid #F3F5F8' : 'none' }}>
-                    <div style={{ width: 40, height: 40, borderRadius: 12, background: '#F3F5F8', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      <img src={meta.icon} alt="" style={{ width: 18, height: 18, objectFit: 'contain' }} />
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', fontFamily: font, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{meta.label}</div>
-                      <div style={{ fontSize: 12, color: '#6B7280', fontFamily: font, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {dateStr}{row.description ? ` · ${row.description}` : ''}
-                      </div>
-                    </div>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: positive ? '#22C55E' : '#111827', fontFamily: font, flexShrink: 0 }}>
-                      {positive ? '+' : '−'}{abs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $
-                    </div>
-                  </div>
-                )
+                const meta = row.is_system
+                  ? { label: 'Перенос начального баланса', icon: '/images/HistoryIcons/arrow-circle-up.png' }
+                  : LEDGER_META[row.type] || { label: 'Операция по балансу', icon: '/images/HistoryIcons/shop.png' }
+                return <HistoryRow key={row.id} label={meta.label} icon={meta.icon} date={row.created_at}
+                  description={row.description} amount={row.amount} positive={row.amount > 0} last={idx === ledger.length - 1} />
               })}
             </div>
           )}
+        </Card>
+      </Section>
+
+      <Section>
+        <Card padding="20px">
+          <h2 style={{ fontSize: 20, fontWeight: 700, color: '#111827', fontFamily: font, margin: 0 }}>Оплаты USDT</h2>
+          <p style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.5, margin: '8px 0 0' }}>Выпуск карт, пополнения и переводы, оплаченные напрямую за USDT.</p>
+          {cryptoPayments.length === 0 ? (
+            <div style={{ paddingTop: 22, paddingBottom: 8, textAlign: 'center', fontSize: 13, fontWeight: 600, color: '#6B7280' }}>Пока нет оплат USDT</div>
+          ) : cryptoPayments.map((row, idx) => {
+            const meta = LEDGER_META[row.purpose] || { label: 'Оплата USDT', icon: '/images/HistoryIcons/shop.png' }
+            const status = row.refund_credited ? 'Возврат на внутренний баланс' : ({
+              completed: 'Выполнено', processing: 'В обработке', not_started: 'В обработке',
+              review: 'Требуется проверка', failed: 'Не выполнено',
+            }[row.fulfillment_status] || 'В обработке')
+            const target = row.purpose === 'card_topup' ? `$${Number(row.amount_usd).toFixed(2)} на карту`
+              : row.purpose === 'china_payment' && row.amount_cny ? `${Number(row.amount_cny).toLocaleString('ru-RU')} ¥` : ''
+            return <HistoryRow key={row.id} label={meta.label} icon={meta.icon} date={row.paid_at}
+              description={[target, status].filter(Boolean).join(' · ')} amount={row.amount_usdt}
+              currency="USDT" last={idx === cryptoPayments.length - 1} />
+          })}
         </Card>
       </Section>
 

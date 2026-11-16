@@ -6,7 +6,7 @@ so two parallel purchases can't both succeed on the same money.
 """
 import logging
 import secrets
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
 
@@ -21,6 +21,15 @@ logger = logging.getLogger(__name__)
 
 _CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O/1/I
 CENT = Decimal("0.01")
+_BALANCE_MIGRATION_DESCRIPTION = "Сброс фантомного баланса (миграция внутреннего баланса)"
+
+
+def utc_timestamp(value):
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def q2(v) -> Decimal:
@@ -114,7 +123,7 @@ async def history(db: AsyncSession, user_id: int, limit: int = 50, offset: int =
     rows = (await db.execute(
         select(BalanceTransaction)
         .where(BalanceTransaction.user_id == user_id)
-        .order_by(BalanceTransaction.id.desc())
+        .order_by(BalanceTransaction.created_at.desc(), BalanceTransaction.id.desc())
         .offset(offset).limit(limit)
     )).scalars().all()
     return [
@@ -123,14 +132,46 @@ async def history(db: AsyncSession, user_id: int, limit: int = 50, offset: int =
             "type": r.type,
             "amount": float(r.amount),
             "balance_after": float(r.balance_after),
-            "description": r.description,
+            "description": (
+                "Техническая корректировка при переходе на новый учёт. Не банковское списание."
+                if r.type == "admin_adjust" and r.description == _BALANCE_MIGRATION_DESCRIPTION
+                else r.description
+            ),
+            "is_system": r.type == "admin_adjust" and r.description == _BALANCE_MIGRATION_DESCRIPTION,
             "ref_invoice_id": r.ref_invoice_id,
             "ref_order_id": r.ref_order_id,
             "ref_user_id": r.ref_user_id,
-            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "created_at": utc_timestamp(r.created_at),
         }
         for r in rows
     ]
+
+
+async def crypto_history(db: AsyncSession, user_id: int, limit: int = 50, offset: int = 0):
+    """Confirmed direct USDT payments, separate from movements of USD balance."""
+    from app.models.crypto_payment import CryptoPayment
+    rows = (await db.execute(
+        select(CryptoPayment).where(
+            CryptoPayment.user_id == user_id,
+            CryptoPayment.status == "paid",
+            CryptoPayment.provider_invoice_id.is_not(None),
+            CryptoPayment.paid_at.is_not(None),
+            CryptoPayment.charge_usdt > 0,
+            CryptoPayment.received_usdt >= CryptoPayment.charge_usdt,
+            CryptoPayment.purpose.in_(("card_issue", "card_topup", "china_payment")),
+        ).order_by(CryptoPayment.paid_at.desc(), CryptoPayment.id.desc())
+        .offset(offset).limit(limit)
+    )).scalars().all()
+    return [{
+        "id": r.id, "purpose": r.purpose,
+        "amount_usdt": str(r.charge_usdt),
+        "amount_usd": str(r.amount_usd),
+        "amount_cny": str(r.amount_cny) if r.amount_cny is not None else None,
+        "fulfillment_status": r.fulfillment_status,
+        "refund_credited": bool(r.refund_credited),
+        "paid_at": utc_timestamp(r.paid_at),
+        "order_id": r.order_id,
+    } for r in rows]
 
 
 # --- referral program -------------------------------------------------------

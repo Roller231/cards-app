@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import uuid
+from urllib.parse import quote
 from typing import Any, Dict, Optional
 
 import httpx
@@ -57,10 +58,17 @@ class NeuroVisionClient:
         return bool(self._api_token and self._schema_id and self._scenario_secret)
 
     def _headers(self) -> Dict[str, str]:
-        return {
-            "Content-Type": "application/json",
-            "token": self._api_token,
-        }
+        headers = {"Content-Type": "application/json"}
+        if self._api_token.count(".") == 2:
+            headers["token"] = self._api_token  # temporary JWT
+        return headers
+
+    def _body(self, **values) -> Dict[str, Any]:
+        # Permanent API tokens belong in the JSON body; the token header is
+        # reserved for temporary JWTs. Sending a permanent token there gives 401.
+        if self._api_token.count(".") != 2:
+            values["token"] = self._api_token
+        return values
 
     def generate_client_key(self, user_id: int) -> Dict[str, str]:
         """Generate a unique raw and encrypted clientKey for a new KYC session.
@@ -83,6 +91,10 @@ class NeuroVisionClient:
             "client_key_encrypted": encrypted,
             "schema_id": self._schema_id,
             "user_id": user_id,
+            "verification_url": (
+                f"https://kyc.neuro-vision.ru/{quote(self._schema_id, safe='')}/"
+                f"{quote(encrypted, safe='')}/{user_id}"
+            ),
         }
 
     async def get_session_status(self, session_id: str) -> Dict[str, Any]:
@@ -98,7 +110,7 @@ class NeuroVisionClient:
             resp = await client.post(
                 url,
                 headers=self._headers(),
-                json={"sessionId": session_id},
+                json=self._body(sessionId=session_id),
             )
             if resp.status_code >= 400:
                 logger.error("NeuroVision POST /kyc/session/status -> %s | %s", resp.status_code, resp.text[:300])
@@ -106,25 +118,30 @@ class NeuroVisionClient:
                     f"NeuroVision status error {resp.status_code}: {resp.text[:200]}",
                     request=resp.request, response=resp,
                 )
-            return resp.json()
+            data = resp.json()
+            if not isinstance(data, dict) or data.get("status") == "error":
+                raise RuntimeError("NeuroVision session lookup failed")
+            return data
 
     async def find_session_by_client_key(self, client_key_raw: str) -> Optional[Dict[str, Any]]:
         """Find latest KYC session by clientKey (raw, unencrypted)."""
         if not self._is_configured():
             raise RuntimeError("NeuroVision not configured")
-        url = f"{NV_BASE_URL}/kyc/sessions/filter"
+        url = f"{NV_BASE_URL}/kyc/session/status"
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(
                 url,
                 headers=self._headers(),
-                json={"clientKey": client_key_raw, "limit": 1},
+                json=self._body(clientKey=client_key_raw),
             )
-            if resp.status_code >= 400:
-                logger.error("NeuroVision POST /kyc/sessions/filter -> %s | %s", resp.status_code, resp.text[:300])
-                return None
             data = resp.json()
-            sessions = data if isinstance(data, list) else data.get("sessions", [])
-            return sessions[0] if sessions else None
+            if resp.status_code in (200, 400, 404) and isinstance(data, dict) and data.get("message") == "session not found":
+                return None
+            if resp.status_code >= 400:
+                resp.raise_for_status()
+            if not isinstance(data, dict) or data.get("status") == "error":
+                raise RuntimeError("NeuroVision session lookup failed")
+            return data
 
 
 def extract_passport_data(session: Dict[str, Any]) -> Optional[Dict[str, str]]:
@@ -133,7 +150,7 @@ def extract_passport_data(session: Dict[str, Any]) -> Optional[Dict[str, str]]:
     Returns dict with keys matching Bitbanker partner-client fields,
     or None if no document result found.
     """
-    results = session.get("results", [])
+    results = [session] if session.get("type") == "document" else session.get("results", [])
     for task in results:
         if task.get("type") != "document":
             continue
@@ -203,7 +220,7 @@ def extract_passport_data(session: Dict[str, Any]) -> Optional[Dict[str, str]]:
         ).strip()
 
         if not (last_name and first_name and passport):
-            logger.warning("NeuroVision OCR incomplete. fields_map=%s, ocr=%s", fields_map, ocr)
+            logger.warning("NeuroVision OCR is missing required document fields")
             return None
 
         return {

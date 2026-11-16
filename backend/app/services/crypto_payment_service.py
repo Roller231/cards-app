@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_UP
 import json
 import logging
+import re
 import time
 import uuid
 
@@ -117,7 +118,8 @@ def payment_view(row, user):
         "contact_required": contact_required, "contact_ready": contacts_ready(user) if contact_required else True,
         "contact_email": user.email if contact_required else None,
         "contact_phone": user.phone if contact_required else None,
-        "last_error": row.last_error if row.status in ("error", "review") or row.fulfillment_status in ("failed", "review") else None,
+        "last_error": re.sub(r"cryptoway", "платёжный сервис", row.last_error, flags=re.IGNORECASE)
+            if row.last_error and (row.status in ("error", "review") or row.fulfillment_status in ("failed", "review")) else None,
     }
 
 
@@ -245,9 +247,9 @@ def check_invoice_identity(row, invoice):
     if money(invoice.get("target_value_symbol")) != row.charge_usdt or money(invoice.get("payer_amount")) != row.charge_usdt:
         raise ValueError("Сумма счёта отличается от согласованной.")
     if money(invoice.get("fee_split_percent", 0)) != 0 or money(invoice.get("markup_percent", 0)) != 0:
-        raise ValueError("В проекте Cryptoway включена дополнительная комиссия для клиента.")
+        raise ValueError("Платёжный сервис добавил комиссию, не включённую в расчёт.")
     if not wallet.get("value") or not trusted_pay_url(invoice.get("pay_url")):
-        raise ValueError("Cryptoway вернул некорректные реквизиты счёта.")
+        raise ValueError("Платёжный сервис вернул некорректные реквизиты счёта.")
 
 
 async def attach_invoice(row, invoice):
@@ -315,7 +317,7 @@ async def create_invoice(db, user, payment_id, symbol_id):
         # Network timeout/5xx may have created a real invoice. Find it by
         # external_id later; never repeat the creation POST automatically.
         if exc.status and 400 <= exc.status < 500:
-            row.status, row.last_error = "error", "Cryptoway не создал счёт. Попробуйте позже."
+            row.status, row.last_error = "error", "Платёжный сервис не создал счёт. Попробуйте позже."
         await db.commit()
         if row.status == "error":
             raise HTTPException(502, row.last_error) from exc

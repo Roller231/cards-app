@@ -47,6 +47,15 @@ SBP_MAX_QR_PER_DAY = 2
 _PAID_STATUSES = ("captured", "authorized")
 
 
+def _stored_payment_payload(invoice: BbInvoice) -> dict:
+    try:
+        payload = json.loads(invoice.raw_response or "{}")
+        return payload if isinstance(payload, dict) else {}
+    except (ValueError, TypeError):
+        # Older raw responses were truncated, sometimes in the middle of JSON.
+        return {}
+
+
 def _msk_day_start_utc() -> datetime:
     """Start of the current Moscow day as naive UTC (DB stores naive UTC)."""
     msk = _dt_timezone(timedelta(hours=3))
@@ -714,18 +723,25 @@ async def get_invoice_status(
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
 
-    # If terminal — return cached status
+    # A paid status is only a provider observation; amount_usd is the durable
+    # booking marker. Polling and webhooks must use the same locked handler.
     if invoice.status in ("captured", "authorized", "declined", "failed", "cancelled", "expired"):
+        if invoice.status in _PAID_STATUSES and not invoice.amount_usd:
+            _schedule_paid_booking(invoice.id, _stored_payment_payload(invoice))
         return {"local_invoice_id": invoice.id, "bb_invoice_id": invoice.bb_invoice_id,
                 "status": invoice.status, "amount_rub": float(invoice.amount_rub)}
 
-    # Poll Bitbanker for live status — only update status, no post-payment side effects
-    # Post-payment actions (balance credit, card issue/topup) are handled exclusively by webhook
     if invoice.bb_invoice_id:
         try:
             live = await bitbanker_client.get_invoice(invoice.bb_invoice_id)
             sbp_info = live.get("sbp_info") or {}
             live_status = sbp_info.get("status") or live.get("status") or invoice.status
+            # The webhook may have committed while we waited for the provider.
+            invoice = (await db.execute(select(BbInvoice).where(
+                BbInvoice.id == invoice.id
+            ).with_for_update().execution_options(populate_existing=True))).scalar_one()
+            if invoice.status in _PAID_STATUSES:
+                live_status = invoice.status  # never downgrade a confirmed payment
             if live_status != invoice.status:
                 old_status = invoice.status
                 invoice.status = live_status
@@ -751,6 +767,9 @@ async def get_invoice_status(
                         )
                     except Exception as _n:
                         logger.warning("[SBP] Poll failure notification error for invoice_id=%s: %s", invoice.id, _n)
+            await db.commit()  # release the lock even if the status was unchanged
+            if invoice.status in _PAID_STATUSES and not invoice.amount_usd:
+                _schedule_paid_booking(invoice.id, live)
         except Exception as exc:
             logger.warning("[SBP] Poll invoice %s error: %s", invoice.bb_invoice_id, exc)
 
@@ -788,20 +807,23 @@ async def bitbanker_webhook(request: Request):
     if not bb_invoice_id:
         return {"ok": True}
 
-    import asyncio as _asyncio
     local_invoice_id: Optional[int] = None
     is_captured = status in ("captured", "authorized")
     failed_statuses = ("declined", "failed", "cancelled", "expired")
 
     async with AsyncSessionLocal() as db:
-        result = await db.execute(select(BbInvoice).where(BbInvoice.bb_invoice_id == bb_invoice_id))
+        result = await db.execute(select(BbInvoice).where(
+            BbInvoice.bb_invoice_id == bb_invoice_id
+        ).with_for_update().execution_options(populate_existing=True))
         invoice = result.scalar_one_or_none()
         if not invoice:
             logger.warning("[SBP] Webhook: no local invoice for bb_id=%s", bb_invoice_id)
             return {"ok": True}
 
-        already_processed = bool(invoice.amount_usd) or invoice.status in ("captured", "authorized")
+        already_processed = bool(invoice.amount_usd)
         old_status = invoice.status
+        if old_status in _PAID_STATUSES and not is_captured:
+            return {"ok": True}  # an out-of-order webhook cannot undo a payment
         invoice.status = status
         invoice.raw_response = json.dumps(payload, ensure_ascii=False)[:4000]
         local_invoice_id = invoice.id
@@ -812,9 +834,7 @@ async def bitbanker_webhook(request: Request):
         # Promo bookkeeping: count the use on first capture, release on failure.
         try:
             from app.services.promo_service import settle_redemption
-            if is_captured and not already_processed:
-                await settle_redemption(db, invoice.id, paid=True)
-            elif status in failed_statuses and old_status != status:
+            if status in failed_statuses and old_status != status:
                 await settle_redemption(db, invoice.id, paid=False)
         except Exception as _pr:
             logger.warning("[SBP] Promo settle failed for invoice_id=%s: %s", invoice.id, _pr)
@@ -824,40 +844,61 @@ async def bitbanker_webhook(request: Request):
         # so repeated webhooks with the same status don't spam).
         try:
             if user:
-                if is_captured and not already_processed:
-                    await notify_sbp_payment(
-                        db, user, amount_rub=amount_rub, purpose=purpose, success=True,
-                    )
-                elif status in failed_statuses and old_status != status:
+                if status in failed_statuses and old_status != status:
                     await notify_sbp_payment(
                         db, user, amount_rub=amount_rub, purpose=purpose, success=False, status=status,
                     )
         except Exception as _n:
             logger.warning("[SBP] Payment notification failed for invoice_id=%s: %s", local_invoice_id, _n)
 
-    # Trigger post-payment in background ONLY on first captured transition
+    # The booking marker, not the observed status, decides whether work remains.
     if is_captured and not already_processed:
-        _asyncio.create_task(_credit_and_trigger(local_invoice_id, payload))
+        _schedule_paid_booking(local_invoice_id, payload)
 
     return {"ok": True}
 
 
+_BOOKING_TASKS: set = set()
+
+
+def _schedule_paid_booking(invoice_id: int, payload: Dict[str, Any]) -> None:
+    import asyncio
+    task = asyncio.create_task(_credit_and_trigger(invoice_id, payload))
+    _BOOKING_TASKS.add(task)
+    task.add_done_callback(_BOOKING_TASKS.discard)
+
+
 async def _credit_and_trigger(invoice_id: int, bb_payload: Dict[str, Any]) -> None:
-    """Background: credit user balance then trigger card issue/topup. Single entry point from webhook."""
+    """Book a confirmed payment once, regardless of poll/webhook ordering."""
     async with AsyncSessionLocal() as db:
         try:
-            result = await db.execute(select(BbInvoice).where(BbInvoice.id == invoice_id))
+            result = await db.execute(select(BbInvoice).where(
+                BbInvoice.id == invoice_id
+            ).with_for_update().execution_options(populate_existing=True))
             invoice = result.scalar_one_or_none()
-            if not invoice:
+            if not invoice or invoice.status not in _PAID_STATUSES:
                 return
-            # Double-check idempotency under lock
             if invoice.amount_usd:
+                if invoice.purpose == "china_payment" and invoice.service_request_id:
+                    from app.api.routers.services import on_request_paid
+                    await on_request_paid(db, int(invoice.service_request_id), invoice.id)
                 logger.info("[SBP] _credit_and_trigger: already processed invoice_id=%s — skipping", invoice_id)
-            else:
-                await _credit_user_balance(db, invoice, bb_payload)
-                await db.commit()
+                return
+            from app.services.promo_service import settle_redemption
+            await settle_redemption(db, invoice.id, paid=True)
+            await _credit_user_balance(db, invoice, bb_payload)
+            await db.commit()
         except Exception as exc:
+            await db.rollback()
             logger.error("[SBP] _credit_and_trigger balance credit failed for invoice_id=%s: %s", invoice_id, exc)
+            return  # recovery can retry; never fulfill an unbooked payment
+        try:
+            user = (await db.execute(select(User).where(User.id == invoice.user_id))).scalar_one_or_none()
+            if user:
+                await notify_sbp_payment(db, user, amount_rub=float(invoice.amount_rub),
+                                         purpose=invoice.purpose, success=True)
+        except Exception as exc:
+            logger.warning("[SBP] Payment notification failed for invoice_id=%s: %s", invoice_id, type(exc).__name__)
 
     # Trigger post-payment in separate session (may take minutes for card issue)
     await _trigger_post_payment(invoice_id)
@@ -1050,8 +1091,8 @@ async def _credit_user_balance(db: AsyncSession, invoice: BbInvoice, bb_payload:
     if invoice.purpose == "china_payment":
         invoice.amount_usd = usd_received
         if invoice.service_request_id:
-            await db.commit()
             from app.api.routers.services import on_request_paid
+            # on_request_paid commits the request and this booking marker together.
             await on_request_paid(db, int(invoice.service_request_id), invoice.id)
         return
 

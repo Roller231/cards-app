@@ -17,6 +17,8 @@ import { useEffect, useRef, useState } from 'react'
 import api from '../../api/client'
 import Button from './Button'
 import Portal from './Portal'
+import { loadKycWidget, kycSessionId, openKycBrowser, copyKycLink } from '../../utils/kycWidget'
+import { lockBackgroundScroll } from '../../utils/lockBackgroundScroll'
 
 const font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif'
 
@@ -54,199 +56,212 @@ export default function KycModal({ isOpen, onClose, onSuccess }) {
   const [gender, setGender] = useState('')  // 'MALE' | 'FEMALE'
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const widgetLoadedRef = useRef(false)
+  const [credentials, setCredentials] = useState(null)
+  const [widgetLoading, setWidgetLoading] = useState(false)
+  const [browserHelp, setBrowserHelp] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [notice, setNotice] = useState('')
+  const activeRef = useRef(false)
+  const credentialsRef = useRef(null)
+  const pendingRef = useRef(false)
+  const completedRef = useRef(false)
+  const lifecycleRef = useRef(0)
+  const onSuccessRef = useRef(onSuccess)
+
+  useEffect(() => { onSuccessRef.current = onSuccess }, [onSuccess])
 
   useEffect(() => {
+    if (isOpen) return lockBackgroundScroll()
+  }, [isOpen])
+
+  const acceptResult = (result) => {
+    if (!activeRef.current || completedRef.current) return
+    if (result.kyc_status === 'success' && result.passport_saved !== false && result.has_passport_data !== false) {
+      completedRef.current = true
+      pendingRef.current = false
+      setScreen('success')
+      onSuccessRef.current?.()
+    } else if (result.kyc_status === 'failed') {
+      pendingRef.current = false
+      setError('Проверка не пройдена. Вернитесь к контактным данным и начните заново.')
+      setScreen('error')
+    }
+  }
+
+  useEffect(() => {
+    lifecycleRef.current += 1
+    activeRef.current = isOpen
     if (!isOpen) {
+      credentialsRef.current = null
+      pendingRef.current = false
+      completedRef.current = false
+      setCredentials(null)
       setScreen('contact')
       setError('')
-      widgetLoadedRef.current = false
+      setNotice('')
+      setBrowserHelp(false)
+      setWidgetLoading(false)
+      setCopied(false)
+      setLoading(false)
       return
     }
     let cancelled = false
-    // Load existing email/phone; short-circuit if already verified
+    let checking = false
+    const check = async () => {
+      if (cancelled || checking || document.visibilityState === 'hidden' || !pendingRef.current) return
+      checking = true
+      try {
+        const result = await api.kyc.refresh()
+        if (!cancelled) acceptResult(result)
+      } catch { /* Keep the browser link available; the next foreground check retries. */ }
+      finally { checking = false }
+    }
     api.kyc.status().then(status => {
       if (cancelled) return
-      if (status.email) setEmail(status.email)
-      if (status.phone) setPhone(formatPhoneInput(status.phone || ''))
-      if (status.gender) setGender(status.gender)
-      if (status.kyc_status === 'success') {
-        if (typeof onSuccess === 'function') onSuccess()
-      }
+      setEmail(status.email || '')
+      setPhone(formatPhoneInput(status.phone || ''))
+      setGender(status.gender || '')
+      pendingRef.current = Boolean(credentialsRef.current) || status.kyc_status === 'pending'
+      acceptResult(status)
+      void check()
     }).catch(() => {})
-
-    // Background polling: as soon as webhook arrives → auto-close
-    const interval = setInterval(async () => {
-      try {
-        const s = await api.kyc.status()
-        if (cancelled) return
-        if (s.kyc_status === 'success') {
-          clearInterval(interval)
-          setScreen('success')
-          setTimeout(() => {
-            if (typeof onSuccess === 'function') onSuccess()
-          }, 1200)
-        } else if (s.kyc_status === 'failed') {
-          clearInterval(interval)
-          setError('Верификация не пройдена. Попробуйте ещё раз.')
-          setScreen('error')
-        }
-      } catch {}
-    }, 3000)
-
+    const interval = setInterval(check, 8000)
+    window.addEventListener('focus', check)
+    document.addEventListener('visibilitychange', check)
     return () => {
       cancelled = true
+      activeRef.current = false
       clearInterval(interval)
+      window.removeEventListener('focus', check)
+      document.removeEventListener('visibilitychange', check)
     }
   }, [isOpen])
 
   if (!isOpen) return null
 
-  // Step 1: save contact info and open widget
-  const handleContactSubmit = async () => {
-    if (!email.trim() || !phone.trim()) {
-      setError('Введите email и номер телефона')
-      return
-    }
-    const emailDomain = email.trim().toLowerCase().split('@').pop()
-    if (emailDomain !== 'gmail.com' && emailDomain !== 'icloud.com') {
-      setError('Используйте почту Gmail (@gmail.com) или iCloud (@icloud.com) — на неё будут приходить коды подтверждения')
-      return
-    }
-    if (gender !== 'MALE' && gender !== 'FEMALE') {
-      setError('Выберите пол')
-      return
-    }
-    const phoneClean = phone.replace(/[\s()\-]/g, '')
-    if (!/^\+7\d{10}$/.test(phoneClean)) {
-      setError('Телефон в формате +7XXXXXXXXXX')
-      return
-    }
+  const openNvWidget = async (creds) => {
+    setWidgetLoading(true)
     setError('')
-    setLoading(true)
     try {
-      // Save contact to backend
-      await api.kyc.updateContact(email.trim(), phoneClean, gender)
-      // Get widget credentials from backend
-      const creds = await api.kyc.start()
-      setLoading(false)
-      setScreen('widget')
-      // Load and open NeuroVision widget
-      openNvWidget(creds)
-    } catch (e) {
-      setLoading(false)
-      setError(e.message || 'Ошибка, попробуйте ещё раз')
-    }
-  }
-
-  const openNvWidget = (creds) => {
-    const doOpen = () => {
-      if (!window.KYCWidget) {
-        setError('Не удалось загрузить виджет верификации')
-        setScreen('error')
-        return
-      }
-      // If a previous widget was closed abnormally (accidental close, webview
-      // hiccup), its root div stays in <body> and the lib refuses to mount a
-      // new instance ("orphaned React roots") — the user then sees our waiting
-      // screen with nothing on top. Remove stale roots before every mount.
-      try {
-        document.querySelectorAll('[id^="kyc-widget-root-"]').forEach((el) => el.remove())
-      } catch { /* cleanup is best-effort */ }
-      // NeuroVision widget API (июль 2026): schemaId переименован в scenarioId,
-      // добавлен clientUser — идентификатор пользователя на нашей стороне.
-      window.KYCWidget.setupKYC({
+      const widget = await loadKycWidget()
+      if (!activeRef.current || credentialsRef.current !== creds) return
+      widget.setupKYC({
         scenarioId: creds.schema_id,
         clientKey: creds.client_key_encrypted,
         clientUser: String(creds.user_id ?? ''),
         theme: 'light',
-        // In Telegram fullscreen the widget overlays the whole screen, so it
-        // needs the same safe-area offsets the app pads itself with (0 outside
-        // fullscreen).
         topOffset: readSafeInset('--tg-safe-top'),
         bottomOffset: readSafeInset('--tg-safe-bottom'),
         closeCb: () => {
-          // Only reset to contact form if user closed the widget WITHOUT completing
-          // (i.e. screen is still 'widget'). If success/processing — leave it alone.
-          setScreen(prev => (prev === 'widget' ? 'contact' : prev))
+          if (activeRef.current && credentialsRef.current === creds && !completedRef.current) {
+            setWidgetLoading(false)
+            setBrowserHelp(true)
+          }
         },
         successCb: async (payload) => {
+          if (!activeRef.current || credentialsRef.current !== creds) return
           setScreen('processing')
-          // Try sessionId from payload first, then poll our backend (webhook may arrive later)
-          const sessionId = payload?.sessionId || payload?.session_id || payload?.id
-          if (sessionId) {
-            await handleKycComplete(sessionId)
-          } else {
-            // No sessionId in payload — poll our backend waiting for webhook to deliver data
-            await pollKycStatus()
+          try {
+            const sessionId = kycSessionId(payload)
+            const result = sessionId ? await api.kyc.complete(sessionId) : await api.kyc.refresh()
+            if (credentialsRef.current === creds) acceptResult(result)
+          } catch (e) {
+            if (activeRef.current && credentialsRef.current === creds) setError(e.message || 'Не удалось получить результат проверки')
           }
         },
       })
-    }
-
-    if (window.KYCWidget) {
-      doOpen()
-      return
-    }
-    // Lazy-load widget script
-    if (!document.getElementById('nv-kyc-widget-script')) {
-      const s = document.createElement('script')
-      s.id = 'nv-kyc-widget-script'
-      s.src = 'https://kyc.neuro-vision.ru/lib/widget-lib.js'
-      s.defer = true
-      s.crossOrigin = 'anonymous'
-      s.onload = doOpen
-      s.onerror = () => {
-        setError('Не удалось загрузить виджет верификации')
-        setScreen('error')
-      }
-      document.head.appendChild(s)
-    }
-  }
-
-  const handleKycComplete = async (sessionId) => {
-    try {
-      const result = await api.kyc.complete(sessionId)
-      if (result.kyc_status === 'success') {
-        setScreen('success')
-        if (typeof onSuccess === 'function') onSuccess()
-      } else if (result.kyc_status === 'failed') {
-        setError('Верификация не пройдена. Попробуйте ещё раз.')
-        setScreen('error')
-      } else {
-        // Still processing — poll
-        await pollKycStatus()
-      }
     } catch (e) {
-      setError(e.message || 'Ошибка обработки результата')
-      setScreen('error')
+      if (activeRef.current && credentialsRef.current === creds) {
+        setError(e.message || 'Не удалось открыть проверку в Telegram. Продолжите в браузере.')
+        setBrowserHelp(true)
+      }
+    } finally {
+      if (activeRef.current && credentialsRef.current === creds) setWidgetLoading(false)
     }
   }
 
-  const pollKycStatus = async () => {
-    // Poll for up to 3 minutes (36 * 5s) waiting for webhook to update our DB
-    for (let i = 0; i < 36; i++) {
-      await new Promise(r => setTimeout(r, 5000))
-      try {
-        const status = await api.kyc.status()
-        if (status.kyc_status === 'success') {
-          setScreen('success')
-          if (typeof onSuccess === 'function') onSuccess()
-          return
-        }
-        if (status.kyc_status === 'failed') {
-          setError('Верификация не пройдена. Попробуйте ещё раз.')
-          setScreen('error')
-          return
-        }
-        // kyc_status === 'pending' or null — keep polling
-      } catch {}
+  const handleContactSubmit = async () => {
+    if (!email.trim() || !phone.trim()) return setError('Введите email и номер телефона')
+    const domain = email.trim().toLowerCase().split('@').pop()
+    if (domain !== 'gmail.com' && domain !== 'icloud.com') return setError('Используйте почту Gmail (@gmail.com) или iCloud (@icloud.com)')
+    if (gender !== 'MALE' && gender !== 'FEMALE') return setError('Выберите пол')
+    const phoneClean = phone.replace(/[\s()-]/g, '')
+    if (!/^\+7\d{10}$/.test(phoneClean)) return setError('Телефон в формате +7XXXXXXXXXX')
+    setError('')
+    setLoading(true)
+    const lifecycle = lifecycleRef.current
+    try {
+      await api.kyc.updateContact(email.trim(), phoneClean, gender)
+      if (!activeRef.current || lifecycle !== lifecycleRef.current) return
+      const creds = await api.kyc.start()
+      if (!activeRef.current || lifecycle !== lifecycleRef.current) return
+      credentialsRef.current = creds
+      pendingRef.current = true
+      setCredentials(creds)
+      setBrowserHelp(false)
+      setCopied(false)
+      setNotice('')
+      setScreen('widget')
+      void openNvWidget(creds)
+    } catch (e) {
+      if (activeRef.current && lifecycle === lifecycleRef.current) setError(e.message || 'Ошибка, попробуйте ещё раз')
+    } finally {
+      if (activeRef.current && lifecycle === lifecycleRef.current) setLoading(false)
     }
-    // Timed out — but user may still be verified via webhook later
-    // Show success-ish message and let them retry
-    setError('Данные верификации ещё обрабатываются. Подождите минуту и попробуйте снова.')
-    setScreen('error')
   }
+
+  const checkManually = async () => {
+    const lifecycle = lifecycleRef.current
+    setLoading(true)
+    setError('')
+    setNotice('')
+    try {
+      const result = await api.kyc.refresh()
+      if (!activeRef.current || lifecycle !== lifecycleRef.current) return
+      acceptResult(result)
+      if (result.kyc_status === 'pending') setNotice('Результат пока не получен. Завершите проверку в браузере и вернитесь сюда.')
+    } catch (e) {
+      if (activeRef.current && lifecycle === lifecycleRef.current) setError(e.message || 'Не удалось проверить результат. Попробуйте позже.')
+    } finally {
+      if (activeRef.current && lifecycle === lifecycleRef.current) setLoading(false)
+    }
+  }
+
+  const browserFallback = credentials?.verification_url && (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, textAlign: 'left' }}>
+      <Button fullWidth style={{ fontSize: 14, lineHeight: 1.45 }} onClick={() => {
+        setBrowserHelp(true)
+        setNotice('')
+        try {
+          if (!openKycBrowser(credentials.verification_url)) setNotice('Если браузер не открылся, скопируйте ссылку ниже.')
+        } catch { setNotice('Скопируйте ссылку и откройте её в браузере.') }
+      }}>Виджет не открылся? Открыть в браузере</Button>
+      {browserHelp && (
+        <div style={{ padding: 16, borderRadius: 14, background: '#F3F5F8', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: '#111827' }}>Пройдите проверку в браузере</div>
+          <div style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.6 }}>
+            Если кнопка не открывает страницу, скопируйте ссылку и вставьте её в адресную строку Safari или Chrome. Разрешите доступ к камере и следуйте инструкциям.
+          </div>
+          <input aria-label="Ссылка на проверку" readOnly value={credentials.verification_url} onFocus={e => e.target.select()}
+            style={{ width: '100%', boxSizing: 'border-box', border: '1px solid #E5E7EB', background: '#FFFFFF', borderRadius: 10, padding: 12, fontSize: 13, color: '#6B7280', textOverflow: 'ellipsis' }} />
+          <Button fullWidth style={{ backgroundColor: '#FFFFFF', color: '#DC4D35', fontSize: 14, padding: 13 }} onClick={async () => {
+            const ok = await copyKycLink(credentials.verification_url)
+            if (!activeRef.current) return
+            setCopied(ok)
+            if (!ok) setNotice('Нажмите на ссылку выше, выделите её и скопируйте вручную.')
+          }}>{copied ? 'Ссылка скопирована' : 'Скопировать ссылку'}</Button>
+          <div style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.5 }}>Ссылка предназначена только для вашей проверки. Не передавайте её другим людям.</div>
+        </div>
+      )}
+      <div style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.6 }}>
+        После проверки вернитесь в Telegram. Мы автоматически проверим результат — или нажмите кнопку ниже.
+      </div>
+      <Button fullWidth variant="link" style={{ justifyContent: 'center', padding: 10 }} disabled={loading} onClick={checkManually}>
+        {loading ? 'Проверяем…' : 'Проверить результат'}
+      </Button>
+      {notice && <div role="status" style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5 }}>{notice}</div>}
+    </div>
+  )
 
   return (
     <Portal>
@@ -263,7 +278,7 @@ export default function KycModal({ isOpen, onClose, onSuccess }) {
           background: '#FFFFFF', borderRadius: '20px 20px 0 0',
           padding: '24px 20px 40px',
           fontFamily: font,
-          maxHeight: '90dvh', overflowY: 'auto',
+          maxHeight: '90dvh', overflowY: 'auto', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch',
         }}>
           {/* Header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
@@ -278,7 +293,7 @@ export default function KycModal({ isOpen, onClose, onSuccess }) {
           {screen === 'contact' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div style={{ fontSize: 14, color: '#6B7280', lineHeight: 1.6 }}>
-                Для выпуска карты необходимо пройти верификацию личности. Введите ваши контактные данные и отсканируйте паспорт.
+                Для оплаты по СБП необходимо пройти верификацию личности. Введите ваши контактные данные и отсканируйте паспорт.
               </div>
 
               {/* Bank identity-match warning */}
@@ -370,64 +385,21 @@ export default function KycModal({ isOpen, onClose, onSuccess }) {
             </div>
           )}
 
-          {/* WIDGET OPEN */}
-          {screen === 'widget' && (
-            <div style={{ textAlign: 'center', padding: '32px 0', color: '#6B7280', fontSize: 15 }}>
-              <div style={{ fontSize: 32, marginBottom: 12 }}>📷</div>
-              <div style={{ fontWeight: 600, color: '#111827', marginBottom: 8 }}>Откройте виджет</div>
-              <div style={{ fontSize: 14 }}>Виджет верификации запущен. Следуйте инструкциям на экране.</div>
-              {/* Escape hatch: if the widget closed without firing closeCb (or
-                  failed to mount), this screen used to be a dead end. */}
-              <div style={{ marginTop: 20 }}>
-                <Button
-                  fullWidth
-                  disabled={loading}
-                  onClick={async () => {
-                    setLoading(true)
-                    setError('')
-                    try {
-                      const creds = await api.kyc.start()
-                      setLoading(false)
-                      openNvWidget(creds)
-                    } catch (e) {
-                      setLoading(false)
-                      setError(e.message || 'Ошибка, попробуйте ещё раз')
-                      setScreen('error')
-                    }
-                  }}
-                >
-                  Виджет не открылся? Открыть заново
-                </Button>
+          {(screen === 'widget' || screen === 'processing') && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+              <div style={{ textAlign: 'center', paddingTop: 8 }}>
+                <div style={{ width: 64, height: 64, borderRadius: 20, background: '#FFF0EB', margin: '0 auto 16px', display: 'grid', placeItems: 'center', color: '#DC4D35' }}>
+                  <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="M8 5l1.5-2h5L16 5h4a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2V7a2 2 0 012-2h4z"/><circle cx="12" cy="13" r="4"/></svg>
+                </div>
+                <div style={{ fontWeight: 700, fontSize: 18, color: '#111827', marginBottom: 8 }}>
+                  {screen === 'processing' ? 'Проверяем данные' : 'Продолжите проверку'}
+                </div>
+                <div style={{ fontSize: 14, color: '#6B7280', lineHeight: 1.6 }}>
+                  {widgetLoading ? 'Загружаем окно проверки…' : screen === 'processing' ? 'Получаем результат верификации. Это может занять немного времени.' : 'Следуйте инструкциям в окне проверки. Если оно не появилось, откройте проверку в браузере.'}
+                </div>
               </div>
-            </div>
-          )}
-
-          {/* PROCESSING */}
-          {screen === 'processing' && (
-            <div style={{ textAlign: 'center', padding: '24px 0', color: '#6B7280', fontSize: 15, display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <div style={{ fontSize: 32 }}>⏳</div>
-              <div style={{ fontWeight: 600, color: '#111827' }}>Проверяем данные</div>
-              <div style={{ fontSize: 14 }}>Обрабатываем результаты верификации…</div>
-              <Button
-                onClick={async () => {
-                  try {
-                    const status = await api.kyc.status()
-                    if (status.kyc_status === 'success') {
-                      setScreen('success')
-                      if (typeof onSuccess === 'function') onSuccess()
-                    } else {
-                      setError('Данные ещё обрабатываются. Подождите немного.')
-                      setScreen('error')
-                    }
-                  } catch (e) {
-                    setError(e.message || 'Ошибка проверки статуса')
-                    setScreen('error')
-                  }
-                }}
-                fullWidth
-              >
-                Проверить статус вручную
-              </Button>
+              {error && <div role="alert" style={{ background: '#FFF0EB', borderRadius: 12, padding: 12, fontSize: 13, color: '#B6402C', lineHeight: 1.5 }}>{error}</div>}
+              {browserFallback}
             </div>
           )}
 

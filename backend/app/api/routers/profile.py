@@ -48,3 +48,13 @@ async def get_balance_history(
 ):
     items = await wallet_service.history(db, current_user.id, limit=limit, offset=offset)
     return {"items": items, "balance": float(current_user.balance or 0)}
+
+
+@router.get("/crypto/history", summary="Confirmed direct USDT payments (newest first)")
+async def get_crypto_history(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return {"items": await wallet_service.crypto_history(db, current_user.id, limit=limit, offset=offset)}
