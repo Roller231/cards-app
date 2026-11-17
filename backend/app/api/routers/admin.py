@@ -16,6 +16,7 @@ from sqlalchemy import func, select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_admin
+from app.api.routers.admin_payments import router as payments_router
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import create_access_token
@@ -28,10 +29,12 @@ from app.models.topup import BalanceTopUpRequest
 from app.models.user import User
 from app.seed.faq_seed import seed_faqs
 from app.services.bot_guides import BotGuide, GUIDES_KEY, MAX_VIDEO_BYTES, admin_guide, get_guides, serialize_guides, video_path
+from app.services.contact_email import normalize_email
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+router.include_router(payments_router)
 
 # --------------- helpers ---------------
 
@@ -189,7 +192,7 @@ class AdminLoginRequest(BaseModel):
 
 @router.post("/auth/login", summary="Admin login")
 async def admin_login(body: AdminLoginRequest):
-    if body.email != settings.ADMIN_EMAIL or body.password != settings.ADMIN_PASSWORD:
+    if normalize_email(body.email) != normalize_email(settings.ADMIN_EMAIL) or body.password != settings.ADMIN_PASSWORD:
         raise HTTPException(status_code=401, detail="Invalid admin credentials")
     token = create_access_token("admin", timedelta(hours=24))
     return {"access_token": token}

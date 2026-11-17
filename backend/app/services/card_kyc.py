@@ -3,13 +3,14 @@ import calendar
 import random
 import re
 from datetime import date
+from app.services.contact_email import normalize_email, valid_email
 
 
 def normalize_contacts(email, phone):
-    email = (email or "").strip()
+    email = normalize_email(email)
     phone = re.sub(r"[\s()-]", "", phone or "")
     domain = email.rsplit("@", 1)[-1].lower()
-    if (not re.fullmatch(r"[^@\s]+@(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,63}", email)
+    if (not valid_email(email)
             or domain in ("example.com", "example.org", "example.net")
             or domain.endswith((".test", ".invalid", ".example"))):
         raise ValueError("Укажите действующий email.")
@@ -190,7 +191,8 @@ def card_provider_identity(user):
     if kyc_ready(user) or synthetic_ready(user):
         return user
     from types import SimpleNamespace
-    identity = SimpleNamespace(**{key: getattr(user, key, None) for key in (
+    identity = SimpleNamespace(kyc_status=None, kyc_session_id=None,
+        **{key: getattr(user, key, None) for key in (
         "id", "telegram_user_id", "username", "gender", "email", "phone", "client_seq",
     )})
     ensure_synthetic_identity(identity)

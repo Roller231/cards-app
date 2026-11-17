@@ -4,6 +4,7 @@ import Portal from './Portal'
 import Button from './Button'
 import KycModal from './KycModal'
 import { useToast } from './ToastProvider'
+import { normalizeEmail, emailInputProps } from '../../utils/email'
 
 const font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif'
 const display = (value) => Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 8 })
@@ -123,7 +124,7 @@ export default function CryptoPaymentModal({ isOpen, onClose, purpose, offerId =
   }, [payment?.address])
 
   useEffect(() => {
-    setContactEmail(payment?.contact_email || '')
+    setContactEmail(normalizeEmail(payment?.contact_email))
     setContactPhone(payment?.contact_phone || '')
   }, [payment?.id, payment?.contact_email, payment?.contact_phone])
 
@@ -157,7 +158,7 @@ export default function CryptoPaymentModal({ isOpen, onClose, purpose, offerId =
 
   if (!isOpen) return null
   const needsKyc = payment?.kyc_required && !payment?.kyc_verified
-  const needsContact = payment?.contact_required && (!payment.contact_ready || contactEmail !== (payment.contact_email || '') || contactPhone !== (payment.contact_phone || ''))
+  const needsContact = payment?.contact_required && (!payment.contact_ready || contactEmail !== normalizeEmail(payment.contact_email) || contactPhone !== (payment.contact_phone || ''))
   const isChina = purpose === 'china_payment'
   const isBalance = purpose === 'balance_deposit'
   const completed = payment?.fulfillment_status === 'completed'
@@ -194,7 +195,7 @@ export default function CryptoPaymentModal({ isOpen, onClose, purpose, offerId =
           {payment?.status === 'quoted' && <>
             {payment.contact_required && <div style={panel}>
               <div style={{ fontWeight: 600, marginBottom: 10 }}>Контакты для карты Online</div>
-              <label style={{ display: 'block', fontSize: 13 }}>Email<input type="email" autoComplete="email" value={contactEmail} readOnly={loading} onChange={e => setContactEmail(e.target.value)} placeholder="Ваш действующий email" style={{ width: '100%', boxSizing: 'border-box', padding: 12, margin: '5px 0 12px', borderRadius: 10, border: '1px solid #D1D5DB' }} /></label>
+              <label style={{ display: 'block', fontSize: 13 }}>Email<input {...emailInputProps} type="email" value={contactEmail} readOnly={loading} onChange={e => setContactEmail(normalizeEmail(e.target.value))} placeholder="Ваш действующий email" style={{ width: '100%', boxSizing: 'border-box', padding: 12, margin: '5px 0 12px', borderRadius: 10, border: '1px solid #D1D5DB' }} /></label>
               <label style={{ display: 'block', fontSize: 13 }}>Телефон<input type="tel" autoComplete="tel" value={contactPhone} readOnly={loading} onChange={e => setContactPhone(e.target.value)} placeholder="+7 999 123-45-67" style={{ width: '100%', boxSizing: 'border-box', padding: 12, marginTop: 5, borderRadius: 10, border: '1px solid #D1D5DB' }} /></label>
             </div>}
             <div style={panel}>

@@ -1,0 +1,79 @@
+.admin-root, .admin-login { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+.admin-root *, .admin-login * { box-sizing: border-box; }
+.admin-root, .admin-root * { scrollbar-width: auto !important; -ms-overflow-style: auto !important; -webkit-user-select: text !important; user-select: text !important; }
+.admin-root *::-webkit-scrollbar { display: block !important; width: 6px; height: 6px; }
+.admin-root *::-webkit-scrollbar-thumb { background: #c1c5cb; border-radius: 3px; }
+.admin-root *::-webkit-scrollbar-track { background: transparent; }
+.admin-root button, .admin-root input, .admin-root select, .admin-root textarea, .admin-login input, .admin-login button { font-family: inherit; }
+.admin-root input, .admin-root select, .admin-root textarea { max-width: 100%; }
+.admin-root button:focus-visible, .admin-root a:focus-visible, .admin-root [tabindex]:focus-visible { outline: 2px solid #818cf8; outline-offset: 3px; }
+.admin-root button:disabled { opacity: .5; cursor: default !important; }
+.admin-shell { display: grid; grid-template-columns: 240px minmax(0, 1fr); height: 100dvh; min-height: 0; overflow: hidden; background: #f3f4f6; }
+.admin-desktop-nav { min-width: 0; overflow-y: auto; background: #1e1b4b; }
+.admin-sidebar { width: 240px; height: 100%; min-height: 100%; background: #1e1b4b; color: #fff; display: flex; flex-direction: column; flex-shrink: 0; }
+.admin-main { min-width: 0; min-height: 0; overflow: auto; padding: 28px 32px; overscroll-behavior: contain; }
+.admin-main > *, .admin-main form, .admin-main section { min-width: 0; max-width: 100%; }
+.admin-panel { min-width: 0; max-width: 100%; }
+.admin-main img, .admin-main video { max-width: 100%; }
+.admin-mobile-header { display: none; }
+.admin-mobile-menu-button { border: 1px solid #d1d5db; border-radius: 10px; background: #fff; color: #312e81; min-width: 44px; min-height: 44px; font: inherit; cursor: pointer; }
+.admin-drawer { position: fixed; inset: 0 auto 0 0; margin: 0; padding: 0; border: 0; width: min(310px, calc(100vw - 28px)); max-width: none; height: 100dvh; max-height: 100dvh; overflow-y: auto; color: #fff; background: #1e1b4b; overscroll-behavior: contain; }
+.admin-drawer::backdrop { background: rgb(15 23 42 / 55%); }
+.admin-drawer .admin-sidebar { width: 100%; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+.admin-drawer-close { position: absolute; top: calc(12px + env(safe-area-inset-top)); right: 10px; width: 40px; height: 40px; border: 0; border-radius: 8px; color: #fff; background: rgb(255 255 255 / 12%); font-size: 25px; cursor: pointer; }
+.admin-table-scroll { width: 100%; max-width: 100%; min-width: 0; overscroll-behavior-x: contain; }
+.payment-events-scroll { max-width: 100%; }
+.payment-detail { margin: auto; max-width: calc(100vw - 16px); overscroll-behavior: contain; }
+.payment-detail::backdrop { background: rgb(15 23 42 / 55%); }
+
+@media (max-width: 900px) {
+  .admin-shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .admin-desktop-nav { display: none; }
+  .admin-mobile-header { display: flex; align-items: center; gap: 12px; padding: calc(8px + env(safe-area-inset-top)) 14px 8px; border-bottom: 1px solid #e5e7eb; background: #fff; min-width: 0; }
+  .admin-mobile-header-title { display: grid; gap: 2px; min-width: 0; }
+  .admin-mobile-header-title small { color: #6b7280; font-size: 11px; }
+  .admin-mobile-header-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
+  .admin-main { padding: 18px 14px calc(18px + env(safe-area-inset-bottom)); }
+  .admin-root .admin-setting-row { flex-wrap: wrap; gap: 10px !important; }
+  .admin-setting-row > div:first-child { flex: 1 1 220px; }
+  .admin-setting-control { max-width: 100%; }
+  .admin-setting-control input { width: min(240px, 100%) !important; }
+  .admin-toolbar { flex-wrap: wrap; }
+  .admin-tabs { max-width: 100%; overflow-x: auto; white-space: nowrap; padding-bottom: 8px; }
+  .admin-tabs > * { flex-shrink: 0; }
+  .admin-login { padding: 16px; }
+  .admin-login form { max-width: 100%; padding: 28px 22px !important; }
+}
+
+@media (max-width: 600px) {
+  .admin-main { padding-left: 12px; padding-right: 12px; }
+  .admin-root input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), .admin-root select, .admin-root textarea, .admin-login input { font-size: 16px !important; }
+  .admin-root .admin-toolbar { gap: 10px !important; }
+  .admin-root .admin-data-row { flex-wrap: wrap; }
+  .admin-data-row > div:first-child { width: 100% !important; }
+  .payments-filters { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch !important; }
+  .payments-filters label { min-width: 0; }
+  .payments-filters label:first-child, .payments-filters label:nth-child(4) { grid-column: 1 / -1; }
+  .payments-filters input, .payments-filters select { width: 100%; min-width: 0; min-height: 44px; }
+  .payment-events-scroll { border: 0 !important; overflow-x: visible !important; background: transparent !important; }
+  .payment-events-table, .payment-events-table tbody { display: block; }
+  .payment-events-table thead { display: none; }
+  .payment-events-table tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; border: 1px solid #e5e7eb !important; border-radius: 12px; padding: 14px; background: #fff; }
+  .payment-events-table td { display: block; padding: 0 !important; border: 0 !important; min-width: 0; white-space: normal !important; overflow-wrap: anywhere; }
+  .payment-events-table td::before { content: attr(data-label); display: block; color: #6b7280; font-size: 11px; margin-bottom: 5px; }
+  .payment-events-table td:nth-child(-n+3), .payment-events-table td:nth-child(n+8) { grid-column: 1 / -1; }
+  .payment-events-table td:first-child { font-size: 14px; }
+  .payment-events-table td:last-child::before { display: none; }
+  .payment-events-table td:last-child button { width: 100%; min-height: 42px; }
+  .payments-pagination { gap: 8px !important; align-items: center !important; padding-bottom: 8px; }
+  .payments-pagination button { min-height: 42px; }
+  .payments-pagination label:last-child { margin-left: 0 !important; }
+  .payment-detail { width: calc(100vw - 16px) !important; max-height: calc(100dvh - 16px) !important; padding: 16px !important; }
+  .payment-detail dl { grid-template-columns: minmax(0, 1fr) !important; gap: 6px !important; }
+  .payment-detail dd { margin-bottom: 10px !important; }
+  .payment-detail h3 { font-size: 17px; overflow-wrap: anywhere; }
+}
+
+@media (max-width: 360px) {
+  .payments-filters label:nth-child(5), .payments-filters label:nth-child(6) { grid-column: 1 / -1; }
+}

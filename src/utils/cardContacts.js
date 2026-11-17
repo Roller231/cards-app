@@ -1,5 +1,7 @@
+import { normalizeEmail } from './email'
+
 export function cardContactsReady(user) {
-  const email = String(user?.email || '').trim()
+  const email = normalizeEmail(user?.email)
   const domain = email.split('@').pop().toLowerCase()
   return /^[^@\s]+@(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$/.test(email)
     && !['example.com', 'example.org', 'example.net'].includes(domain)

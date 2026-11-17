@@ -36,6 +36,17 @@ class ContactRequest(BaseModel):
     phone: str = Field(min_length=7, max_length=32)
 
 
+class AdminRetryRequest(BaseModel):
+    request_id: str = Field(min_length=16, max_length=80, pattern=r"^[a-zA-Z0-9_-]+$")
+    provider_checked: bool = False
+
+
+@router.post("/admin/cryptoway/payments/{payment_id}/retry")
+async def admin_retry_payment(payment_id: int, body: AdminRetryRequest,
+        db: AsyncSession = Depends(get_db), admin=Depends(get_admin)):
+    return await service.retry_paid_payment(db, payment_id, body.request_id, body.provider_checked)
+
+
 @router.put("/crypto/contact")
 async def save_contact(body: ContactRequest, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     from app.services.card_kyc import normalize_contacts
@@ -156,5 +167,7 @@ async def admin_payments(status: str = "", limit: int = Query(100, ge=1, le=200)
         "total_usdt": str(r.charge_usdt), "received_usdt": str(r.received_usdt), "symbol_id": r.symbol_id,
         "status": r.status, "fulfillment_status": r.fulfillment_status, "order_id": r.order_id,
         "refund_credited": r.refund_credited, "last_error": r.last_error,
+        "can_retry": service.admin_retry_available(r),
+        "retry_requires_provider_check": r.purpose in ("card_issue", "card_topup") and (bool(r.order_id) or r.fulfillment_status != "not_started"),
         "provider_invoice_id": r.provider_invoice_id, "created_at": r.created_at.isoformat() + "Z",
     } for r in rows]}

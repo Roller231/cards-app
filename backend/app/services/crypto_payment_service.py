@@ -368,11 +368,97 @@ async def alert_review(row):
     await _alert(f"⚠️ Криптооплата #{row.id}: требуется проверка. User {row.user_id}. {row.last_error or 'Проверьте статус операции.'}")
 
 
+def admin_retry_available(row):
+    return (row.status == "paid" and not row.refund_credited
+            and row.fulfillment_status in ("not_started", "review", "failed"))
+
+
+async def retry_paid_payment(db, payment_id, request_id, provider_checked=False):
+    """Queue an admin retry, preserving payment, price and previous attempts.
+
+    A missing order does NOT prove that a provider rejected the request.
+    An administrator must check the provider before replaying such an attempt.
+    In-flight orders and refunded invoices cannot be restarted here.
+    """
+    row = (await db.execute(select(CryptoPayment).where(
+        CryptoPayment.id == payment_id).with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
+    if not row:
+        raise HTTPException(404, "Криптоплатёж не найден.")
+    if row.status != "paid" or money(row.received_usdt or 0) < row.charge_usdt:
+        raise HTTPException(409, "Полная оплата счёта не подтверждена.")
+    if row.refund_credited:
+        raise HTTPException(409, "Деньги уже возвращены на внутренний баланс. Повторное выполнение запрещено.")
+    try:
+        payload = json.loads(row.provider_payload or "{}")
+    except (ValueError, TypeError):
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    attempts = payload.get("admin_retries", [])
+    if not isinstance(attempts, list):
+        attempts = []
+    if any(a.get("request_id") == request_id for a in attempts if isinstance(a, dict)):
+        return {"ok": True, "message": "Этот запрос на доведение уже принят."}
+    if row.fulfillment_status == "completed":
+        return {"ok": True, "message": "Операция уже выполнена. Повторный запуск не нужен."}
+    if row.fulfillment_status in ("processing", "retry_queued"):
+        return {"ok": True, "message": "Операция уже обрабатывается. Дождитесь результата."}
+    if not admin_retry_available(row):
+        raise HTTPException(409, "Текущий статус операции не допускает доведение.")
+    user = await db.get(User, row.user_id)
+    if not user or not user.is_active:
+        raise HTTPException(409, "Пользователь не найден или заблокирован.")
+    order = (await db.execute(select(Order).where(Order.id == row.order_id)
+        .with_for_update().execution_options(populate_existing=True))).scalar_one_or_none() if row.order_id else None
+    if row.order_id and (not order or order.user_id != row.user_id):
+        raise HTTPException(409, "Связанный заказ требует ручной проверки.")
+    if order:
+        if order.status == "completed":
+            row.fulfillment_status = "completed"
+            await db.commit()
+            return {"ok": True, "message": "Связанный заказ уже выполнен. Статус обновлён."}
+        if order.status != "failed":
+            raise HTTPException(409, "Заказ ещё обрабатывается у провайдера. Повторный запуск может задвоить операцию.")
+        if order.type == "issue" and order.card_id:
+            card = await db.get(Card, order.card_id)
+            if not card or card.status not in ("failed", "closed"):
+                raise HTTPException(409, "По заказу уже есть карта. Проверьте её статус у провайдера.")
+    if row.purpose == "china_payment":
+        request = await db.get(ServiceRequest, row.service_request_id)
+        if not request or request.user_id != row.user_id or request.payment_method != "crypto":
+            raise HTTPException(409, "Заявка Alipay/WeChat требует ручной проверки.")
+        if request.crypto_payment_id == row.id and request.status in ("paid", "in_progress", "done", "rejected"):
+            row.fulfillment_status = "completed"
+            await db.commit()
+            return {"ok": True, "message": "Оплата уже передана в заявку Alipay/WeChat. Повторного перевода не будет."}
+        if request.status not in ("awaiting_payment", "new") or request.crypto_payment_id not in (None, row.id):
+            raise HTTPException(409, "Заявка закрыта или оплачена другим счётом.")
+    elif row.purpose not in ("balance_deposit", "card_issue", "card_topup"):
+        raise HTTPException(409, "Неизвестный тип операции.")
+    # Wallet credit and China payment booking are atomic and idempotent.
+    # Card requests may have succeeded even when no local order was saved.
+    if row.purpose in ("card_issue", "card_topup") and (order or row.fulfillment_status != "not_started") and not provider_checked:
+        raise HTTPException(409, "Сначала проверьте у провайдера, что карта не выпущена / пополнение не выполнено и не находится в обработке, и подтвердите проверку.")
+    attempts.append({"request_id": request_id, "at": datetime.utcnow().isoformat() + "Z",
+                     "previous_order_id": row.order_id, "previous_status": row.fulfillment_status,
+                     "previous_error": row.last_error, "provider_checked": provider_checked})
+    payload["admin_retries"] = attempts[-50:]
+    row.provider_payload = json.dumps(payload, ensure_ascii=False)
+    row.order_id = None  # The old failed order remains in history and in the audit above.
+    row.fulfillment_status, row.last_error = "retry_queued", None
+    row.review_notified = False
+    await db.commit()  # Reserve the attempt BEFORE responding or scheduling work.
+    logger.warning("Admin queued crypto fulfillment: payment=%s request=%s previous_order=%s provider_checked=%s",
+                   row.id, request_id, order.id if order else None, provider_checked)
+    asyncio.create_task(fulfill_payment(row.id))
+    return {"ok": True, "message": "Доведение запущено. Результат появится в статусе операции; повторно оплачивать не нужно."}
+
+
 async def fulfill_payment(payment_id):
     from app.services.card_service import card_service, synthetic_kyc_offer_allowed
     async with AsyncSessionLocal() as db:
         row = (await db.execute(select(CryptoPayment).where(CryptoPayment.id == payment_id).with_for_update())).scalar_one_or_none()
-        if not row or row.status != "paid" or row.fulfillment_status != "not_started":
+        if not row or row.status != "paid" or row.refund_credited or row.fulfillment_status not in ("not_started", "retry_queued"):
             return
         if row.purpose == "balance_deposit":
             # Credit and completion share the row lock and ONE transaction.
@@ -508,7 +594,7 @@ async def reconcile_payment(db, user, payment_id, force=False, raise_provider_er
                     await db.commit()
             except (CryptowayError, ValueError, KeyError, InvalidOperation):
                 pass  # The confirmed payment and its fulfillment remain valid.
-        if row.fulfillment_status == "not_started":
+        if row.fulfillment_status in ("not_started", "retry_queued"):
             asyncio.create_task(fulfill_payment(row.id))
         return row
     if row.status in ("quoted", "error"):

@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user, get_db
 from app.integrations.neurovision_client import extract_passport_data, neurovision_client
 from app.models.user import User
+from app.services.contact_email import normalize_email, valid_email
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/kyc", tags=["kyc"])
@@ -45,14 +46,17 @@ async def update_contact(
 ):
     # Only gmail/icloud are accepted: the universal ("Pay") card BIN sends
     # confirmation codes by email and supports only these providers.
-    _domain = (body.email or "").rsplit("@", 1)[-1].strip().lower()
+    email = normalize_email(body.email)
+    if not valid_email(email):
+        raise HTTPException(status_code=400, detail="Укажите действующий email.")
+    _domain = email.rsplit("@", 1)[-1]
     if _domain not in ("gmail.com", "icloud.com"):
         raise HTTPException(
             status_code=400,
             detail="Используйте почту Gmail (@gmail.com) или iCloud (@icloud.com) — на неё будут приходить коды подтверждения.",
         )
 
-    values: dict = {"email": body.email, "phone": body.phone}
+    values: dict = {"email": email, "phone": body.phone}
     if body.gender in ("MALE", "FEMALE"):
         values["gender"] = body.gender
     await db.execute(

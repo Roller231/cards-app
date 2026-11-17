@@ -2953,7 +2953,8 @@ class CardService:
         if is_univ:
             await self._ensure_univ_client(client_id, user)
         else:
-            await self._ensure_client(client_id, user)
+            from app.services.card_kyc import card_provider_identity
+            await self._ensure_client(client_id, card_provider_identity(user) if _synth_ok else user)
         topup_currency = await self._provider_balance_currency(card.offer_id)
 
         # O-Plata processes a confirmed top-up immediately and fails it with

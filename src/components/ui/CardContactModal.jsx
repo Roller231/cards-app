@@ -3,6 +3,7 @@ import api from '../../api/client'
 import { useAuth } from '../../context/AuthContext'
 import Button from './Button'
 import Portal from './Portal'
+import { normalizeEmail, emailInputProps } from '../../utils/email'
 
 export default function CardContactModal({ isOpen, onClose, onSaved }) {
   const { user, fetchMe } = useAuth()
@@ -11,7 +12,7 @@ export default function CardContactModal({ isOpen, onClose, onSaved }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   useEffect(() => {
-    if (isOpen) { setEmail(user?.email || ''); setPhone(user?.phone || ''); setError('') }
+    if (isOpen) { setEmail(normalizeEmail(user?.email)); setPhone(user?.phone || ''); setError('') }
   }, [isOpen, user?.email, user?.phone])
   if (!isOpen) return null
   async function save(event) {
@@ -19,7 +20,7 @@ export default function CardContactModal({ isOpen, onClose, onSaved }) {
     if (busy) return
     setBusy(true); setError('')
     try {
-      await api.crypto.saveContact(email.trim(), phone.trim())
+      await api.crypto.saveContact(normalizeEmail(email), phone.trim())
       await fetchMe?.()
       onSaved?.()
     } catch (e) { setError(e.message || 'Не удалось сохранить контакты') }
@@ -31,7 +32,7 @@ export default function CardContactModal({ isOpen, onClose, onSaved }) {
     <form onSubmit={save} role="dialog" aria-modal="true" aria-label="Контакты для карты Online" style={{ position: 'fixed', left: '50%', bottom: 0, transform: 'translateX(-50%)', width: '100%', maxWidth: 430, boxSizing: 'border-box', borderRadius: '24px 24px 0 0', background: '#F3F5F8', padding: '24px 20px calc(24px + var(--tg-safe-bottom, 0px))', zIndex: 1061 }}>
       <h2 style={{ margin: '0 0 12px', fontSize: 22 }}>Контакты для карты Online</h2>
       <p style={{ fontSize: 14, color: '#6B7280', lineHeight: 1.5 }}>Для карты нужны действующие email и телефон. Проходить NeuroVision для оплаты с баланса не требуется.</p>
-      <label>Email<input required type="email" autoComplete="email" value={email} disabled={busy} onChange={e => setEmail(e.target.value)} style={field} /></label>
+      <label>Email<input {...emailInputProps} required type="email" value={email} disabled={busy} onChange={e => setEmail(normalizeEmail(e.target.value))} style={field} /></label>
       <label>Телефон с кодом страны<input required type="tel" autoComplete="tel" value={phone} disabled={busy} onChange={e => setPhone(e.target.value)} placeholder="+7 999 123-45-67" style={field} /></label>
       {error && <p role="alert" style={{ color: '#B91C1C', fontSize: 13 }}>{error}</p>}
       <Button type="submit" disabled={busy} fullWidth>{busy ? 'Сохраняем…' : 'Сохранить и продолжить'}</Button>

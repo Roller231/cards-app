@@ -1,3 +1,5 @@
+import { normalizeEmail } from '../utils/email'
+
 const defaultBase = (() => {
   if (typeof window === 'undefined') return '/api'
   if (window.location.port === '8080') {
@@ -137,7 +139,7 @@ export const api = {
     cryptoHistory: (limit = 50, offset = 0) => req('GET', `/profile/crypto/history?limit=${limit}&offset=${offset}`),
   },
   crypto: {
-    saveContact: (email, phone) => req('PUT', '/crypto/contact', { email, phone }),
+    saveContact: (email, phone) => req('PUT', '/crypto/contact', { email: normalizeEmail(email), phone }),
     networks: () => req('GET', '/crypto/networks'),
     quote: (body) => req('POST', '/crypto/quotes', body),
     createInvoice: (quoteId, symbolId) => req('POST', '/crypto/invoices', { quote_id: quoteId, symbol_id: symbolId }),
@@ -160,7 +162,7 @@ export const api = {
     createKycSession: () => req('POST', '/sbp/kyc-session'),
   },
   kyc: {
-    updateContact: (email, phone, gender) => req('PUT', '/kyc/contact', { email, phone, gender }),
+    updateContact: (email, phone, gender) => req('PUT', '/kyc/contact', { email: normalizeEmail(email), phone, gender }),
     start: () => req('POST', '/kyc/start'),
     status: () => req('GET', '/kyc/status'),
     refresh: () => req('POST', '/kyc/refresh'),
@@ -169,3 +171,4 @@ export const api = {
 }
 
 export default api
+

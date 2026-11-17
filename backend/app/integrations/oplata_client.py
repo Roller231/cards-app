@@ -7,8 +7,14 @@ import httpx
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from app.core.config import settings
+from app.services.contact_email import normalize_email
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_email_domain(email: str) -> str:
+    """The partner API rejects mixed-case domains; preserve mailbox case."""
+    return normalize_email(email)
 
 
 class OPlataClient:
@@ -90,7 +96,7 @@ class OPlataClient:
     async def kyc_verify_email(self, client_id: str, email: str) -> Any:
         """Complete email KYC verification (sets EMAIL MDM data)."""
         return await self._post("/product/rest/kyc/verify/email/complete", {
-            "clientId": client_id, "email": email,
+            "clientId": client_id, "email": _normalize_email_domain(email),
         })
 
     async def kyc_verify_person(self, client_id: str, first_name: str, last_name: str,
@@ -160,7 +166,7 @@ class OPlataClient:
             "firstName": first_name,
             "lastName": last_name,
             "dateOfBirth": date_of_birth,
-            "email": email or f"{client_id}@oplata.test",
+            "email": _normalize_email_domain(email or f"{client_id}@oplata.test"),
             "phoneNumber": phone_number,
             "gender": gender,
             "number": document_number,

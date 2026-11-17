@@ -19,6 +19,7 @@ import Button from './Button'
 import Portal from './Portal'
 import { loadKycWidget, kycSessionId, openKycBrowser, copyKycLink } from '../../utils/kycWidget'
 import { lockBackgroundScroll } from '../../utils/lockBackgroundScroll'
+import { normalizeEmail, emailInputProps } from '../../utils/email'
 
 const font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif'
 
@@ -118,7 +119,7 @@ export default function KycModal({ isOpen, onClose, onSuccess }) {
     }
     api.kyc.status().then(status => {
       if (cancelled) return
-      setEmail(status.email || '')
+      setEmail(normalizeEmail(status.email))
       setPhone(formatPhoneInput(status.phone || ''))
       setGender(status.gender || '')
       pendingRef.current = Boolean(credentialsRef.current) || status.kyc_status === 'pending'
@@ -191,7 +192,7 @@ export default function KycModal({ isOpen, onClose, onSuccess }) {
     setLoading(true)
     const lifecycle = lifecycleRef.current
     try {
-      await api.kyc.updateContact(email.trim(), phoneClean, gender)
+      await api.kyc.updateContact(normalizeEmail(email), phoneClean, gender)
       if (!activeRef.current || lifecycle !== lifecycleRef.current) return
       const creds = await api.kyc.start()
       if (!activeRef.current || lifecycle !== lifecycleRef.current) return
@@ -309,8 +310,9 @@ export default function KycModal({ isOpen, onClose, onSuccess }) {
                 </label>
                 <input
                   type="email"
+                  {...emailInputProps}
                   value={email}
-                  onChange={e => setEmail(e.target.value)}
+                  onChange={e => setEmail(normalizeEmail(e.target.value))}
                   placeholder="example@gmail.com"
                   style={{
                     padding: '12px 14px', borderRadius: 10, border: '1.5px solid #E5E7EB',

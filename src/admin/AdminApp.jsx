@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import BotGuidesEditor from './BotGuidesEditor'
+import PaymentsHistoryPage from './PaymentsHistoryPage'
+import { normalizeEmail, emailInputProps } from '../utils/email'
+import './admin.css'
 import adminApi, { clearAdminToken, getAdminToken, setAdminToken } from './api'
 
 /* ================================================================
@@ -32,7 +35,7 @@ const Card = ({ title, value, sub, color = '#6366f1' }) => (
   </div>
 )
 const Table = ({ columns, rows, onRowClick }) => (
-  <div style={{ overflowX: 'auto', borderRadius: 12, border: '1px solid #e5e7eb', background: '#fff' }}>
+  <div className="admin-table-scroll" role="region" aria-label="Таблица" tabIndex={0} style={{ overflowX: 'auto', borderRadius: 12, border: '1px solid #e5e7eb', background: '#fff' }}>
     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
       <thead>
         <tr>{columns.map((c, i) => <th key={i} style={{ textAlign: 'left', padding: '10px 14px', borderBottom: '1px solid #e5e7eb', color: '#6b7280', fontWeight: 600, whiteSpace: 'nowrap' }}>{c.label}</th>)}</tr>
@@ -64,12 +67,12 @@ function LoginPage({ onLogin }) {
     finally { setLoading(false) }
   }
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#f3f4f6' }}>
-      <form onSubmit={submit} style={{ background: '#fff', padding: 40, borderRadius: 16, width: 380, boxShadow: '0 4px 20px rgba(0,0,0,.08)' }}>
+    <div className="admin-login" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100dvh', background: '#f3f4f6' }}>
+      <form onSubmit={submit} style={{ background: '#fff', padding: 40, borderRadius: 16, width: 'min(100%, 420px)', boxSizing: 'border-box', boxShadow: '0 4px 20px rgba(0,0,0,.08)' }}>
         <h1 style={{ margin: '0 0 8px', fontSize: 24, fontWeight: 700 }}>Админ-панель</h1>
         <p style={{ margin: '0 0 24px', fontSize: 14, color: '#6b7280' }}>Войдите для управления системой</p>
         {error && <div style={{ background: '#fef2f2', color: '#dc2626', padding: '8px 12px', borderRadius: 8, fontSize: 13, marginBottom: 16 }}>{error}</div>}
-        <Input label="Email" type="email" value={email} onChange={e => setEmail(e.target.value)} required />
+        <Input label="Email" type="email" {...emailInputProps} value={email} onChange={e => setEmail(normalizeEmail(e.target.value))} required />
         <Input label="Пароль" type="password" value={password} onChange={e => setPassword(e.target.value)} required />
         <button type="submit" disabled={loading}
           style={{ width: '100%', marginTop: 8, padding: '12px 0', border: 'none', borderRadius: 8, background: '#6366f1', color: '#fff', fontWeight: 600, fontSize: 14, cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.6 : 1 }}>
@@ -258,7 +261,7 @@ function RocketpayPage() {
   useEffect(() => { load() }, [load])
   const box = { background: '#fff', borderRadius: 14, padding: 20, marginBottom: 16, boxShadow: '0 1px 3px rgba(0,0,0,.08)' }
   const row = (k, v) => (
-    <div style={{ display: 'flex', gap: 12, fontSize: 14, padding: '6px 0', borderBottom: '1px solid #f3f4f6' }}>
+    <div className="admin-data-row" style={{ display: 'flex', gap: 12, fontSize: 14, padding: '6px 0', borderBottom: '1px solid #f3f4f6' }}>
       <div style={{ width: 220, color: '#6b7280' }}>{k}</div><div style={{ fontWeight: 600, wordBreak: 'break-all' }}>{v}</div>
     </div>
   )
@@ -315,19 +318,35 @@ function RocketpayPage() {
 function CryptoPaymentsPage({ onUserClick }) {
   const [items, setItems] = useState([])
   const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+  const [retrying, setRetrying] = useState(null)
   const load = useCallback(async () => {
     try { const data = await adminApi.cryptoPayments(); setItems(data.items || []); setError('') }
     catch (e) { setError(e.message) }
   }, [])
   useEffect(() => { load(); const timer = setInterval(load, 30000); return () => clearInterval(timer) }, [load])
+  async function retryPayment(row) {
+    const prompt = row.retry_requires_provider_check
+      ? `Довести криптоплатёж #${row.id}?\n\nПродолжайте только после проверки у провайдера: карта не выпущена / пополнение не выполнено, активных операций нет. Иначе возможен дубль.\n\nПодтверждаете, что проверили это?`
+      : `Довести оплаченный криптоплатёж #${row.id}? Повторная оплата и списание с внутреннего баланса не требуются.`
+    if (!window.confirm(prompt)) return
+    setRetrying(row.id); setError(''); setMessage('')
+    try {
+      const result = await adminApi.retryCryptoPayment(row.id, Boolean(row.retry_requires_provider_check))
+      await load()
+      setMessage(result.message)
+    } catch (e) { setError(e.message) }
+    finally { setRetrying(null) }
+  }
   const statuses = { quoted: 'Расчёт', creating: 'Создание счёта', active: 'Ждёт оплаты', paid: 'Оплачен', expired: 'Истёк', cancelled: 'Отменён', error: 'Ошибка', review: 'Нужна проверка' }
-  const fulfillment = { not_started: 'Не начато', processing: 'Обработка', completed: 'Выполнено', failed: 'Не выполнено', review: 'Нужна проверка' }
+  const fulfillment = { not_started: 'Не начато', retry_queued: 'Доведение в очереди', processing: 'Обработка', completed: 'Выполнено', failed: 'Не выполнено', review: 'Нужна проверка' }
   return <div>
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center', marginBottom: 20 }}>
+    <div className="admin-toolbar" style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center', marginBottom: 20 }}>
       <div><h2 style={{ margin: 0 }}>Криптооплаты</h2><p style={{ color: '#6b7280', fontSize: 13 }}>Последние 100 счетов · USDT</p></div>
       <Btn onClick={load}>Обновить</Btn>
     </div>
     {error && <p style={{ color: '#dc2626' }}>{error}</p>}
+    {message && <p role="status" style={{ color: '#15803d' }}>{message}</p>}
     <Table rows={items} columns={[
       { label: 'Счёт', render: r => `#${r.id}` },
       { label: 'Пользователь', render: r => <button onClick={() => onUserClick(r.user_id)} style={{ border: 0, background: 'none', color: '#6366f1', cursor: 'pointer' }}>#{r.user_id}</button> },
@@ -340,6 +359,7 @@ function CryptoPaymentsPage({ onUserClick }) {
       { label: 'Операция', render: r => fulfillment[r.fulfillment_status] || r.fulfillment_status },
       { label: 'Заказ', render: r => r.order_id ? `#${r.order_id}` : '—' },
       { label: 'Подробности', render: r => <span title={r.provider_invoice_id || ''} style={{ color: r.last_error ? '#dc2626' : '#6b7280', whiteSpace: 'normal', display: 'block', minWidth: 200 }}>{r.refund_credited ? 'Возврат на внутренний баланс. ' : ''}{r.last_error || '—'}</span> },
+      { label: 'Действия', render: r => r.can_retry ? <Btn small disabled={retrying !== null} onClick={() => retryPayment(r)}>{retrying === r.id ? 'Запускаем…' : 'Довести'}</Btn> : '—' },
     ]} />
   </div>
 }
@@ -361,15 +381,15 @@ const NAV = [
 ]
 function Sidebar({ page, setPage }) {
   return (
-    <div style={{ width: 240, background: '#1e1b4b', color: '#fff', display: 'flex', flexDirection: 'column', minHeight: '100vh', flexShrink: 0 }}>
+    <div className="admin-sidebar">
       <div style={{ padding: '24px 20px 16px', fontSize: 18, fontWeight: 700, letterSpacing: -0.5 }}>🛡️ Admin Panel</div>
-      <nav style={{ flex: 1, padding: '0 8px' }}>
+      <nav aria-label="Разделы админки" style={{ flex: 1, padding: '0 8px' }}>
         {NAV.map(n => (
-          <div key={n.id} onClick={() => setPage(n.id)}
-            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 10, marginBottom: 2, cursor: 'pointer',
+          <button type="button" key={n.id} aria-current={page === n.id ? 'page' : undefined} onClick={() => setPage(n.id)}
+            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', minHeight: 44, width: '100%', border: 0, color: 'inherit', textAlign: 'left', borderRadius: 10, marginBottom: 2, cursor: 'pointer',
               background: page === n.id ? 'rgba(255,255,255,.15)' : 'transparent', fontWeight: page === n.id ? 600 : 400, fontSize: 14, transition: 'all .15s' }}>
             <span style={{ fontSize: 16 }}>{n.icon}</span>{n.label}
-          </div>
+          </button>
         ))}
       </nav>
       <div style={{ padding: 16 }}>
@@ -379,6 +399,19 @@ function Sidebar({ page, setPage }) {
       </div>
     </div>
   )
+}
+
+function MobileMenu({ page, setPage, onClose }) {
+  const dialog = useRef(null)
+  useEffect(() => {
+    const element = dialog.current
+    element.showModal()
+    return () => element.close()
+  }, [])
+  return <dialog id="admin-mobile-navigation" className="admin-drawer" ref={dialog} aria-label="Меню админки" onCancel={event => { event.preventDefault(); onClose() }} onClick={event => { if (event.target === event.currentTarget) onClose() }}>
+    <button type="button" className="admin-drawer-close" aria-label="Закрыть меню" onClick={onClose}>×</button>
+    <Sidebar page={page} setPage={setPage} />
+  </dialog>
 }
 
 // ─────────── DASHBOARD ───────────
@@ -724,7 +757,7 @@ function UserDetailPage({ userId, goBack }) {
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 4, marginBottom: 16 }}>
+      <div className="admin-tabs" style={{ display: 'flex', gap: 4, marginBottom: 16 }}>
         {tabs.map(t => (
           <div key={t.id} onClick={() => setTab(t.id)}
             style={{ padding: '8px 16px', borderRadius: '8px 8px 0 0', cursor: 'pointer', fontSize: 13, fontWeight: 600,
@@ -898,36 +931,6 @@ function CardsPage() {
           ) },
         ]}
         rows={cards}
-      />
-    </div>
-  )
-}
-
-// ─────────── PAYMENTS (orders only) ───────────
-function PaymentsPage() {
-  const [orders, setOrders] = useState([])
-  const [ordTotal, setOrdTotal] = useState(0)
-
-  useEffect(() => {
-    adminApi.orders.list(100).then(d => { setOrders(d.items); setOrdTotal(d.total) }).catch(() => {})
-  }, [])
-
-  return (
-    <div>
-      <h2 style={{ margin: '0 0 16px', fontSize: 22, fontWeight: 700 }}>Платежи</h2>
-      <p style={{ margin: '0 0 12px', color: '#6b7280', fontSize: 13 }}>Показаны последние {orders.length} ордеров (всего {ordTotal}).</p>
-      <Table
-        columns={[
-          { key: 'id', label: 'ID' },
-          { key: 'username', label: 'Юзер' },
-          { key: 'type', label: 'Тип', render: r => badge(r.type, r.type === 'issue' ? '#6366f1' : '#0ea5e9') },
-          { key: 'amount', label: 'Сумма', render: r => `$${fmt(r.amount)}` },
-          { key: 'fee', label: 'Комиссия', render: r => `$${fmt(r.fee)}` },
-          { key: 'status', label: 'Статус', render: r => badge(r.status, statusColor[r.status] || '#6b7280') },
-          { key: 'description', label: 'Описание', render: r => (r.description || '').slice(0, 40) },
-          { key: 'created_at', label: 'Дата', render: r => r.created_at?.slice(0, 16).replace('T', ' ') },
-        ]}
-        rows={orders}
       />
     </div>
   )
@@ -1138,7 +1141,7 @@ function SettingRow({ s, update, last, showKey = false }) {
   const isBool = s.type === 'bool'
   const [label, hint, unit] = SETTING_LABELS[s.key] || []
   return (
-    <div style={{
+    <div className="admin-setting-row" style={{
       display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 20,
       padding: '14px 0', borderBottom: last ? 'none' : '1px solid #f3f4f6',
     }}>
@@ -1150,7 +1153,7 @@ function SettingRow({ s, update, last, showKey = false }) {
       {isBool ? (
         <Toggle checked={!!s.value} onChange={v => update(s.key, v)} />
       ) : (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+        <div className="admin-setting-control" style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
           <input
             value={s.value}
             onChange={e => update(s.key, e.target.value)}
@@ -1703,7 +1706,7 @@ function BotPage() {
   return (
     <div>
       <h2 style={{ margin: '0 0 16px', fontSize: 22, fontWeight: 700 }}>Telegram Бот</h2>
-      <div style={{ display: 'flex', gap: 4, marginBottom: 20 }}>
+      <div className="admin-tabs" style={{ display: 'flex', gap: 4, marginBottom: 20 }}>
         {tabs.map(t => (
           <div key={t.id} onClick={() => setTab(t.id)}
             style={{ padding: '9px 18px', borderRadius: '8px 8px 0 0', cursor: 'pointer', fontSize: 13, fontWeight: 600,
@@ -1716,8 +1719,8 @@ function BotPage() {
       {tab === 'welcome' && (
         <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start' }}>
           {/* Left: editor */}
-          <div style={{ flex: '1 1 420px', background: '#fff', borderRadius: 14, padding: 24, boxShadow: '0 1px 3px rgba(0,0,0,.08)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div className="admin-panel" style={{ flex: '1 1 420px', background: '#fff', borderRadius: 14, padding: 24, boxShadow: '0 1px 3px rgba(0,0,0,.08)' }}>
+            <div className="admin-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>Текст сообщения</h3>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <label style={{ fontSize: 12, color: '#6b7280' }}>Режим:</label>
@@ -1774,7 +1777,7 @@ function BotPage() {
           </div>
 
           {/* Right: formatting guide */}
-          <div style={{ flex: '0 0 280px', background: '#fff', borderRadius: 14, padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,.08)', fontSize: 13 }}>
+          <div className="admin-panel" style={{ flex: '0 0 280px', background: '#fff', borderRadius: 14, padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,.08)', fontSize: 13 }}>
             <h3 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 600 }}>📖 Как форматировать</h3>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <tbody>
@@ -2175,11 +2178,22 @@ export default function AdminApp() {
   const [authed, setAuthed] = useState(!!getAdminToken())
   const [page, setPage] = useState('dashboard')
   const [selectedUserId, setSelectedUserId] = useState(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const main = useRef(null)
+  useEffect(() => {
+    const media = window.matchMedia('(min-width: 901px)')
+    const close = () => { if (media.matches) setMenuOpen(false) }
+    media.addEventListener('change', close)
+    return () => media.removeEventListener('change', close)
+  }, [])
+  useEffect(() => { main.current?.scrollTo({ top: 0 }) }, [page, selectedUserId])
 
   if (!authed) return <LoginPage onLogin={() => setAuthed(true)} />
 
   const goToUser = (id) => { setSelectedUserId(id); setPage('user-detail') }
   const goBackToUsers = () => { setSelectedUserId(null); setPage('users') }
+  const selectPage = value => { setPage(value); setSelectedUserId(null); setMenuOpen(false) }
+  const pageTitle = page === 'user-detail' ? `Пользователь #${selectedUserId}` : NAV.find(item => item.id === page)?.label || 'Админка'
 
   let content
   switch (page) {
@@ -2187,7 +2201,7 @@ export default function AdminApp() {
     case 'users': content = <UsersPage goToUser={goToUser} />; break
     case 'user-detail': content = <UserDetailPage userId={selectedUserId} goBack={goBackToUsers} />; break
     case 'cards': content = <CardsPage />; break
-    case 'payments': content = <PaymentsPage />; break
+    case 'payments': content = <PaymentsHistoryPage onUserClick={goToUser} />; break
     case 'analytics': content = <AnalyticsPage />; break
     case 'bot': content = <BotPage />; break
     case 'china': content = <ServiceRequestsPage />; break
@@ -2201,17 +2215,16 @@ export default function AdminApp() {
 
   return (
     <>
-      <style>{`
-        .admin-root, .admin-root * { scrollbar-width: auto !important; -ms-overflow-style: auto !important; -webkit-user-select: auto !important; user-select: auto !important; }
-        .admin-root *::-webkit-scrollbar { display: block !important; width: 6px; height: 6px; }
-        .admin-root *::-webkit-scrollbar-thumb { background: #c1c5cb; border-radius: 3px; }
-        .admin-root *::-webkit-scrollbar-track { background: transparent; }
-      `}</style>
-      <div className="admin-root" style={{ display: 'flex', minHeight: '100vh', fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif', background: '#f3f4f6' }}>
-        <Sidebar page={page} setPage={(p) => { setPage(p); setSelectedUserId(null) }} />
-        <div style={{ flex: 1, padding: '28px 32px', overflowY: 'auto', maxHeight: '100vh' }}>
+      <div className="admin-root admin-shell">
+        <aside className="admin-desktop-nav"><Sidebar page={page} setPage={selectPage} /></aside>
+        <header className="admin-mobile-header">
+          <button type="button" className="admin-mobile-menu-button" aria-label="Открыть меню" aria-haspopup="dialog" aria-expanded={menuOpen} aria-controls="admin-mobile-navigation" onClick={() => setMenuOpen(true)}>☰</button>
+          <div className="admin-mobile-header-title"><small>ProntoPay · Админка</small><strong>{pageTitle}</strong></div>
+        </header>
+        <main ref={main} className="admin-main">
           {content}
-        </div>
+        </main>
+        {menuOpen && <MobileMenu page={page} setPage={selectPage} onClose={() => setMenuOpen(false)} />}
       </div>
     </>
   )

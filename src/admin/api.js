@@ -33,7 +33,15 @@ async function req(method, path, body) {
 }
 
 const adminApi = {
+  payments: {
+    list: (filters = {}) => {
+      const params = new URLSearchParams(Object.entries(filters).filter(([, value]) => value !== '' && value != null))
+      return req('GET', `/admin/payments?${params}`)
+    },
+    detail: (source, id) => req('GET', `/admin/payments/${encodeURIComponent(source)}/${id}`),
+  },
   cryptoPayments: () => req('GET', '/admin/cryptoway/payments'),
+  retryCryptoPayment: (id, providerChecked) => req('POST', `/admin/cryptoway/payments/${id}/retry`, { request_id: crypto.randomUUID(), provider_checked: providerChecked }),
   login: (email, password) => req('POST', '/admin/auth/login', { email, password }),
   dashboard: () => req('GET', '/admin/dashboard'),
   users: {
