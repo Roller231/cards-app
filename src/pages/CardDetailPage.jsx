@@ -8,7 +8,7 @@ import { useToast } from '../components/ui/ToastProvider'
 import TopUpModal from '../components/ui/TopUpModal'
 import Portal from '../components/ui/Portal'
 import { cardBackgroundByOffer, McChip, isVisaOffer } from '../utils/cardAssets'
-import { TxIcon } from './HistoryPage'
+import TxIcon from '../components/ui/TxIcon'
 import { latestOperations } from '../utils/txList'
 import { cardDataRows } from '../utils/cardBilling'
 

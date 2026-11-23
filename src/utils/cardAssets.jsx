@@ -4,19 +4,19 @@
 
 export function cardBackgroundByOffer(offerId) {
   const rid = String(offerId || '')
-  if (rid.startsWith('ROCKETPAY')) return '/images/cards/Pay.png' // Pay (Rocketpay, Apple Pay)
-  if (rid.includes('RT-8')) return '/images/cards/PremiumCard.png' // Online+Pay (Premium)
-  if (rid.includes('RT-2')) return '/images/cards/PremiumCard.png' // legacy plus
-  if (rid.includes('RAVANA:RT')) return '/images/cards/OnlineCard.png'
-  return '/images/cards/OnlineCard.png'
+  if (rid.startsWith('ROCKETPAY')) return '/images/cards/Pay.webp' // Pay (Rocketpay, Apple Pay)
+  if (rid.includes('RT-8')) return '/images/cards/PremiumCard.webp' // Online+Pay (Premium)
+  if (rid.includes('RT-2')) return '/images/cards/PremiumCard.webp' // legacy plus
+  if (rid.includes('RAVANA:RT')) return '/images/cards/OnlineCard.webp'
+  return '/images/cards/OnlineCard.webp'
 }
 
 export function cardBackgroundByTypeName(name) {
   const n = String(name || '').trim()
-  if (n === 'Online+Pay' || n === 'Online + Pay') return '/images/cards/PremiumCard.png'
-  if (n === 'Pay') return '/images/cards/Pay.png'
-  if (n === 'Online') return '/images/cards/OnlineCard.png'
-  return '/images/cards/OnlineCard.png'
+  if (n === 'Online+Pay' || n === 'Online + Pay') return '/images/cards/PremiumCard.webp'
+  if (n === 'Pay') return '/images/cards/Pay.webp'
+  if (n === 'Online') return '/images/cards/OnlineCard.webp'
+  return '/images/cards/OnlineCard.webp'
 }
 
 // Card network of a card: Rocketpay "Pay" cards are VISA, O-Plata ones Mastercard

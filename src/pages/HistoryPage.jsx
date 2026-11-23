@@ -1,3 +1,4 @@
+import TxIcon from '../components/ui/TxIcon'
 import { useState, useMemo, useEffect } from 'react'
 import Button from '../components/ui/Button'
 import { cardBackgroundByOffer } from '../utils/cardAssets'
@@ -92,41 +93,6 @@ const OP_TYPES = [
   { key: 'payment', label: 'Оплата' },
   { key: 'declined', label: 'Прерванная операция' },
 ]
-
-export function TxIcon({ type, size = 44, iconSize = 20, radius = 14 }) {
-  const iconMap = {
-    topup: {
-      iconSrc: '/images/HistoryIcons/arrow-down.png',
-    },
-    withdrawal: {
-      iconSrc: '/images/HistoryIcons/arrow-circle-up.png',
-    },
-    payment: {
-      iconSrc: '/images/HistoryIcons/shop.png',
-    },
-    declined: {
-      iconSrc: '/images/HistoryIcons/red-krest.png',
-    },
-    fee: {
-      iconSrc: '/images/HistoryIcons/arrow-circle-up.png',
-    },
-  }
-  const cfg = iconMap[type] || iconMap.payment
-  return (
-    <div style={{
-      width: size, height: size, borderRadius: radius,
-      backgroundColor: '#F3F5F8',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      flexShrink: 0,
-    }}>
-      <img
-        src={cfg.iconSrc}
-        alt=""
-        style={{ width: iconSize, height: iconSize, objectFit: 'contain' }}
-      />
-    </div>
-  )
-}
 
 function TxRow({ tx, isLast }) {
   const isPositive = tx.amount > 0
@@ -560,7 +526,7 @@ function HistoryPage({ userCards = [], transactions = [], fixedCardLast4 = null,
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#F3F5F8', display: 'flex', flexDirection: 'column', fontFamily: font }}>
       {onBack && <PageHeader title="История" onBack={onBack} />}
-      <div style={{ padding: onBack ? '84px 16px 0' : '28px 16px 0' }}>
+      <div className="page-block" style={{ padding: onBack ? '84px 16px 0' : '28px 16px 0' }}>
         {!onBack && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
             <h1 style={{ fontSize: 30, fontWeight: 700, color: '#111827', fontFamily: font, margin: 0 }}>

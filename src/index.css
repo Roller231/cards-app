@@ -1,5 +1,37 @@
 @import "tailwindcss";
 
+.screen-status {
+  display: grid;
+  flex: 1;
+  align-content: center;
+  justify-items: center;
+  gap: 12px;
+  padding: 24px;
+  color: #4b5563;
+}
+.screen-status button { color: #a93120; text-decoration: underline; }
+
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes page-block-enter {
+    from { opacity: .65; transform: translateY(5px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .page-block { animation: page-block-enter 160ms ease-out backwards; }
+  .page-block:nth-child(2) { animation-delay: 16ms; }
+  .page-block:nth-child(n+3) { animation-delay: 32ms; }
+}
+
+.bottom-bar {
+  background: rgba(255,255,255,.72);
+  -webkit-backdrop-filter: blur(26px) saturate(180%);
+  backdrop-filter: blur(26px) saturate(180%);
+}
+.android-webview .bottom-bar {
+  background: #fff;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
 /* Telegram fullscreen safe areas: the mini app covers the whole screen, so
    content must clear the notch/status bar and Telegram's floating buttons.
    Both stay 0 outside fullscreen, keeping the regular layout untouched. */

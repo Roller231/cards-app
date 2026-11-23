@@ -24,7 +24,7 @@ export function clearToken() {
   localStorage.removeItem(TOKEN_KEY)
 }
 
-async function req(method, path, body) {
+async function req(method, path, body, onHeaders) {
   const token = getToken()
   const headers = { 'Content-Type': 'application/json' }
   if (token) headers['Authorization'] = `Bearer ${token}`
@@ -52,7 +52,7 @@ async function req(method, path, body) {
 
   const text = await res.text()
   const data = text ? JSON.parse(text) : {}
-  if (req.onHeaders) req.onHeaders(path, res.headers)
+  onHeaders?.(res.headers)
   return data
 }
 
@@ -84,15 +84,10 @@ export const api = {
     // (X-Cards-Synced). When it didn't, the balances may still be stale.
     listWithSync: async () => {
       let synced = true
-      req.onHeaders = (path, headers) => {
-        if (path === '/cards') synced = headers.get('X-Cards-Synced') !== '0'
-      }
-      try {
-        const cards = await req('GET', '/cards')
-        return { cards, synced }
-      } finally {
-        req.onHeaders = null
-      }
+      const cards = await req('GET', '/cards', undefined, (headers) => {
+        synced = headers.get('X-Cards-Synced') !== '0'
+      })
+      return { cards, synced }
     },
     requisites: (cardId) => req('GET', `/cards/${cardId}/requisites`),
     transactions: (cardId, limit = 50, offset = 0) =>

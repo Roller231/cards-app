@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import api from '../api/client'
 import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
@@ -10,15 +10,11 @@ import { useDragScroll } from '../hooks/useDragScroll'
 import { useAuth } from '../context/AuthContext'
 import { cardBackgroundByOffer, McChip, isVisaOffer } from '../utils/cardAssets'
 import PromoCard, { usePromoCards } from '../components/PromoCard'
-import { TxIcon } from './HistoryPage'
+import TxIcon from '../components/ui/TxIcon'
 import { latestOperations } from '../utils/txList'
-import { BOTTOM_BAR_SPACE } from '../components/BottomBar'
+import PullToRefresh from '../components/PullToRefresh'
 
-const PULL_THRESHOLD = 120
-const PULL_MAX = 180
-const PULL_DEAD_ZONE = 30
-
-function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNavigateToChina, onNavigateToIssueCard, onCardClick, onNavigateToHistory, commissions = {}, cardsLoading = false, transactionsLoading = false, onRefresh, issueLimitReached = false, onlineAvailable = true, onlinePlusAvailable = true, payAvailable = true }) {
+function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNavigateToChina, onNavigateToIssueCard, onCardClick, onNavigateToHistory, commissions = {}, onRefresh, issueLimitReached = false, onlineAvailable = true, onlinePlusAvailable = true, payAvailable = true }) {
   const [expandedCard, setExpandedCard] = useState(null)
   const scrollRef = useDragScroll()
   const { appConfig } = useAuth()
@@ -30,137 +26,20 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
   const isOnlinePlusExpanded = expandedCard === 'online-plus'
 
   // Promo cards on the home screen — shared with the issue page
-  const promoCards = usePromoCards({ onlineAvailable, onlinePlusAvailable, payAvailable })
+  const { cards: promoCards, rateInfo } = usePromoCards({ onlineAvailable, onlinePlusAvailable, payAvailable })
 
   // Live SBP exchange rate for the bottom widget (rate + day-over-day change)
-  const [rateInfo, setRateInfo] = useState(null)
   const [cnyRate, setCnyRate] = useState(null)  // yuan rate (Alipay / WeChat transfers), no fees
   useEffect(() => {
     let cancelled = false
-    api.sbp.rate()
-      .then((r) => { if (!cancelled && r?.rate) setRateInfo(r) })
-      .catch(() => {})
     api.services.rate()
       .then((r) => { if (!cancelled && r?.base_rate) setCnyRate(Number(r.base_rate)) })
       .catch(() => {})
     return () => { cancelled = true }
   }, [])
 
-  // Pull-to-refresh state
-  const [pull, setPull] = useState(0)
-  const [refreshing, setRefreshing] = useState(false)
-  const touchStartY = useRef(null)
-
-  const handleTouchStart = useCallback((e) => {
-    if (refreshing) return
-    if ((window.scrollY || document.documentElement.scrollTop || 0) > 0) {
-      touchStartY.current = null
-      return
-    }
-    touchStartY.current = e.touches[0].clientY
-  }, [refreshing])
-
-  const handleTouchMove = useCallback((e) => {
-    if (refreshing) return
-    if (touchStartY.current == null) return
-    const dy = e.touches[0].clientY - touchStartY.current
-    if (dy <= PULL_DEAD_ZONE) {
-      // Inside dead zone — ignore so casual small downward gestures don't trigger PTR.
-      setPull(0)
-      return
-    }
-    // Add some resistance after the dead zone.
-    const effective = dy - PULL_DEAD_ZONE
-    const resisted = Math.min(PULL_MAX, effective * 0.45)
-    setPull(resisted)
-  }, [refreshing])
-
-  const handleTouchEnd = useCallback(async () => {
-    if (refreshing) return
-    const dist = pull
-    touchStartY.current = null
-    if (dist >= PULL_THRESHOLD && typeof onRefresh === 'function') {
-      setRefreshing(true)
-      setPull(PULL_THRESHOLD)
-      try {
-        await onRefresh()
-      } catch {}
-      setRefreshing(false)
-      setPull(0)
-    } else {
-      setPull(0)
-    }
-  }, [pull, refreshing, onRefresh])
-
-  // Entering the home screen (back from a card, a purchase, another tab)
-  // refreshes exactly like a pull-down, spinner included. The very first app
-  // load is skipped: App is already loading the cards then.
-  useEffect(() => {
-    if (cardsLoading || userCards.length === 0 || typeof onRefresh !== 'function') return
-    let alive = true
-    setRefreshing(true)
-    setPull(PULL_THRESHOLD)
-    Promise.resolve(onRefresh()).catch(() => {}).finally(() => {
-      if (!alive) return
-      setRefreshing(false)
-      setPull(0)
-    })
-    return () => { alive = false }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  const indicatorOffset = refreshing ? PULL_THRESHOLD : pull
-  const indicatorOpacity = Math.min(1, pull / PULL_THRESHOLD)
-  const indicatorRotation = Math.min(360, (pull / PULL_THRESHOLD) * 360)
-
   return (
-    <div
-      className="flex-1 flex flex-col"
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
-      onTouchCancel={handleTouchEnd}
-      style={{ touchAction: 'pan-y', paddingBottom: BOTTOM_BAR_SPACE }}
-    >
-      {(pull > 0 || refreshing) && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: '50%',
-            transform: `translate(-50%, ${indicatorOffset - 24}px)`,
-            transition: refreshing ? 'transform 200ms ease' : 'none',
-            zIndex: 50,
-            width: 36,
-            height: 36,
-            borderRadius: '50%',
-            background: '#FFFFFF',
-            boxShadow: '0 2px 10px rgba(0,0,0,0.12)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            opacity: indicatorOpacity,
-            pointerEvents: 'none',
-          }}
-        >
-          <div
-            style={{
-              width: 18,
-              height: 18,
-              border: '2.5px solid #E5E7EB',
-              borderTopColor: '#FF5C39',
-              borderRadius: '50%',
-              transform: refreshing ? 'none' : `rotate(${indicatorRotation}deg)`,
-              animation: refreshing ? 'spin 0.7s linear infinite' : 'none',
-            }}
-          />
-        </div>
-      )}
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-      <div style={{
-        transform: `translateY(${indicatorOffset}px)`,
-        transition: (pull === 0 && !refreshing) ? 'transform 200ms ease' : 'none',
-      }}>
+    <PullToRefresh onRefresh={onRefresh}>
       {appConfig?.sbp_disabled && (
         <Section>
           <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 16, padding: '12px 14px', fontSize: 13, color: '#991B1B', fontFamily: font, lineHeight: 1.5 }}>
@@ -249,7 +128,7 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
           </div>
 
           {/* Single scroll container — ref stays stable so drag-scroll listeners survive reloads */}
-          {(!cardsLoading && userCards.length === 0) ? (
+          {(userCards.length === 0) ? (
             <div
               className="pb-6 font-semibold"
               style={{
@@ -280,18 +159,7 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
                   scroller's own right padding isn't scrollable in WebKit, which
                   cut the last card's right edge */}
               <div style={{ display: 'flex', gap: 12, width: 'max-content', paddingRight: 40 }}>
-                {cardsLoading
-                  ? [1, 2].map((i) => (
-                      <div
-                        key={i}
-                        style={{
-                          minWidth: 240, height: 144, borderRadius: 20,
-                          backgroundColor: '#E5E7EB', flexShrink: 0,
-                          animation: 'pulse 1.5s ease-in-out infinite',
-                        }}
-                      />
-                    ))
-                  : userCards.map((card) => (
+                {userCards.map((card) => (
                       <div
                         key={card.id}
                     className="transition-transform duration-150 active:scale-95"
@@ -587,8 +455,7 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
 
       {/* Partner VPN banner — hidden for now (component kept in components/VpnBanner) */}
 
-      </div>
-    </div>
+    </PullToRefresh>
   )
 }
 

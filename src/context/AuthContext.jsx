@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import api, { clearToken, getToken, setToken } from '../api/client'
 
 const AuthContext = createContext(null)
@@ -20,19 +20,31 @@ export function AuthProvider({ children }) {
     } catch {}
   }, [])
 
-  const fetchMe = useCallback(async () => {
+  const pendingMe = useRef(null)
+  const loadMe = useCallback(async (token) => {
     try {
       const me = await api.auth.me()
+      if (token !== getToken()) return null
       setBanned(false)
       setUser(me)
       return me
     } catch (err) {
-      if (err.status === 403 && err.message === 'ACCOUNT_BANNED') {
+      if (token === getToken() && err.status === 403 && err.message === 'ACCOUNT_BANNED') {
         setBanned(true)
       }
       return null
     }
   }, [])
+
+  const fetchMe = useCallback(() => {
+    const token = getToken()
+    if (pendingMe.current?.token === token) return pendingMe.current.promise
+    const promise = loadMe(token).finally(() => {
+      if (pendingMe.current?.promise === promise) pendingMe.current = null
+    })
+    pendingMe.current = { token, promise }
+    return promise
+  }, [loadMe])
 
   const loginWithTelegramWebApp = useCallback(
     async (initData) => {
@@ -53,11 +65,11 @@ export function AuthProvider({ children }) {
   )
 
   useEffect(() => {
+    const config = loadConfig()
     const init = async () => {
-      setLoading(true)
-
-      // Load public config first – no auth needed
-      await loadConfig()
+      // Some WebViews expose initData late. Preserve their startup window
+      // while already-initialized Telegram clients authenticate in parallel.
+      if (!window.Telegram?.WebApp?.initData) await config
 
       const tg = window?.Telegram?.WebApp
       // Signal Telegram the app is ready (required for some clients to expose initData)
@@ -70,14 +82,12 @@ export function AuthProvider({ children }) {
         try {
           setAuthError('')
           await loginWithTelegramWebApp(initData)
-          setLoading(false)
           return
         } catch (e) {
           console.error('[Auth] Telegram WebApp auth failed:', e.message)
           clearToken()
           setUser(null)
           setAuthError(`Ошибка авторизации Telegram: ${e.message}. Попробуйте переоткрыть из бота.`)
-          setLoading(false)
           return
         }
       }
@@ -87,7 +97,6 @@ export function AuthProvider({ children }) {
       if (getToken()) {
         const me = await fetchMe()
         if (me) {
-          setLoading(false)
           return
         }
         clearToken()
@@ -100,7 +109,6 @@ export function AuthProvider({ children }) {
       try {
         setAuthError('')
         await loginWithDevBrowser()
-        setLoading(false)
         return
       } catch (e) {
         console.error('[Auth] Dev browser auth failed:', e.message)
@@ -109,11 +117,10 @@ export function AuthProvider({ children }) {
         // Forbidden = opened outside Telegram in production: show the clean
         // "open from Telegram" screen, not a scary error.
         setAuthError(e.status === 403 ? '' : `Ошибка авторизации: ${e.message}`)
-        setLoading(false)
       }
     }
 
-    init()
+    Promise.all([config, init()]).finally(() => setLoading(false))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const {

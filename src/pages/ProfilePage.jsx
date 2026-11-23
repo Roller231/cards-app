@@ -150,7 +150,7 @@ export default function ProfilePage({ userCards = [], onTransferToCard }) {
     }
   }
 
-  const balance = Number(profile?.balance ?? user?.balance ?? 0)
+  const balance = Number(user?.balance ?? profile?.balance ?? 0)
   const refBonus = Number(profile?.referral_bonus_usd ?? appConfig?.referral_bonus_usd ?? 0)
   const refDiscount = Number(profile?.referral_discount_percent ?? appConfig?.referral_discount_percent ?? 0)
   const myDiscount = Number(profile?.my_issue_discount_percent || 0)

@@ -143,7 +143,7 @@ function FAQPage({ onBack }) {
     <div className="flex-1 flex flex-col pb-10">
       <PageHeader title="FAQ" onBack={onBack} />
 
-      <div className="px-4 flex flex-col gap-3" style={{ paddingTop: 72 }}>
+      <div className="page-block px-4 flex flex-col gap-3" style={{ paddingTop: 72 }}>
         {faqItems.map((item) => {
           const isExpanded = expandedItem === item.id
 

@@ -1,17 +1,20 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { lazy, useCallback, useDeferredValue, useEffect, useRef, useState } from 'react'
 import api from './api/client'
 import Layout from './components/Layout'
-import { ToastProvider, useToast } from './components/ui/ToastProvider'
+import { ToastProvider } from './components/ui/ToastProvider'
 import { AuthProvider, useAuth } from './context/AuthContext'
-import CardDetailPage from './pages/CardDetailPage'
-import FAQPage from './pages/FAQPage'
-import HistoryPage from './pages/HistoryPage'
+import ScreenLoader from './components/ScreenLoader'
 import HomePage from './pages/HomePage'
-import ProfilePage from './pages/ProfilePage'
-import ChinaPage from './pages/ChinaPage'
 import BottomBar from './components/BottomBar'
-import IssueCardPage from './pages/IssueCardPage'
+import { appIsVisible, startBalancePolling } from './utils/balancePolling'
 import { metrikaHit } from './utils/metrika'
+
+const CardDetailPage = lazy(() => import('./pages/CardDetailPage'))
+const FAQPage = lazy(() => import('./pages/FAQPage'))
+const HistoryPage = lazy(() => import('./pages/HistoryPage'))
+const ProfilePage = lazy(() => import('./pages/ProfilePage'))
+const ChinaPage = lazy(() => import('./pages/ChinaPage'))
+const IssueCardPage = lazy(() => import('./pages/IssueCardPage'))
 
 // Map raw Aifory transaction to frontend shape
 function mapAiforyTx(tx, card) {
@@ -64,13 +67,14 @@ function mapAiforyTx(tx, card) {
 
 function AppInner() {
   const { user, loading: authLoading, banned, authError, appConfig, commissions, fetchMe } = useAuth()
-  const [currentPage, setCurrentPage] = useState(() => {
+  const [requestedPage, setCurrentPage] = useState(() => {
     // Deep link t.me/<bot>/<app>?startapp=china opens the China tab directly
     try {
       if (window?.Telegram?.WebApp?.initDataUnsafe?.start_param === 'china') return 'china'
     } catch {}
     return 'home'
   })
+  const currentPage = useDeferredValue(requestedPage)
   const [cardTypeToIssue, setCardTypeToIssue] = useState(null)
   const [selectedCard, setSelectedCard] = useState(null)
   // Opens the card's top-up sheet with this payment method preselected
@@ -85,12 +89,10 @@ function AppInner() {
   const [userCards, setUserCards] = useState([])
   const [offers, setOffers] = useState([])
   const [transactions, setTransactions] = useState([])
-  const [cardsLoading, setCardsLoading] = useState(false)
-  const [transactionsLoading, setTransactionsLoading] = useState(false)
   const [historyFixedCardLast4, setHistoryFixedCardLast4] = useState(null)
   const [historyReturnCardId, setHistoryReturnCardId] = useState(null)
   const [dataReady, setDataReady] = useState(false)
-  const { showToast } = useToast()
+  const userId = user?.id
   const tgInitOnceRef = useRef(false)
 
   // Maintenance: from the public config, or from any API call answering 503
@@ -109,19 +111,19 @@ function AppInner() {
   const refreshCardsRef = useRef(null)
   const syncRetryTimerRef = useRef(null)
   const syncRetriesRef = useRef(0)
-  const refreshCards = useCallback(async ({ silent = false } = {}) => {
-    if (!silent) setCardsLoading(true)
+  const cardsRequest = useRef(null)
+  const loadCards = useCallback(async ({ enrich = true } = {}) => {
     try {
       const { cards, synced } = await api.cards.listWithSync()
       // Provider was slow: the background sync keeps going — ask once more
       // shortly so the fresh balances replace the cached ones by themselves.
       if (synced) {
         syncRetriesRef.current = 0
-      } else if (!syncRetryTimerRef.current && syncRetriesRef.current < 3) {
+      } else if (enrich && !syncRetryTimerRef.current && syncRetriesRef.current < 3) {
         syncRetriesRef.current += 1
         syncRetryTimerRef.current = setTimeout(() => {
           syncRetryTimerRef.current = null
-          refreshCardsRef.current?.({ silent: true })
+          if (appIsVisible()) refreshCardsRef.current?.()
         }, 3000)
       }
       const mapped = cards.map((c) => ({
@@ -130,7 +132,7 @@ function AppInner() {
       }))
       // For any card that has no last4, fetch requisites to get it
       const needEnrich = mapped.filter((c) => !c.last4 && c.aifory_card_id && c.status === 'active')
-      if (needEnrich.length > 0) {
+      if (enrich && needEnrich.length > 0) {
         await Promise.allSettled(
           needEnrich.map(async (c) => {
             try {
@@ -141,16 +143,25 @@ function AppInner() {
           }),
         )
       }
-      setUserCards(mapped)
+      setUserCards(previous => mapped.map(card => {
+        if (card.last4 || !card.aifory_card_id) return card
+        const saved = previous.find(c => c.aifory_card_id === card.aifory_card_id)
+        return saved?.last4 ? { ...card, last4: saved.last4 } : card
+      }))
       return mapped
     } catch (e) {
       console.error('[Cards] failed to load cards:', e.message)
       return []
-    } finally {
-      if (!silent) setCardsLoading(false)
     }
   }, [])
+  const refreshCards = useCallback(options => {
+    if (!cardsRequest.current) {
+      cardsRequest.current = loadCards(options).finally(() => { cardsRequest.current = null })
+    }
+    return cardsRequest.current
+  }, [loadCards])
   refreshCardsRef.current = refreshCards
+  useEffect(() => () => clearTimeout(syncRetryTimerRef.current), [])
 
   // Load card offers — carries per-user max_issued_count / current_count
   // so issue buttons can be disabled when the O-Plata limit is reached
@@ -166,7 +177,6 @@ function AppInner() {
   // Load transactions for all cards (first 10 each) for history page
   const refreshTransactions = useCallback(
     async (cards) => {
-      setTransactionsLoading(true)
       const allTx = []
       await Promise.allSettled(
         cards.map(async (card) => {
@@ -182,14 +192,13 @@ function AppInner() {
       )
       allTx.sort((a, b) => b.date - a.date)
       setTransactions(allTx)
-      setTransactionsLoading(false)
     },
     [],
   )
 
   // Load the main screen's data as soon as the user is authenticated.
   useEffect(() => {
-    if (!user) return
+    if (authLoading || userId == null) return
     let canceled = false
     ;(async () => {
       try {
@@ -205,19 +214,12 @@ function AppInner() {
       setDataReady(true)
     })()
     return () => { canceled = true }
-  }, [user, refreshCards, refreshOffers, refreshTransactions])
+  }, [authLoading, userId, refreshCards, refreshOffers, refreshTransactions])
 
   // Same as the pull-to-refresh on the home screen: cards (with provider
   // sync), offers, transactions and the internal balance.
   const refreshAll = useCallback(async () => {
-    fetchMe?.()
-    const cards = await refreshCards({ silent: true })
-    refreshOffers()
-    setSelectedCard((prev) => {
-      if (!prev) return prev
-      const updated = cards.find((c) => c.id === prev.id)
-      return updated ? { ...updated, title: 'Виртуальная карта' } : prev
-    })
+    const [cards] = await Promise.all([refreshCards(), fetchMe(), refreshOffers()])
     if (cards.length > 0) await refreshTransactions(cards)
   }, [refreshCards, refreshOffers, refreshTransactions, fetchMe])
 
@@ -228,46 +230,26 @@ function AppInner() {
   const scheduleFollowUpRefresh = useCallback(() => {
     followUpTimersRef.current.forEach(clearTimeout)
     followUpTimersRef.current = [5000, 15000, 40000].map((ms) =>
-      setTimeout(() => { refreshAll().catch(() => {}) }, ms),
+      setTimeout(() => { if (appIsVisible()) refreshAll().catch(() => {}) }, ms),
     )
   }, [refreshAll])
   useEffect(() => () => followUpTimersRef.current.forEach(clearTimeout), [])
 
-  // Coming back to the mini app (it stays alive in the background)
   useEffect(() => {
-    if (!user) return
-    let last = Date.now()
-    const onVisible = () => {
-      if (document.visibilityState !== 'visible') return
-      if (Date.now() - last < 10000) return
-      last = Date.now()
-      refreshAll().catch(() => {})
-    }
-    document.addEventListener('visibilitychange', onVisible)
-    return () => document.removeEventListener('visibilitychange', onVisible)
-  }, [user, refreshAll])
+    if (!dataReady || authLoading || userId == null || banned || maintenanceText) return
+    return startBalancePolling(() => Promise.all([refreshCards({ enrich: false }), fetchMe()]))
+  }, [dataReady, authLoading, userId, banned, maintenanceText, refreshCards, fetchMe])
 
-  // After card issued: reload cards list and offer limits
-  const handleCardIssued = useCallback(async () => {
+  const refreshAfterPayment = useCallback(async () => {
+    await refreshAll()
+    scheduleFollowUpRefresh()
+  }, [refreshAll, scheduleFollowUpRefresh])
+
+  const handleCardIssued = () => {
     setCardTypeToIssue(null)
     setCurrentPage('home')
-    fetchMe?.()  // balance may have changed (paid from the internal balance)
-    const cards = await refreshCards()
-    refreshOffers()
-    if (cards.length > 0) refreshTransactions(cards)
-    scheduleFollowUpRefresh()
-  }, [refreshCards, refreshOffers, refreshTransactions, fetchMe, scheduleFollowUpRefresh])
-
-  // After deposit: reload cards to update balance
-  const handleDeposited = useCallback(async () => {
-    fetchMe?.()
-    const cards = await refreshCards()
-    if (selectedCard) {
-      const updated = cards.find((c) => c.id === selectedCard.id)
-      if (updated) setSelectedCard({ ...updated, title: 'Виртуальная карта' })
-    }
-    scheduleFollowUpRefresh()
-  }, [refreshCards, selectedCard, fetchMe, scheduleFollowUpRefresh])
+    return refreshAfterPayment()
+  }
 
   // Telegram WebApp init
   useEffect(() => {
@@ -416,13 +398,12 @@ function AppInner() {
 
   return (
     <Layout background="#F3F5F8">
+      <ScreenLoader page={currentPage}>
       {currentPage === 'home' && (
         <HomePage
           userCards={userCards}
           transactions={transactions}
           commissions={commissions}
-          cardsLoading={cardsLoading}
-          transactionsLoading={transactionsLoading}
           issueLimitReached={issueLimitReached}
           onlineAvailable={onlineAvailable}
           onlinePlusAvailable={onlinePlusAvailable}
@@ -437,7 +418,6 @@ function AppInner() {
           onCardClick={(card) => {
             setSelectedCard(card)
             setCurrentPage('card-detail')
-            refreshAll().catch(() => {})  // fresh balance on the card screen
           }}
           onNavigateToHistory={() => {
             setHistoryFixedCardLast4(null)
@@ -484,13 +464,13 @@ function AppInner() {
       )}
       {currentPage === 'card-detail' && (
         <CardDetailPage
-          card={selectedCard}
+          card={userCards.find(c => c.id === selectedCard?.id) ?? selectedCard}
           transactions={transactions}
           onBack={() => {
             setSelectedCard(null)
             setCurrentPage('home')
           }}
-          onTopUp={handleDeposited}
+          onTopUp={refreshAfterPayment}
           topUpPreset={topUpPreset}
           onTopUpPresetUsed={() => setTopUpPreset(null)}
           onNavigateToHistory={(cardLast4) => {
@@ -501,8 +481,9 @@ function AppInner() {
           getCommissionForCardType={getCommissionForCardType}
         />
       )}
+      </ScreenLoader>
       {(currentPage === 'home' || currentPage === 'profile' || currentPage === 'china') && (
-        <BottomBar active={currentPage} onChange={(page) => setCurrentPage(page)} />
+        <BottomBar active={['home', 'profile', 'china'].includes(requestedPage) ? requestedPage : currentPage} onChange={setCurrentPage} />
       )}
     </Layout>
   )

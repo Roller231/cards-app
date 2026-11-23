@@ -50,11 +50,8 @@ const TABS = [
 /**
  * Floating glass tab bar (Telegram / iOS style) in the app's palette.
  *
- * Rendered through a Portal straight into <body>: the Layout column carries a
- * CSS transform, and `position: fixed` inside a transformed ancestor is
- * positioned relative to that ancestor — the bar would scroll with the page
- * and "hang" at the bottom of the content instead of staying on screen.
- * Being outside #root it adds the Telegram safe inset to its own offset.
+ * The portal keeps the bar fixed to the viewport outside the page's layout
+ * containment. Its offset includes the Telegram safe inset.
  */
 export default function BottomBar({ active, onChange }) {
   const activeIndex = Math.max(0, TABS.findIndex((t) => t.id === active))
@@ -75,7 +72,7 @@ export default function BottomBar({ active, onChange }) {
 
   return (
     <Portal>
-      <nav
+      <nav className="bottom-bar"
         style={{
           position: 'fixed',
           left: '50%',
@@ -88,9 +85,6 @@ export default function BottomBar({ active, onChange }) {
           padding: 6,
           borderRadius: 33,
           zIndex: 40,
-          background: 'rgba(255,255,255,0.72)',
-          backdropFilter: 'blur(26px) saturate(180%)',
-          WebkitBackdropFilter: 'blur(26px) saturate(180%)',
           border: '1px solid rgba(255,255,255,0.85)',
           boxShadow: '0 12px 32px rgba(17,24,39,0.16), 0 1px 2px rgba(17,24,39,0.06), inset 0 1px 0 rgba(255,255,255,0.9)',
           fontFamily: font,

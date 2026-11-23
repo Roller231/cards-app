@@ -26,23 +26,18 @@ export function usePromoCards({ onlineAvailable = true, onlinePlusAvailable = tr
   const promo = appConfig?.cards_promo || {}
   // Live SBP exchange rate (RUB per 1 USD), computed by the backend
   // (Bitbanker index × fee multipliers). One fetch shared by all promo cards.
-  const [sbpRate, setSbpRate] = useState(null)
-  const [topupFee, setTopupFee] = useState(null)  // combined fee inside the payment rate, %
-  const [topupFeePay, setTopupFeePay] = useState(null)  // same for Rocketpay "Pay" cards
+  const [rateInfo, setRateInfo] = useState(null)
   useEffect(() => {
     let cancelled = false
-    api.sbp.rate()
-      .then((r) => {
-        if (cancelled || !r || !r.rate) return
-        setSbpRate(Number(r.base_rate ?? r.rate))
-        if (typeof r.topup_fee_percent === 'number') setTopupFee(r.topup_fee_percent)
-        const rp = r.providers && r.providers.rocketpay
-        if (rp && typeof rp.topup_fee_percent === 'number') setTopupFeePay(rp.topup_fee_percent)
-      })
-      .catch(() => {})
+    api.sbp.rate().then(r => {
+      if (!cancelled && r?.rate) setRateInfo(r)
+    }).catch(() => {})
     return () => { cancelled = true }
   }, [])
-  return [
+  const sbpRate = rateInfo ? Number(rateInfo.base_rate ?? rateInfo.rate) : null
+  const topupFee = rateInfo?.topup_fee_percent
+  const topupFeePay = rateInfo?.providers?.rocketpay?.topup_fee_percent
+  const cards = [
     {
       key: 'online', available: onlineAvailable, payIcons: false,
       title: pick(promo.online, 'title', 'Online'),
@@ -83,6 +78,7 @@ export function usePromoCards({ onlineAvailable = true, onlinePlusAvailable = tr
       sbpRate,
     },
   ]
+  return { cards, rateInfo }
 }
 
 // The promo card itself — identical on the home screen and the issue screen.

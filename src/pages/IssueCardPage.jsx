@@ -39,7 +39,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
   const [promoExpanded, setPromoExpanded] = useState(false)
 
   // Info card (same as on the home screen) for the selected card type
-  const promoCards = usePromoCards()
+  const { cards: promoCards } = usePromoCards()
 
 
   // Load card offers and issuance price from API
@@ -144,7 +144,7 @@ function IssueCardPage({ onBack, initialCardType, onCardIssued }) {
     <div className="flex-1 flex flex-col pb-10">
       <PageHeader title="Выпустить карту" onBack={onBack} />
 
-      <div className="px-4 flex flex-col gap-4" style={{ paddingTop: 72 }}>
+      <div className="page-block px-4 flex flex-col gap-4" style={{ paddingTop: 72 }}>
         {/* Card Type Dropdown */}
         <div style={{ position: 'relative' }}>
           <div
