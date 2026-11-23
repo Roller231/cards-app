@@ -1,3 +1,4 @@
+import { useCardHistory } from './hooks/useCardHistory'
 import { lazy, useCallback, useDeferredValue, useEffect, useRef, useState } from 'react'
 import api from './api/client'
 import Layout from './components/Layout'
@@ -15,55 +16,6 @@ const HistoryPage = lazy(() => import('./pages/HistoryPage'))
 const ProfilePage = lazy(() => import('./pages/ProfilePage'))
 const ChinaPage = lazy(() => import('./pages/ChinaPage'))
 const IssueCardPage = lazy(() => import('./pages/IssueCardPage'))
-
-// Map raw Aifory transaction to frontend shape
-function mapAiforyTx(tx, card) {
-  const rawAmount = parseFloat(tx.display_amount ?? tx.amount ?? tx.Amount ?? 0)
-  const typeId = tx.type ?? tx.transactionType ?? tx.typeID ?? 0
-  const statusId = tx.statusID ?? tx.status_id ?? tx.statusId ?? 0
-
-  // Backend now sends normalized tx_type ('topup'|'payment'|'refund'|'declined')
-  // and display_amount (signed, in the card currency). The sign-based guess
-  // below is only a fallback for legacy payloads.
-  let txType
-  if (tx.tx_type) {
-    txType = tx.tx_type === 'refund' ? 'topup' : tx.tx_type
-  } else if (statusId === 3 || String(tx.status).toLowerCase().includes('declin')) {
-    txType = 'declined'
-  } else if (rawAmount > 0 || typeId === 2) {
-    txType = 'topup'
-  } else {
-    txType = 'payment'
-  }
-
-  const merchant =
-    tx.merchant || tx.merchantName || tx.description || tx.comment || ''
-
-  return {
-    id: String(tx.id ?? tx.transactionID ?? tx.transactionId ?? Math.random()),
-    type: txType,
-    title:
-      txType === 'topup'
-        ? `*** ${card.last4 || ''}`
-        : merchant || 'Покупка',
-    subtitle:
-      txType === 'topup'
-        ? 'Пополнение'
-        : txType === 'declined'
-          ? 'Операция отклонена'
-          : txType === 'fee'
-            ? 'Комиссия'
-            : 'Оплата',
-    cardTitle: card.title || 'Виртуальная карта',
-    cardLast4: card.last4 || '',
-    amount: txType === 'topup' ? Math.abs(rawAmount) : -Math.abs(rawAmount),
-    date: tx.date
-      ? new Date(tx.date)
-      : tx.createdAt
-        ? new Date(typeof tx.createdAt === 'number' ? tx.createdAt * 1000 : tx.createdAt)
-        : new Date(),
-  }
-}
 
 function AppInner() {
   const { user, loading: authLoading, banned, authError, appConfig, commissions, fetchMe } = useAuth()
@@ -88,12 +40,11 @@ function AppInner() {
   }, [currentPage])
   const [userCards, setUserCards] = useState([])
   const [offers, setOffers] = useState([])
-  const [transactions, setTransactions] = useState([])
+  const { transactions, status: historyStatus, refresh: refreshTransactions } = useCardHistory(userCards)
   const [historyFixedCardLast4, setHistoryFixedCardLast4] = useState(null)
   const [historyReturnCardId, setHistoryReturnCardId] = useState(null)
-  const [dataReady, setDataReady] = useState(false)
+  const [cardsStatus, setCardsStatus] = useState('loading')
   const userId = user?.id
-  const tgInitOnceRef = useRef(false)
 
   // Maintenance: from the public config, or from any API call answering 503
   const [maintenanceEvent, setMaintenanceEvent] = useState('')
@@ -112,14 +63,14 @@ function AppInner() {
   const syncRetryTimerRef = useRef(null)
   const syncRetriesRef = useRef(0)
   const cardsRequest = useRef(null)
-  const loadCards = useCallback(async ({ enrich = true } = {}) => {
+  const loadCards = useCallback(async ({ enrich = true, snapshot = false } = {}) => {
     try {
-      const { cards, synced } = await api.cards.listWithSync()
+      const { cards, synced } = await api.cards.listWithSync(snapshot)
       // Provider was slow: the background sync keeps going — ask once more
       // shortly so the fresh balances replace the cached ones by themselves.
       if (synced) {
         syncRetriesRef.current = 0
-      } else if (enrich && !syncRetryTimerRef.current && syncRetriesRef.current < 3) {
+      } else if ((enrich || snapshot) && !syncRetryTimerRef.current && syncRetriesRef.current < 3) {
         syncRetriesRef.current += 1
         syncRetryTimerRef.current = setTimeout(() => {
           syncRetryTimerRef.current = null
@@ -130,28 +81,32 @@ function AppInner() {
         ...c,
         title: 'Виртуальная карта',
       }))
-      // For any card that has no last4, fetch requisites to get it
-      const needEnrich = mapped.filter((c) => !c.last4 && c.aifory_card_id && c.status === 'active')
-      if (enrich && needEnrich.length > 0) {
-        await Promise.allSettled(
-          needEnrich.map(async (c) => {
-            try {
-              const req = await api.cards.requisites(c.aifory_card_id)
-              const num = req?.card_number || req?.cardNumber
-              if (num) c.last4 = String(num).slice(-4)
-            } catch {}
-          }),
-        )
-      }
       setUserCards(previous => mapped.map(card => {
         if (card.last4 || !card.aifory_card_id) return card
         const saved = previous.find(c => c.aifory_card_id === card.aifory_card_id)
         return saved?.last4 ? { ...card, last4: saved.last4 } : card
       }))
+      setCardsStatus('ready')
+      // For any card that has no last4, fetch requisites to get it
+      const needEnrich = mapped.filter((c) => !c.last4 && c.aifory_card_id && c.status === 'active')
+      if (enrich && needEnrich.length > 0) {
+        void Promise.allSettled(
+          needEnrich.map(async (c) => {
+            try {
+              const req = await api.cards.requisites(c.aifory_card_id)
+              const num = req?.card_number || req?.cardNumber
+              if (num) setUserCards(previous => previous.map(card =>
+                card.id === c.id && !card.last4 ? { ...card, last4: String(num).slice(-4) } : card
+              ))
+            } catch {}
+          }),
+        )
+      }
       return mapped
     } catch (e) {
       console.error('[Cards] failed to load cards:', e.message)
-      return []
+      setCardsStatus('error')
+      return null
     }
   }, [])
   const refreshCards = useCallback(options => {
@@ -174,54 +129,22 @@ function AppInner() {
     }
   }, [])
 
-  // Load transactions for all cards (first 10 each) for history page
-  const refreshTransactions = useCallback(
-    async (cards) => {
-      const allTx = []
-      await Promise.allSettled(
-        cards.map(async (card) => {
-          if (!card.aifory_card_id || card.status !== 'active') return
-          try {
-            const txList = await api.cards.transactions(card.aifory_card_id, 10, 0)
-            const arr = Array.isArray(txList)
-              ? txList
-              : txList?.transactions ?? txList?.data ?? []
-            arr.forEach((tx) => allTx.push(mapAiforyTx(tx, card)))
-          } catch {}
-        }),
-      )
-      allTx.sort((a, b) => b.date - a.date)
-      setTransactions(allTx)
-    },
-    [],
-  )
-
-  // Load the main screen's data as soon as the user is authenticated.
   useEffect(() => {
-    if (authLoading || userId == null) return
-    let canceled = false
-    ;(async () => {
-      try {
-        const [cards] = await Promise.all([
-          refreshCards(),
-          refreshOffers(),
-        ])
-        if (canceled) return
-        if (cards.length > 0) {
-          refreshTransactions(cards)
-        }
-      } catch {}
-      setDataReady(true)
-    })()
-    return () => { canceled = true }
-  }, [authLoading, userId, refreshCards, refreshOffers, refreshTransactions])
+    if (authLoading || userId == null || banned || maintenanceText) return
+    refreshCards({ snapshot: true, enrich: false })
+    refreshOffers()
+  }, [authLoading, userId, banned, maintenanceText, refreshCards, refreshOffers])
 
-  // Same as the pull-to-refresh on the home screen: cards (with provider
-  // sync), offers, transactions and the internal balance.
-  const refreshAll = useCallback(async () => {
-    const [cards] = await Promise.all([refreshCards(), fetchMe(), refreshOffers()])
-    if (cards.length > 0) await refreshTransactions(cards)
-  }, [refreshCards, refreshOffers, refreshTransactions, fetchMe])
+  const refreshAll = useCallback(() => Promise.all([
+    refreshCards().then(cards => cards && refreshTransactions(cards, true)),
+    fetchMe(),
+    refreshOffers(),
+  ]), [refreshCards, refreshOffers, refreshTransactions, fetchMe])
+
+  const retryHistory = () => cardsStatus === 'ready'
+    ? refreshTransactions(userCards, true)
+    : refreshCards().then(cards => cards && refreshTransactions(cards, true))
+  const visibleHistoryStatus = id => cardsStatus !== 'ready' ? cardsStatus : historyStatus(id)
 
   // Issuing / funding at the provider finishes a bit later than our request,
   // so a single reload right after a purchase often still shows the old
@@ -236,9 +159,9 @@ function AppInner() {
   useEffect(() => () => followUpTimersRef.current.forEach(clearTimeout), [])
 
   useEffect(() => {
-    if (!dataReady || authLoading || userId == null || banned || maintenanceText) return
+    if (authLoading || userId == null || banned || maintenanceText) return
     return startBalancePolling(() => Promise.all([refreshCards({ enrich: false }), fetchMe()]))
-  }, [dataReady, authLoading, userId, banned, maintenanceText, refreshCards, fetchMe])
+  }, [authLoading, userId, banned, maintenanceText, refreshCards, fetchMe])
 
   const refreshAfterPayment = useCallback(async () => {
     await refreshAll()
@@ -251,6 +174,195 @@ function AppInner() {
     return refreshAfterPayment()
   }
 
+  // Helper to get commission for specific card type
+  const getCommissionForCardType = (cardTypeId, operationType) => {
+    const isOnlinePlus = String(cardTypeId) === '525847'
+    if (operationType === 'issue') {
+      // Return fixed fee in USD
+      return isOnlinePlus ? commissions?.online_plus_issue_fee || 0 : commissions?.online_issue_fee || 0
+    } else {
+      // Return percentage for topup
+      return isOnlinePlus ? commissions?.online_plus_topup || 0 : commissions?.online_topup || 0
+    }
+  }
+
+
+  // All issuable offers at their O-Plata maxIssuedCount → block issuing everywhere
+  const issueLimitReached =
+    offers.length > 0 &&
+    offers.every((o) => Number(o.current_count ?? 0) >= Number(o.max_issued_count ?? 999))
+
+  // Card types can be disabled in the admin panel — hide their promo blocks.
+  // While offers haven't loaded yet, show everything (avoid flicker/hard hide on error).
+  const offersLoaded = offers.length > 0
+  const onlineAvailable = !offersLoaded || offers.some((o) => o.name === 'Online')
+  const onlinePlusAvailable = !offersLoaded || offers.some((o) => o.name === 'Online+Pay')
+  const payAvailable = !offersLoaded || offers.some((o) => o.name === 'Pay')
+
+  const historyCard = userCards.find(card => card.id === historyReturnCardId)
+
+  // Maintenance: the whole app is closed
+  if (maintenanceText) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100dvh', background: '#F3F5F8', padding: 32, textAlign: 'center', boxSizing: 'border-box' }}>
+        <div style={{
+          width: 72, height: 72, borderRadius: 36, marginBottom: 18,
+          background: 'linear-gradient(135deg, #DC4D35 0%, #E8785F 100%)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+          </svg>
+        </div>
+        <h2 style={{ margin: '0 0 10px', fontSize: 22, fontWeight: 700, color: '#111827' }}>Технические работы</h2>
+        <p style={{ margin: 0, fontSize: 15, lineHeight: 1.5, color: '#6b7280', maxWidth: 340 }}>{maintenanceText}</p>
+        <button
+          onClick={() => window.location.reload()}
+          style={{ marginTop: 24, border: 'none', background: '#DC4D35', color: '#fff', borderRadius: 12, padding: '14px 28px', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}
+        >
+          Обновить
+        </button>
+      </div>
+    )
+  }
+
+  // Banned screen
+  if (banned) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100dvh', background: '#F3F5F8', padding: 32, textAlign: 'center' }}>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>🚫</div>
+        <h2 style={{ margin: '0 0 8px', fontSize: 22, fontWeight: 700, color: '#111827' }}>Аккаунт заблокирован</h2>
+        <p style={{ margin: 0, fontSize: 15, color: '#6b7280', maxWidth: 300 }}>Ваш аккаунт был заблокирован администратором. Обратитесь в поддержку для получения информации.</p>
+      </div>
+    )
+  }
+
+  if (!authLoading && !user) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100dvh', background: '#F3F5F8', padding: 32, textAlign: 'center' }}>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
+        <h2 style={{ margin: '0 0 8px', fontSize: 22, fontWeight: 700, color: '#111827' }}>Доступ только через Telegram</h2>
+        <p style={{ margin: 0, fontSize: 15, color: '#6b7280', maxWidth: 360 }}>
+          {authError || 'Откройте приложение из Telegram-бота, чтобы продолжить.'}
+        </p>
+      </div>
+    )
+  }
+
+  // Card data and history render independently after authentication.
+  if (authLoading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100dvh', background: '#F3F5F8' }}>
+        <svg width="48" height="48" viewBox="0 0 48 48" style={{ animation: 'spin 1s linear infinite' }}>
+          <circle cx="24" cy="24" r="20" fill="none" stroke="#DC4D35" strokeWidth="4" strokeLinecap="round" strokeDasharray="94.25 31.42" />
+        </svg>
+      </div>
+    )
+  }
+
+  return (
+    <Layout background="#F3F5F8">
+      <ScreenLoader page={currentPage}>
+      {currentPage === 'home' && (
+        <HomePage
+          userCards={userCards}
+          transactions={transactions}
+          cardsStatus={cardsStatus}
+          historyStatus={visibleHistoryStatus()}
+          onRetry={retryHistory}
+          commissions={commissions}
+          issueLimitReached={issueLimitReached}
+          onlineAvailable={onlineAvailable}
+          onlinePlusAvailable={onlinePlusAvailable}
+          payAvailable={payAvailable}
+          onRefresh={refreshAll}
+          onNavigateToFAQ={() => setCurrentPage('faq')}
+          onNavigateToChina={() => setCurrentPage('china')}
+          onNavigateToIssueCard={(cardType = null) => {
+            setCardTypeToIssue(cardType)
+            setCurrentPage('issue-card')
+          }}
+          onCardClick={(card) => {
+            setSelectedCard(card)
+            setCurrentPage('card-detail')
+          }}
+          onNavigateToHistory={() => {
+            setHistoryFixedCardLast4(null)
+            setHistoryReturnCardId(null)
+            setCurrentPage('history')
+          }}
+        />
+      )}
+      {currentPage === 'profile' && (
+        <ProfilePage
+          userCards={userCards}
+          onTransferToCard={(card) => {
+            setSelectedCard(card)
+            setTopUpPreset('balance')
+            setCurrentPage('card-detail')
+          }}
+        />
+      )}
+      {currentPage === 'china' && <ChinaPage />}
+      {currentPage === 'faq' && <FAQPage onBack={() => setCurrentPage('home')} />}
+      {currentPage === 'history' && (
+        <HistoryPage
+          userCards={userCards}
+          transactions={historyReturnCardId == null ? transactions : transactions.filter(tx =>
+            tx.cardId === historyCard?.aifory_card_id)}
+          historyStatus={visibleHistoryStatus(historyCard?.aifory_card_id)}
+          onRetry={retryHistory}
+          fixedCardLast4={historyFixedCardLast4}
+          onBack={() => {
+            if (historyReturnCardId) {
+              const c = userCards.find((c) => c.id === historyReturnCardId) || null
+              setSelectedCard(c)
+              setCurrentPage('card-detail')
+              return
+            }
+            setCurrentPage('home')
+          }}
+        />
+      )}
+      {currentPage === 'issue-card' && (
+        <IssueCardPage
+          onBack={() => setCurrentPage('home')}
+          initialCardType={cardTypeToIssue}
+          onCardIssued={handleCardIssued}
+          getCommissionForCardType={getCommissionForCardType}
+        />
+      )}
+      {currentPage === 'card-detail' && (
+        <CardDetailPage
+          card={userCards.find(c => c.id === selectedCard?.id) ?? selectedCard}
+          historyStatus={visibleHistoryStatus(selectedCard?.aifory_card_id)}
+          onRetry={retryHistory}
+          transactions={transactions}
+          onBack={() => {
+            setSelectedCard(null)
+            setCurrentPage('home')
+          }}
+          onTopUp={refreshAfterPayment}
+          topUpPreset={topUpPreset}
+          onTopUpPresetUsed={() => setTopUpPreset(null)}
+          onNavigateToHistory={(cardLast4) => {
+            setHistoryFixedCardLast4(cardLast4)
+            setHistoryReturnCardId(selectedCard?.id || null)
+            setCurrentPage('history')
+          }}
+          getCommissionForCardType={getCommissionForCardType}
+        />
+      )}
+      </ScreenLoader>
+      {(currentPage === 'home' || currentPage === 'profile' || currentPage === 'china') && (
+        <BottomBar active={['home', 'profile', 'china'].includes(requestedPage) ? requestedPage : currentPage} onChange={setCurrentPage} />
+      )}
+    </Layout>
+  )
+}
+
+function UserApp() {
+  const tgInitOnceRef = useRef(false)
   // Telegram WebApp init
   useEffect(() => {
     if (tgInitOnceRef.current) return
@@ -312,188 +424,15 @@ function AppInner() {
     return () => { canceled = true; clearInterval(t) }
   }, [])
 
-  // Helper to get commission for specific card type
-  const getCommissionForCardType = (cardTypeId, operationType) => {
-    const isOnlinePlus = String(cardTypeId) === '525847'
-    if (operationType === 'issue') {
-      // Return fixed fee in USD
-      return isOnlinePlus ? commissions?.online_plus_issue_fee || 0 : commissions?.online_issue_fee || 0
-    } else {
-      // Return percentage for topup
-      return isOnlinePlus ? commissions?.online_plus_topup || 0 : commissions?.online_topup || 0
-    }
-  }
-
-
-  // All issuable offers at their O-Plata maxIssuedCount → block issuing everywhere
-  const issueLimitReached =
-    offers.length > 0 &&
-    offers.every((o) => Number(o.current_count ?? 0) >= Number(o.max_issued_count ?? 999))
-
-  // Card types can be disabled in the admin panel — hide their promo blocks.
-  // While offers haven't loaded yet, show everything (avoid flicker/hard hide on error).
-  const offersLoaded = offers.length > 0
-  const onlineAvailable = !offersLoaded || offers.some((o) => o.name === 'Online')
-  const onlinePlusAvailable = !offersLoaded || offers.some((o) => o.name === 'Online+Pay')
-  const payAvailable = !offersLoaded || offers.some((o) => o.name === 'Pay')
-
-  // Maintenance: the whole app is closed
-  if (maintenanceText) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100dvh', background: '#F3F5F8', padding: 32, textAlign: 'center', boxSizing: 'border-box' }}>
-        <div style={{
-          width: 72, height: 72, borderRadius: 36, marginBottom: 18,
-          background: 'linear-gradient(135deg, #DC4D35 0%, #E8785F 100%)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
-          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-          </svg>
-        </div>
-        <h2 style={{ margin: '0 0 10px', fontSize: 22, fontWeight: 700, color: '#111827' }}>Технические работы</h2>
-        <p style={{ margin: 0, fontSize: 15, lineHeight: 1.5, color: '#6b7280', maxWidth: 340 }}>{maintenanceText}</p>
-        <button
-          onClick={() => window.location.reload()}
-          style={{ marginTop: 24, border: 'none', background: '#DC4D35', color: '#fff', borderRadius: 12, padding: '14px 28px', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}
-        >
-          Обновить
-        </button>
-      </div>
-    )
-  }
-
-  // Banned screen
-  if (banned) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100dvh', background: '#F3F5F8', padding: 32, textAlign: 'center' }}>
-        <div style={{ fontSize: 48, marginBottom: 16 }}>🚫</div>
-        <h2 style={{ margin: '0 0 8px', fontSize: 22, fontWeight: 700, color: '#111827' }}>Аккаунт заблокирован</h2>
-        <p style={{ margin: 0, fontSize: 15, color: '#6b7280', maxWidth: 300 }}>Ваш аккаунт был заблокирован администратором. Обратитесь в поддержку для получения информации.</p>
-      </div>
-    )
-  }
-
-  if (!authLoading && !user) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100dvh', background: '#F3F5F8', padding: 32, textAlign: 'center' }}>
-        <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
-        <h2 style={{ margin: '0 0 8px', fontSize: 22, fontWeight: 700, color: '#111827' }}>Доступ только через Telegram</h2>
-        <p style={{ margin: 0, fontSize: 15, color: '#6b7280', maxWidth: 360 }}>
-          {authError || 'Откройте приложение из Telegram-бота, чтобы продолжить.'}
-        </p>
-      </div>
-    )
-  }
-
-  // Show spinner while auth is loading OR while initial data fetch is in progress
-  if (authLoading || (user && !dataReady)) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100dvh', background: '#F3F5F8' }}>
-        <svg width="48" height="48" viewBox="0 0 48 48" style={{ animation: 'spin 1s linear infinite' }}>
-          <circle cx="24" cy="24" r="20" fill="none" stroke="#DC4D35" strokeWidth="4" strokeLinecap="round" strokeDasharray="94.25 31.42" />
-        </svg>
-      </div>
-    )
-  }
-
-  return (
-    <Layout background="#F3F5F8">
-      <ScreenLoader page={currentPage}>
-      {currentPage === 'home' && (
-        <HomePage
-          userCards={userCards}
-          transactions={transactions}
-          commissions={commissions}
-          issueLimitReached={issueLimitReached}
-          onlineAvailable={onlineAvailable}
-          onlinePlusAvailable={onlinePlusAvailable}
-          payAvailable={payAvailable}
-          onRefresh={refreshAll}
-          onNavigateToFAQ={() => setCurrentPage('faq')}
-          onNavigateToChina={() => setCurrentPage('china')}
-          onNavigateToIssueCard={(cardType = null) => {
-            setCardTypeToIssue(cardType)
-            setCurrentPage('issue-card')
-          }}
-          onCardClick={(card) => {
-            setSelectedCard(card)
-            setCurrentPage('card-detail')
-          }}
-          onNavigateToHistory={() => {
-            setHistoryFixedCardLast4(null)
-            setHistoryReturnCardId(null)
-            setCurrentPage('history')
-          }}
-        />
-      )}
-      {currentPage === 'profile' && (
-        <ProfilePage
-          userCards={userCards}
-          onTransferToCard={(card) => {
-            setSelectedCard(card)
-            setTopUpPreset('balance')
-            setCurrentPage('card-detail')
-          }}
-        />
-      )}
-      {currentPage === 'china' && <ChinaPage />}
-      {currentPage === 'faq' && <FAQPage onBack={() => setCurrentPage('home')} />}
-      {currentPage === 'history' && (
-        <HistoryPage
-          userCards={userCards}
-          transactions={transactions}
-          fixedCardLast4={historyFixedCardLast4}
-          onBack={() => {
-            if (historyReturnCardId) {
-              const c = userCards.find((c) => c.id === historyReturnCardId) || null
-              setSelectedCard(c)
-              setCurrentPage('card-detail')
-              return
-            }
-            setCurrentPage('home')
-          }}
-        />
-      )}
-      {currentPage === 'issue-card' && (
-        <IssueCardPage
-          onBack={() => setCurrentPage('home')}
-          initialCardType={cardTypeToIssue}
-          onCardIssued={handleCardIssued}
-          getCommissionForCardType={getCommissionForCardType}
-        />
-      )}
-      {currentPage === 'card-detail' && (
-        <CardDetailPage
-          card={userCards.find(c => c.id === selectedCard?.id) ?? selectedCard}
-          transactions={transactions}
-          onBack={() => {
-            setSelectedCard(null)
-            setCurrentPage('home')
-          }}
-          onTopUp={refreshAfterPayment}
-          topUpPreset={topUpPreset}
-          onTopUpPresetUsed={() => setTopUpPreset(null)}
-          onNavigateToHistory={(cardLast4) => {
-            setHistoryFixedCardLast4(cardLast4)
-            setHistoryReturnCardId(selectedCard?.id || null)
-            setCurrentPage('history')
-          }}
-          getCommissionForCardType={getCommissionForCardType}
-        />
-      )}
-      </ScreenLoader>
-      {(currentPage === 'home' || currentPage === 'profile' || currentPage === 'china') && (
-        <BottomBar active={['home', 'profile', 'china'].includes(requestedPage) ? requestedPage : currentPage} onChange={setCurrentPage} />
-      )}
-    </Layout>
-  )
+  const { user } = useAuth()
+  return <AppInner key={user?.id ?? 'guest'} />
 }
 
 function App() {
   return (
     <ToastProvider>
       <AuthProvider>
-        <AppInner />
+        <UserApp />
       </AuthProvider>
     </ToastProvider>
   )

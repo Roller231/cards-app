@@ -1,3 +1,4 @@
+import HistoryStatus from '../components/HistoryStatus'
 import TxIcon from '../components/ui/TxIcon'
 import { useState, useMemo, useEffect } from 'react'
 import Button from '../components/ui/Button'
@@ -458,7 +459,7 @@ function PeriodFilterModal({ isOpen, onClose, selectedPeriod, onApply }) {
   )
 }
 
-function HistoryPage({ userCards = [], transactions = [], fixedCardLast4 = null, onBack }) {
+function HistoryPage({ historyStatus, onRetry, userCards = [], transactions = [], fixedCardLast4 = null, onBack }) {
   const [cardFilter, setCardFilter] = useState([])
   const [typeFilter, setTypeFilter] = useState([])
   const [periodFilter, setPeriodFilter] = useState(null)
@@ -553,7 +554,8 @@ function HistoryPage({ userCards = [], transactions = [], fixedCardLast4 = null,
       </div>
 
       <div style={{ flex: 1, padding: '20px 0 80px' }}>
-        {filteredGroups.length === 0 ? (
+        <HistoryStatus status={historyStatus} onRetry={onRetry} />
+        {filteredGroups.length === 0 && historyStatus !== 'ready' ? null : filteredGroups.length === 0 ? (
           <div
             style={{
               display: 'flex',

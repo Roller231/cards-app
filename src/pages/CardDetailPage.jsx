@@ -1,3 +1,4 @@
+import HistoryStatus from '../components/HistoryStatus'
 import { useState, useEffect, useCallback } from 'react'
 import api from '../api/client'
 import Card from '../components/ui/Card'
@@ -12,14 +13,12 @@ import TxIcon from '../components/ui/TxIcon'
 import { latestOperations } from '../utils/txList'
 import { cardDataRows } from '../utils/cardBilling'
 
-function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateToHistory, getCommissionForCardType, topUpPreset = null, onTopUpPresetUsed }) {
+function CardDetailPage({ historyStatus, onRetry, card, transactions = [], onBack, onTopUp, onNavigateToHistory, getCommissionForCardType, topUpPreset = null, onTopUpPresetUsed }) {
   const [showCardNumber, setShowCardNumber] = useState(false)
   const [isTopUpModalOpen, setIsTopUpModalOpen] = useState(false)
   const [requisites, setRequisites] = useState(null)  // { pan, expiry, cvv, holder }
   const [requisitesLoading, setRequisitesLoading] = useState(false)
   const [showCardData, setShowCardData] = useState(false)
-  const [cardTransactionsApi, setCardTransactionsApi] = useState(null)  // null = not loaded yet
-  const [txLoading, setTxLoading] = useState(false)
   const { showToast } = useToast()
   const isCardActive = card?.status === 'active'
   const [topUpMethod, setTopUpMethod] = useState('sbp')
@@ -33,23 +32,6 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
     onTopUpPresetUsed && onTopUpPresetUsed()
     return () => clearTimeout(t)
   }, [topUpPreset, isCardActive]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Load transactions for this card on mount
-  useEffect(() => {
-    if (!card?.aifory_card_id || !isCardActive) {
-      setTxLoading(false)
-      setCardTransactionsApi([])
-      return
-    }
-    setTxLoading(true)
-    api.cards.transactions(card.aifory_card_id, 50, 0)
-      .then((res) => {
-        const arr = Array.isArray(res) ? res : res?.transactions ?? res?.data ?? []
-        setCardTransactionsApi(arr)
-      })
-      .catch(() => setCardTransactionsApi([]))
-      .finally(() => setTxLoading(false))
-  }, [card?.aifory_card_id, isCardActive])
 
   const loadRequisites = useCallback(async () => {
     if (!card?.aifory_card_id) return
@@ -114,31 +96,7 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
   const hiddenTextColor = '#6B7280'
   const font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif'
 
-  // Prefer API-loaded per-card transactions; fallback to global prop
-  const mapApiTx = (tx) => {
-    const rawAmount = parseFloat(tx.display_amount ?? tx.amount ?? tx.Amount ?? 0)
-    const typeId = tx.type ?? tx.transactionType ?? tx.typeID ?? 0
-    const statusId = tx.statusID ?? tx.status_id ?? tx.statusId ?? 0
-    // Prefer the backend-normalized type; sign-based guess is a legacy fallback
-    let txType
-    if (tx.tx_type) txType = tx.tx_type === 'refund' ? 'topup' : tx.tx_type
-    else if (statusId === 3 || String(tx.status || '').toLowerCase().includes('declin')) txType = 'declined'
-    else if (rawAmount > 0 || typeId === 2) txType = 'topup'
-    else txType = 'payment'
-    return {
-      id: String(tx.id ?? tx.transactionID ?? tx.transactionId ?? Math.random()),
-      type: txType,
-      title: txType === 'topup' ? `*** ${card.last4 || ''}` : (tx.merchant || tx.merchantName || tx.description || 'Покупка'),
-      subtitle: txType === 'topup' ? 'Пополнение' : txType === 'declined' ? 'Операция отклонена' : txType === 'fee' ? 'Комиссия' : 'Оплата',
-      cardTitle: 'Виртуальная карта',
-      cardLast4: card.last4 || '',
-      amount: txType === 'topup' ? Math.abs(rawAmount) : -Math.abs(rawAmount),
-      date: tx.date ? new Date(tx.date) : tx.createdAt ? new Date(typeof tx.createdAt === 'number' ? tx.createdAt * 1000 : tx.createdAt) : new Date(),
-    }
-  }
-  const cardTransactions = cardTransactionsApi !== null
-    ? cardTransactionsApi.map(mapApiTx)
-    : transactions.filter((t) => t.cardLast4 === card.last4)
+  const cardTransactions = transactions.filter(tx => tx.cardId === card.aifory_card_id)
 
   const copyToClipboard = async (text) => {
     try {
@@ -558,16 +516,8 @@ function CardDetailPage({ card, transactions = [], onBack, onTopUp, onNavigateTo
             </Button>
           </div>
 
-          {txLoading ? (
-            <div
-              className="flex flex-col items-center justify-center"
-              style={{ paddingTop: 28, paddingBottom: 28 }}
-            >
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#6B7280', fontFamily: font }}>
-                Загружаем операции...
-              </div>
-            </div>
-          ) : !isCardActive ? (
+          {isCardActive && <HistoryStatus status={historyStatus} onRetry={onRetry} />}
+          {isCardActive && historyStatus !== 'ready' && !cardTransactions.length ? null : !isCardActive ? (
             <div
               className="flex flex-col items-center justify-center"
               style={{ paddingTop: 28, paddingBottom: 28 }}

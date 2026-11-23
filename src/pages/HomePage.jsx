@@ -1,3 +1,4 @@
+import HistoryStatus from '../components/HistoryStatus'
 import { useState, useEffect } from 'react'
 import api from '../api/client'
 import Card from '../components/ui/Card'
@@ -14,7 +15,7 @@ import TxIcon from '../components/ui/TxIcon'
 import { latestOperations } from '../utils/txList'
 import PullToRefresh from '../components/PullToRefresh'
 
-function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNavigateToChina, onNavigateToIssueCard, onCardClick, onNavigateToHistory, commissions = {}, onRefresh, issueLimitReached = false, onlineAvailable = true, onlinePlusAvailable = true, payAvailable = true }) {
+function HomePage({ cardsStatus, historyStatus, onRetry, userCards = [], transactions = [], onNavigateToFAQ, onNavigateToChina, onNavigateToIssueCard, onCardClick, onNavigateToHistory, commissions = {}, onRefresh, issueLimitReached = false, onlineAvailable = true, onlinePlusAvailable = true, payAvailable = true }) {
   const [expandedCard, setExpandedCard] = useState(null)
   const scrollRef = useDragScroll()
   const { appConfig } = useAuth()
@@ -77,7 +78,7 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
                   '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif',
               }}
             >
-              {totalBalance.toLocaleString('en-US', {
+              {userCards.length === 0 && cardsStatus !== 'ready' ? '—' : totalBalance.toLocaleString('en-US', {
                 minimumFractionDigits: 0,
                 maximumFractionDigits: 2,
               })}
@@ -139,7 +140,9 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
                 marginBlock: 12,
               }}
             >
-              У вас пока нет карт
+              {cardsStatus === 'loading' ? 'Загружаем карты…' : cardsStatus === 'error' ? (
+                <>Не удалось загрузить карты. <Button variant="link" onClick={onRetry}>Повторить</Button></>
+              ) : 'У вас пока нет карт'}
             </div>
           ) : (
             <div
@@ -235,7 +238,7 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
         </Card>
       </Section>
 
-      {userCards.length === 0 && promoCards.filter((pc) => pc.available).map((pc) => (
+      {cardsStatus === 'ready' && userCards.length === 0 && promoCards.filter((pc) => pc.available).map((pc) => (
         <Section key={pc.key}>
           <PromoCard
             pc={pc}
@@ -274,7 +277,8 @@ function HomePage({ userCards = [], transactions = [], onNavigateToFAQ, onNaviga
             </Button>
           </div>
 
-          {transactions.length === 0 ? (
+          <HistoryStatus status={historyStatus} onRetry={onRetry} />
+          {transactions.length === 0 && historyStatus !== 'ready' ? null : transactions.length === 0 ? (
             <>
               <div className="flex flex-col items-center justify-center" style={{ paddingTop: 28, paddingBottom: 28 }}>
                 <img src="/images/Union.png" alt="" style={{ width: 34, height: 34, marginBottom: 12, opacity: 0.65 }} />

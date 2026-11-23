@@ -24,13 +24,14 @@ export function clearToken() {
   localStorage.removeItem(TOKEN_KEY)
 }
 
-async function req(method, path, body, onHeaders) {
+async function req(method, path, body, onHeaders, signal) {
   const token = getToken()
   const headers = { 'Content-Type': 'application/json' }
   if (token) headers['Authorization'] = `Bearer ${token}`
 
   const res = await fetch(`${BASE}${path}`, {
     method,
+    signal,
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   })
@@ -54,6 +55,16 @@ async function req(method, path, body, onHeaders) {
   const data = text ? JSON.parse(text) : {}
   onHeaders?.(res.headers)
   return data
+}
+
+async function cardRead(path, onHeaders) {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 20000)
+  try {
+    return await req('GET', path, undefined, onHeaders, controller.signal)
+  } finally {
+    clearTimeout(timeout)
+  }
 }
 
 export const api = {
@@ -82,16 +93,16 @@ export const api = {
     list: () => req('GET', '/cards'),
     // Same as list(), plus whether the provider sync finished in time
     // (X-Cards-Synced). When it didn't, the balances may still be stale.
-    listWithSync: async () => {
+    listWithSync: async (snapshot = false) => {
       let synced = true
-      const cards = await req('GET', '/cards', undefined, (headers) => {
+      const cards = await cardRead(snapshot ? '/cards?wait_for_sync=false' : '/cards', (headers) => {
         synced = headers.get('X-Cards-Synced') !== '0'
       })
       return { cards, synced }
     },
     requisites: (cardId) => req('GET', `/cards/${cardId}/requisites`),
     transactions: (cardId, limit = 50, offset = 0) =>
-      req('GET', `/cards/${cardId}/transactions?limit=${limit}&offset=${offset}`),
+      cardRead(`/cards/${cardId}/transactions?limit=${limit}&offset=${offset}`),
     deposit: (cardId, amount, paymentMethod = 'balance') =>
       req('POST', `/cards/${cardId}/deposit`, { amount, payment_method: paymentMethod }),
     issueQuote: (offerId) => req('GET', `/cards/issue-quote?offer_id=${encodeURIComponent(offerId)}`),

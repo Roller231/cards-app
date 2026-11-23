@@ -214,6 +214,7 @@ async def get_cards(
     response: Response,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    wait_for_sync: bool = True,
 ):
     import asyncio as _asyncio
     import logging as _logging
@@ -227,14 +228,15 @@ async def get_cards(
         # Join the user's in-flight sync if there is one (another request or
         # the app's own previous call may have started it).
         sync_task = card_service.ensure_sync_task(current_user.id)
-        try:
-            await _asyncio.wait_for(_asyncio.shield(sync_task), timeout=5.0)
-            synced = True
-        except _asyncio.TimeoutError:
-            _log.info(
-                "sync_cards inline exceeded 5s for user_id=%s; continuing in background",
-                current_user.id,
-            )
+        if wait_for_sync:
+            try:
+                await _asyncio.wait_for(_asyncio.shield(sync_task), timeout=5.0)
+                synced = True
+            except _asyncio.TimeoutError:
+                _log.info(
+                    "sync_cards inline exceeded 5s for user_id=%s; continuing in background",
+                    current_user.id,
+                )
     except Exception as exc:
         _log.warning("sync schedule failed for user_id=%s: %s", current_user.id, exc)
     # End this request's transaction before reading the cards: it was opened
@@ -304,9 +306,6 @@ async def get_card_transactions(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
-        s = str(exc).lower()
-        if "illegal state" in s or "technical error" in s:
-            return []
         raise HTTPException(status_code=502, detail=str(exc))
 
 

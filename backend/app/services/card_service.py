@@ -281,6 +281,18 @@ def _notify_amount(tx: Dict[str, Any]) -> float:
         return 0.0
 
 
+def _transaction_rows(response: Any) -> list:
+    if isinstance(response, list):
+        return response
+    if isinstance(response, dict):
+        if isinstance(response.get("data"), dict):
+            return _transaction_rows(response["data"])
+        for key in ("data", "content"):
+            if isinstance(response.get(key), list):
+                return response[key]
+    raise RuntimeError("Unexpected card transaction list response")
+
+
 def _expand_transaction_fees(transactions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Emit the provider's per-transaction fee as its own history row.
 
@@ -2751,7 +2763,7 @@ class CardService:
             page_number=page_number,
             page_size=page_size,
         )
-        transactions = response.get("data") or response.get("content") or (response if isinstance(response, list) else [])
+        transactions = _transaction_rows(response)
         transactions = [_normalize_card_transaction(t) for t in transactions if isinstance(t, dict)]
         transactions = _expand_transaction_fees(transactions)
 
@@ -2872,7 +2884,7 @@ class CardService:
                         client_id=client_id, card_id=card.aifory_card_id,
                         ravana_server_id=card.offer_id, page_number=0, page_size=10,
                     )
-                    txs = resp.get("data") or resp.get("content") or (resp if isinstance(resp, list) else [])
+                    txs = _transaction_rows(resp)
                     txs = [_normalize_card_transaction(t) for t in txs if isinstance(t, dict)]
                     await self._notify_new_transactions(user, card, txs)
                 except Exception as exc:
