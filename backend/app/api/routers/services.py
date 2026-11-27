@@ -96,8 +96,8 @@ async def cny_quote(payment_method: str = "sbp") -> dict:
         "base_rate": base,
         "rate": rate,
         "fees": [{"label": settings.SBP_BITBANKER_FEE_LABEL, "percent": bb_pct}],
-        "small_payment_fee_rub": 0,
-        "small_payment_threshold_rub": 0,
+        "small_payment_fee_rub": settings.SBP_SMALL_PAYMENT_FEE_RUB,
+        "small_payment_threshold_rub": settings.SBP_SMALL_PAYMENT_THRESHOLD_RUB,
         "min_transfer_rub": _min_transfer_rub(bb_fee, bb_min),
         "max_transfer_rub": SBP_MAX_AMOUNT_RUB,
         "min_cny": min_cny_map(),
@@ -113,8 +113,9 @@ def min_cny_map() -> dict:
 
 def rub_for_cny(amount_cny: Decimal, rate: float) -> tuple:
     """(base_rub, fee_rub, total_rub) — same rounding as the app."""
+    from app.services.rate_service import small_sbp_fee
     base = math.ceil(float(amount_cny) * rate)
-    fee = 0
+    fee = small_sbp_fee(base)
     return base, fee, base + fee
 
 

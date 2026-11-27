@@ -209,11 +209,10 @@ async def card_provider(db: AsyncSession, user: User, card_id: Optional[str]) ->
 async def expected_rub_for_usd(usd: float, provider: str = "oplata") -> float:
     """What the app shows for `usd` dollars: ceil(usd x rate) plus the fixed
     payment-system fee below the threshold."""
-    from app.services.rate_service import apply_multipliers, get_bb_index
+    from app.services.rate_service import apply_multipliers, get_bb_index, small_sbp_fee
     rate = apply_multipliers(await get_bb_index(), provider)
     base = math.ceil(float(usd) * rate)
-    fee = float(settings.SBP_SMALL_PAYMENT_FEE_RUB) if base < float(settings.SBP_SMALL_PAYMENT_THRESHOLD_RUB) else 0.0
-    return base + fee
+    return base + small_sbp_fee(base)
 
 
 # The rate the client saw can be a few minutes old; the Bitbanker index moves

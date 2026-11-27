@@ -32,6 +32,13 @@ class RateUnavailable(Exception):
 PROVIDERS = ("oplata", "rocketpay")
 
 
+def small_sbp_fee(base_rub: int) -> float:
+    """Fixed fee on the rounded RUB subtotal, before the fee itself."""
+    if base_rub < settings.SBP_SMALL_PAYMENT_THRESHOLD_RUB:
+        return settings.SBP_SMALL_PAYMENT_FEE_RUB
+    return 0.0
+
+
 def provider_fee_percent(provider: str = "oplata") -> float:
     """The partner leg of the route: Clarus for O-Plata cards, Rocketpay's
     USDT pool top-up price for Rocketpay ("Pay") cards."""

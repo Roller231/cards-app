@@ -79,14 +79,22 @@ class ChinaCryptoTests(unittest.IsolatedAsyncioTestCase):
             data=await services.cny_quote('crypto')
         self.assertEqual(Decimal(data['cny_per_usdt']),Decimal('6.54'))
 
-    async def test_sbp_formula_is_index_divisor_plus_2_1_percent_without_fixed_fee(self):
+    async def test_sbp_quote_and_charge_use_card_fee_below_threshold(self):
         with patch('app.services.rate_service.get_bb_index',AsyncMock(return_value=87)), \
-             patch.object(sbp,'_get_bb_fee_params',AsyncMock(return_value=(.021,0))):
+             patch.object(sbp,'_get_bb_fee_params',AsyncMock(return_value=(.021,0))), \
+             patch.object(settings,'SBP_SMALL_PAYMENT_FEE_RUB',210), \
+             patch.object(settings,'SBP_SMALL_PAYMENT_THRESHOLD_RUB',10000):
             q=await services.cny_quote('sbp')
-        base,fee,total=services.rub_for_cny(Decimal('2000'),q['rate'])
-        self.assertEqual(total,math.ceil(2000/6.54*87*1.021))
-        self.assertEqual(fee,0)
-        self.assertEqual(q['small_payment_fee_rub'],0)
+            self.assertEqual((q['small_payment_fee_rub'], q['small_payment_threshold_rub']), (210, 10000))
+            for amount, rate, expected in [
+                ('250', 13.547, (3387, 210, 3597)),
+                ('9999', 1, (9999, 210, 10209)),
+                ('9999.01', 1, (10000, 0, 10000)),
+                ('10000', 1, (10000, 0, 10000)),
+                ('2000', q['rate'], (math.ceil(2000/6.54*87*1.021), 0, math.ceil(2000/6.54*87*1.021))),
+            ]:
+                with self.subTest(amount=amount):
+                    self.assertEqual(services.rub_for_cny(Decimal(amount),rate),expected)
 
     async def test_quote_uses_owned_request_not_client_supplied_amount_and_freezes_rate(self):
         row=await self.quote(amount_usd='1')
