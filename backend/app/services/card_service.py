@@ -3236,6 +3236,7 @@ class CardService:
                     pass
                 # Paid from the internal balance and nothing was created at the
                 # provider (no order survived the rollback): give the money back.
+                refunded_amount = None
                 if balance_charge_usd:
                     try:
                         user_result = await db.execute(select(User).where(User.id == user_id))
@@ -3244,9 +3245,10 @@ class CardService:
                             from app.services import wallet_service
                             await wallet_service.credit(
                                 db, user, balance_charge_usd, "refund",
-                                f"Возврат: выпуск карты не выполнен ({str(exc)[:120]})",
+                                "Возврат за выпуск карты",
                             )
                             await db.commit()
+                            refunded_amount = balance_charge_usd
                     except Exception as _r:
                         logger.error("Balance refund after failed issue for user_id=%s: %s", user_id, _r)
                 try:
@@ -3265,6 +3267,7 @@ class CardService:
                             fee=user_payment,
                             success=False,
                             error_msg=str(exc),
+                            refunded_amount=refunded_amount,
                         )
                 except Exception as _n:
                     logger.warning("Background issue failure notification error: %s", _n)
@@ -3391,6 +3394,7 @@ class CardService:
                     await db.rollback()
                 except Exception:
                     pass
+                refunded_amount = None
                 if balance_charge_usd:
                     try:
                         user_result = await db.execute(select(User).where(User.id == user_id))
@@ -3399,9 +3403,10 @@ class CardService:
                             from app.services import wallet_service
                             await wallet_service.credit(
                                 db, user, balance_charge_usd, "refund",
-                                f"Возврат: пополнение карты не выполнено ({str(exc)[:120]})",
+                                "Возврат за пополнение карты",
                             )
                             await db.commit()
+                            refunded_amount = balance_charge_usd
                     except Exception as _r:
                         logger.error("Balance refund after failed deposit for user_id=%s: %s", user_id, _r)
                 try:
@@ -3416,6 +3421,7 @@ class CardService:
                             fee=0.0,
                             success=False,
                             error_msg=str(exc),
+                            refunded_amount=refunded_amount,
                         )
                 except Exception as _n:
                     logger.warning("Background deposit failure notification error: %s", _n)

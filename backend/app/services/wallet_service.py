@@ -119,6 +119,18 @@ async def refund_order_charge(db: AsyncSession, user: User, order_id: int, charg
     return True
 
 
+def _customer_description(row):
+    description = row.description or ""
+    if row.type == "admin_adjust" and description == _BALANCE_MIGRATION_DESCRIPTION:
+        return "Техническая корректировка при переходе на новый учёт. Не банковское списание."
+    if row.type == "refund":
+        if description.startswith("Возврат: пополнение карты не выполнено"):
+            return "Возврат за пополнение карты"
+        if description.startswith("Возврат: выпуск карты не выполнен"):
+            return "Возврат за выпуск карты"
+    return row.description
+
+
 async def history(db: AsyncSession, user_id: int, limit: int = 50, offset: int = 0):
     rows = (await db.execute(
         select(BalanceTransaction)
@@ -132,11 +144,7 @@ async def history(db: AsyncSession, user_id: int, limit: int = 50, offset: int =
             "type": r.type,
             "amount": float(r.amount),
             "balance_after": float(r.balance_after),
-            "description": (
-                "Техническая корректировка при переходе на новый учёт. Не банковское списание."
-                if r.type == "admin_adjust" and r.description == _BALANCE_MIGRATION_DESCRIPTION
-                else r.description
-            ),
+            "description": _customer_description(r),
             "is_system": r.type == "admin_adjust" and r.description == _BALANCE_MIGRATION_DESCRIPTION,
             "ref_invoice_id": r.ref_invoice_id,
             "ref_order_id": r.ref_order_id,

@@ -516,6 +516,12 @@ async def send_notification(telegram_user_id: str, text: str, parse_mode: str = 
         return False
 
 
+def _card_failure_note(refunded_amount) -> str:
+    if refunded_amount is not None and refunded_amount > 0:
+        return f"На внутренний баланс возвращено <b>${refunded_amount:.2f}</b>."
+    return "Если нужна помощь, обратитесь в поддержку."
+
+
 async def notify_card_issued(
     db: AsyncSession,
     user: User,
@@ -524,6 +530,7 @@ async def notify_card_issued(
     fee: float,
     success: bool,
     error_msg: str = "",
+    refunded_amount=None,
 ) -> None:
     """Notify user via Telegram about card issuance success or failure."""
     if not user.telegram_user_id:
@@ -541,10 +548,12 @@ async def notify_card_issued(
         )
     else:
         header = await _get_setting(db, "BOT_NOTIFY_CARD_FAILED_HEADER", "❌ Ошибка выпуска карты")
+        if error_msg:
+            logger.warning("Card issuance failure for user_id=%s: %s", user.id, error_msg)
         text = (
             f"<b>{header}</b>\n\n"
             f"💵 Сумма: <b>${card_amount:.2f}</b>\n"
-            f"⚠️ {_html.escape(error_msg or 'Неизвестная ошибка')}\n"
+            f"{_card_failure_note(refunded_amount)}\n"
             f"🕐 {now}"
         )
     await send_notification(user.telegram_user_id, text)
@@ -558,6 +567,7 @@ async def notify_topup_result(
     fee: float,
     success: bool,
     error_msg: str = "",
+    refunded_amount=None,
 ) -> None:
     """Notify user via Telegram about card top-up success or failure."""
     if not user.telegram_user_id:
@@ -576,12 +586,14 @@ async def notify_topup_result(
         )
     else:
         header = await _get_setting(db, "BOT_NOTIFY_TOPUP_FAILED_HEADER", "❌ Ошибка пополнения карты")
+        if error_msg:
+            logger.warning("Card top-up failure for user_id=%s: %s", user.id, error_msg)
         last4_str = f"\n💳 Карта: <b>•••• {card_last4}</b>" if card_last4 else ""
         text = (
             f"<b>{header}</b>\n"
             f"{last4_str}\n"
             f"💵 Сумма: <b>${amount:.2f}</b>\n"
-            f"⚠️ {_html.escape(error_msg or 'Неизвестная ошибка')}\n"
+            f"{_card_failure_note(refunded_amount)}\n"
             f"🕐 {now}"
         )
     await send_notification(user.telegram_user_id, text)
